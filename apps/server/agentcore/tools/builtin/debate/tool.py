@@ -203,6 +203,10 @@ class DebateTool:
         *,
         skip_kickoff: bool = False,
     ) -> ToolResult:
+        from agentcore.llm.turn_auth_dead import (
+            is_turn_auth_dead,
+            turn_auth_dead_reject_message,
+        )
         from agentcore.runtime.costing import usage_metadata
         from agentcore.runtime.kickoff.stage_card import (
             clear_turn_keeps_stage_card,
@@ -226,6 +230,10 @@ class DebateTool:
                 ceiling=resolve_turn_token_ceiling(),
             )
             return err(msg)
+
+        if is_turn_auth_dead():
+            logger.info("debate.turn_auth_dead_rejected")
+            return err(turn_auth_dead_reject_message())
 
         # 本回合调了 debate（含闸失败）→ 收尾不 orphan pending 推进卡。
         # 开辩失败 / STOP 会 clear；仅真正开跑成功才保持 keep + finalize resolve。

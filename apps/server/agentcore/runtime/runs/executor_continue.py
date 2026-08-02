@@ -244,6 +244,9 @@ async def _continue_run_scoped(
     start = time.monotonic()
     inflight: list[TokenUsage] = []
     priced_model: str | None = None
+    # Hoisted so an exception can hang the in-flight transcript on FAILED (same
+    # recoverable-site contract as executor_node / contract hard-fail).
+    messages: list[LLMMessage] = []
     try:
         profile = profiles.agent()
         from agentcore.runtime.costing import resolve_run_models
@@ -525,13 +528,23 @@ async def _continue_run_scoped(
         logger.error(
             "run.continuation_failed", run_id=continuation_run_id, error=str(e), exc_info=True
         )
-        sink.emit(run_failed(continuation_run_id, agent_id, str(e)))
+        sink.emit(
+            run_failed(continuation_run_id, agent_id, str(e), failure_kind="call")
+        )
+        from agentcore.runtime.runs.salvage import (
+            content_from_transcript,
+            freeze_partial_transcript,
+        )
+
+        frozen = freeze_partial_transcript(messages) if messages else []
         return _priced_failure(
             str(e),
             model=priced_model,
             usage=partial,
             rounds=0,
             duration_ms=duration_ms,
+            transcript=frozen or None,
+            content=content_from_transcript(frozen) if frozen else "",
         )
     finally:
         # Browser B: same run-bind release as executor_node (continuation uses a new run id).

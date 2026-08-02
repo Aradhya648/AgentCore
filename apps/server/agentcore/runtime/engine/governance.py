@@ -493,8 +493,8 @@ def create_loop_controller(
 ) -> LoopController:
     """Build per-run convergence controller from engine settings.
 
-    ``seed`` restores the five cross-suspension latches (see
-    :meth:`LoopController.apply_seed`); omit on a fresh turn.
+    ``seed`` restores cross-suspension latches (gates + validation path-stop /
+    thrash; see :meth:`LoopController.apply_seed`); omit on a fresh turn.
 
     Zero-write / prose_idle mid-loop warn→FINALIZE is **retired** (always off).
     Delivery pressure stays on round/token hard ceilings + convergence spin;
@@ -752,6 +752,18 @@ def govern_after_tools(
             and all(a.parse_failure for a in outcome.attempts)
         ),
     )
+
+    if controller.take_validation_hard_stop():
+        # Same-fingerprint validation re-hit after path-stop steer — hard stop
+        # before nudge/convergence so the run does not burn max_rounds.
+        logger.warning(
+            "engine.validation_thrash_stop",
+            round=round_idx,
+            attempts=len(outcome.attempts),
+        )
+        return Finalize(
+            reason="validation_thrash", finish_reason=FinishReason.UNPRODUCTIVE
+        )
 
     signal = controller.detect()
     action = controller.decide(signal)

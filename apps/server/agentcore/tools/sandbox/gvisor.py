@@ -2,13 +2,18 @@
 
 Execution model (安全权限与治理.md §五, as-built):
 
-- **copy-in / copy-out 产物写回**: when the request carries a workspace ``cwd``,
-  the workspace is COPIED into a per-run staging dir mounted **rw** at
-  ``/workspace`` (cwd), so relative-path writes work like the local sandbox;
-  after the process completes, new/changed files are copied back into the real
-  workspace under caps and reported via ``ExecutionResult.written_files``.
-  Timeout / cancel skip the copy-out (a killed run must not persist
-  half-written artifacts).
+- **copy-in / copy-out 产物写回** (default writable runs): when the request
+  carries a workspace ``cwd``, the workspace is COPIED into a per-run staging
+  dir, seeded into a tmpfs ``/workspace``, then new/changed files are copied
+  back under caps (``ExecutionResult.written_files``). Timeout / cancel skip
+  copy-out.
+- **install 专用例外** (``registry_egress=True``): rw-bind the persistent
+  workspace (``request.cwd`` / DATA_DIR workspaces) at ``/workspace`` — skip
+  staging copy-out and the whole-tree base64 wrap. ``node_modules`` lands on
+  disk directly; short-lived sandbox only runs the install command (+ netns /
+  ``/pkg-cache``). Why the exception: install trees are too large for
+  staging↔base64 round-trip, and the product needs nm on the durable workspace.
+  Non-install writable execution keeps the staging model.
 - **灰度护栏**: a process-global slot limiter caps concurrent executions
   (``GVISOR_MAX_CONCURRENT_EXECUTIONS``), with a bounded grace wait before an
   explainable busy failure; memory/timeout ceilings come from settings.
@@ -276,8 +281,38 @@ class GVisorSandbox:
         bundle_dir = tempfile.mkdtemp(prefix="agentcore_gvisor_", dir=self._runtime_root)
         process: asyncio.subprocess.Process | None = None
         timeout_seconds = self._effective_timeout(request)
+        egress_session = None
 
         try:
+            # Install-only: netns + allowlist proxy (non-rootless sandbox network).
+            # Merges proxy env into the request so npm/pnpm/yarn dial the chokepoint.
+            if request.registry_egress:
+                from agentcore.tools.sandbox.egress import (
+                    install_proxy_env,
+                    open_package_egress,
+                )
+
+                egress_session = await open_package_egress(
+                    cache_bucket=request.cache_bucket
+                )
+                merged_env = dict(request.env or {})
+                merged_env.update(install_proxy_env(egress_session.proxy_url))
+                request = ExecutionRequest(
+                    code=request.code,
+                    language=request.language,
+                    timeout_seconds=request.timeout_seconds,
+                    memory_limit_mb=request.memory_limit_mb,
+                    stdin=request.stdin,
+                    cwd=request.cwd,
+                    on_output=request.on_output,
+                    env=merged_env,
+                    network_mode=request.network_mode,
+                    registry_egress=True,
+                    cache_bucket=request.cache_bucket,
+                    cpu_limit=request.cpu_limit,
+                    pids_limit=request.pids_limit,
+                )
+
             scratch_dir = Path(bundle_dir) / "scratch"
             scratch_dir.mkdir()
             rootfs = Path(bundle_dir) / "rootfs"
@@ -290,13 +325,18 @@ class GVisorSandbox:
                 (scratch_dir / "stdin.txt").write_text(request.stdin, encoding="utf-8")
             prepare_bind_tree_for_sandbox(scratch_dir)
 
-            # 产物写回 copy-in leg: stage a rw copy of the workspace for the sandbox.
-            # No workspace (bare/health-check runs) → old behaviour: scratch doubles
-            # as a read-only /workspace and there is nothing to write back to.
+            # Workspace mount policy:
+            # - install (registry_egress): rw-bind persistent workspace (no staging /
+            #   base64 wrap / write_back). Never prepare_bind_tree on the canonical tree.
+            # - other writable: staging copy → tmpfs + wrap → write_back.
+            # - no workspace: scratch as read-only /workspace.
             workspace_root = request.cwd or self._workspace_root
             staging_dir: Path | None = None
             staged_state: TreeState | None = None
-            if workspace_root:
+            install_workspace_rw = bool(request.registry_egress and workspace_root)
+            if install_workspace_rw and workspace_root is not None:
+                workspace = str(Path(workspace_root).resolve())
+            elif workspace_root:
                 staging_dir = Path(bundle_dir) / "workspace"
                 staged_state = await asyncio.to_thread(
                     stage_workspace,
@@ -304,14 +344,25 @@ class GVisorSandbox:
                     staging_dir,
                     max_bytes=settings.gvisor_stage_max_bytes,
                 )
-            workspace = str(staging_dir.resolve()) if staging_dir else str(scratch_dir)
+                workspace = str(staging_dir.resolve())
+            else:
+                workspace = str(scratch_dir)
             config = self._build_oci_config(
                 request,
                 script_name=script_name,
                 workspace=workspace,
                 scratch_dir=str(scratch_dir.resolve()),
                 workspace_writable=staging_dir is not None,
+                install_workspace_rw=install_workspace_rw,
                 memory_limit_mb=settings.gvisor_memory_limit_mb,
+                egress_netns_path=(
+                    egress_session.netns_path if egress_session is not None else None
+                ),
+                cache_host_dir=(
+                    str(egress_session.cache_host_dir)
+                    if egress_session is not None
+                    else None
+                ),
             )
             (Path(bundle_dir) / "config.json").write_text(
                 json.dumps(config),
@@ -322,6 +373,7 @@ class GVisorSandbox:
                 bundle_dir=bundle_dir,
                 container_id=container_id,
                 network_mode=request.network_mode,
+                registry_egress=request.registry_egress,
             )
 
             try:
@@ -411,6 +463,9 @@ class GVisorSandbox:
                 duration_ms=duration_ms,
             )
         finally:
+            if egress_session is not None:
+                with contextlib.suppress(Exception):
+                    await egress_session.close()
             shutil.rmtree(bundle_dir, ignore_errors=True)
 
     async def _write_back_if_staged(
@@ -452,16 +507,25 @@ class GVisorSandbox:
         bundle_dir: str,
         container_id: str,
         network_mode: str,
+        registry_egress: bool = False,
     ) -> list[str]:
-        """Assemble ``runsc`` argv: global flags before ``run``, bundle after."""
-        cmd = [self._runsc, "--rootless"]
-        # Rootless runsc rejects the default sandbox netstack: must pass an
-        # explicit flag (``none`` or ``host``). restricted = egress via host
-        # net; none = offline. Never omit the flag under ``--rootless``.
-        if network_mode == "restricted":
-            cmd.append("--network=host")
+        """Assemble ``runsc`` argv: global flags before ``run``, bundle after.
+
+        Install ``registry_egress`` uses non-rootless ``--network=sandbox`` (netns
+        path in OCI) — same posture as browser sessions. All other paths keep
+        ``--rootless`` with ``host`` / ``none``.
+        """
+        if registry_egress:
+            cmd = [self._runsc, "--network=sandbox"]
         else:
-            cmd.append("--network=none")
+            cmd = [self._runsc, "--rootless"]
+            # Rootless runsc rejects the default sandbox netstack: must pass an
+            # explicit flag (``none`` or ``host``). restricted = egress via host
+            # net; none = offline. Never omit the flag under ``--rootless``.
+            if network_mode == "restricted":
+                cmd.append("--network=host")
+            else:
+                cmd.append("--network=none")
         cmd.extend(
             [
                 f"--root={self._runtime_root}",
@@ -577,7 +641,10 @@ class GVisorSandbox:
         workspace: str,
         scratch_dir: str,
         workspace_writable: bool = False,
+        install_workspace_rw: bool = False,
         memory_limit_mb: int | None = None,
+        egress_netns_path: str | None = None,
+        cache_host_dir: str | None = None,
     ) -> dict:
         script_path = f"/scratch/{script_name}"
         namespaces = [
@@ -586,13 +653,12 @@ class GVisorSandbox:
             {"type": "uts"},
             {"type": "mount"},
         ]
-        # P2: restricted pairs with ``--network=host`` (rootless) and a network
-        # ns so the process can reach the public internet. observe / workspace
-        # stay offline (no network ns + ``--network=none``).
-        # Application-level SSRF for product HTTP tools remains ``core/net.py``;
-        # in-sandbox raw sockets are OS-egress only (no private-IP filter inside
-        # runsc — multi-tenant hardening is still gVisor's isolation boundary).
-        if request.network_mode == "restricted":
+        # Install registry_egress: network ns BY PATH so sandbox netstack clones
+        # the packaging veth (browser PoC finding). Other restricted stays as
+        # empty network ns + rootless ``--network=host``.
+        if egress_netns_path:
+            namespaces.append({"type": "network", "path": egress_netns_path})
+        elif request.network_mode == "restricted":
             namespaces.append({"type": "network"})
 
         mounts = [
@@ -604,7 +670,19 @@ class GVisorSandbox:
             },
         ]
         process_args = self._build_command(request, script_path)
-        if workspace_writable:
+        if install_workspace_rw:
+            # Install-only: durable workspace rw-bind. Staging/tmpfs + whole-tree
+            # base64 wrap cannot carry node_modules; sandbox is short-lived for
+            # the install command only. Non-install writable stays below.
+            mounts.append(
+                {
+                    "destination": "/workspace",
+                    "type": "bind",
+                    "source": workspace,
+                    "options": ["rw", "rbind", "nosuid", "nodev"],
+                }
+            )
+        elif workspace_writable:
             # runsc cannot mkdir on bind mounts (EINVAL) from inside Docker; use
             # tmpfs for live writes and copy-in/out via twin binds on staging.
             stage_mb = max(64, settings.gvisor_stage_max_bytes // (1024 * 1024))
@@ -648,6 +726,17 @@ class GVisorSandbox:
                 "options": ["ro", "bind", "nosuid", "nodev"],
             }
         )
+        if cache_host_dir:
+            from agentcore.tools.sandbox.egress.runtime import PACKAGE_CACHE_MOUNT
+
+            mounts.append(
+                {
+                    "destination": PACKAGE_CACHE_MOUNT,
+                    "type": "bind",
+                    "source": cache_host_dir,
+                    "options": ["rw", "bind", "nosuid", "nodev"],
+                }
+            )
         mounts.extend(self._host_bind_mounts())
 
         return {

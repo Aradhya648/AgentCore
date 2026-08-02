@@ -208,6 +208,9 @@ def test_schema_exposes_form_enum():
     assert "tools" in props_task
     tools_desc = props_task["tools"]["description"]
     assert "只增不减" in tools_desc or "超集" in tools_desc
+    mc = props["must_contain"]
+    assert "软提醒" in mc.get("description", "") or "短主题词" in mc.get("description", "")
+    assert "细" in mc.get("description", "")  # 勿塞细枚举/细清单
 
 
 def test_schema_depends_on_teaches_when_to_declare_dependency():

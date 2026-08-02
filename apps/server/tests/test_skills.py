@@ -255,6 +255,7 @@ def test_team_orchestration_skill_teaches_shape_vocabulary():
     assert "parallel_brief" in body
     assert "结局分层" in body or "对齐推进" in body
     assert "成文交付" in body or "成文专线" in body or "成篇" in body
+    assert "默认 A" in body or "少扇出" in body
     assert "材料已齐" in body
     # B 成文：落盘文档 + ≥2 角 → 各角与主笔均 files + 末环独立审校
     assert "角 prose" in body and "仅主笔落盘" in body
@@ -343,15 +344,20 @@ def test_team_orchestration_skill_teaches_presentation_pptx_honesty():
 
 
 def test_team_orchestration_skill_teaches_must_contain_and_sections_discipline():
-    # 防契约假门槛：must_contain 禁机构名/取证路径词；required_sections 只留少数验收点。
-    # 钉真跑反例（Stanford/McKinsey…）与「2–4 个真验收项」口径，避免机构名硬词连败假失败。
+    # 定案甲：细则进任务范围/章节/落盘路径；停止主推细清单进 must_contain；
+    # 若保留须标软提醒/短主题词。禁机构名/取证路径词；required_sections 只留少数验收点。
     body = _body("team_orchestration_advanced")
     assert "must_contain" in body
+    assert "软提醒" in body or "短主题词" in body
+    assert "停止" in body or "勿塞细" in body or "细枚举" in body
     assert "取证路径" in body or "机构名" in body
     assert "Stanford" in body or "McKinsey" in body  # 真跑反例警示
     assert "required_sections" in body
     assert "验收点" in body or "验收项" in body
     assert "2–4" in body or "2-4" in body
+    # 不再主推「细则清单进 must_contain」
+    assert "细则清单进 `deliverable.must_contain`" not in body
+    assert "细则清单进 deliverable.must_contain" not in body
 
 
 def test_team_orchestration_skill_teaches_parallel_review_notewall():

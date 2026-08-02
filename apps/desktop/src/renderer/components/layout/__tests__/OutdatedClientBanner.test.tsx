@@ -16,9 +16,11 @@ const hasAutoUpdaterMock = vi.mocked(hasAutoUpdater);
 beforeEach(() => {
   hasAutoUpdaterMock.mockReturnValue(true);
   useUpdatesStore.setState({
+    status: { phase: "idle" },
     outdatedMinVersion: "0.6.5",
     outdatedDismissed: false,
     check: vi.fn(() => Promise.resolve()),
+    openUpdateDialog: vi.fn(),
     dismissOutdated: () =>
       useUpdatesStore.setState({ outdatedDismissed: true }),
   });
@@ -29,6 +31,7 @@ afterEach(() => {
   useUpdatesStore.setState({
     outdatedMinVersion: null,
     outdatedDismissed: false,
+    status: { phase: "idle" },
   });
 });
 
@@ -59,11 +62,25 @@ describe("OutdatedClientBanner", () => {
     expect(screen.queryByText("当前版本过旧，请更新后继续使用")).toBeNull();
   });
 
-  it("navigates to about and triggers check on CTA", () => {
+  it("navigates to about and triggers check when no update pending", () => {
     const check = vi.fn(() => Promise.resolve());
-    useUpdatesStore.setState({ check });
+    useUpdatesStore.setState({ check, status: { phase: "idle" } });
     renderBanner();
     fireEvent.click(screen.getByRole("button", { name: "去更新" }));
     expect(check).toHaveBeenCalled();
+  });
+
+  it("opens update dialog when a version is already available", () => {
+    const openUpdateDialog = vi.fn();
+    const check = vi.fn(() => Promise.resolve());
+    useUpdatesStore.setState({
+      openUpdateDialog,
+      check,
+      status: { phase: "available", version: "0.7.0" },
+    });
+    renderBanner();
+    fireEvent.click(screen.getByRole("button", { name: "去更新" }));
+    expect(openUpdateDialog).toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
   });
 });

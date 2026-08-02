@@ -46,6 +46,7 @@ def _materialise_turn_token_budget_skips(
     can append B3 shell gaps (missing critical files / residual ``{{…}}``).
     """
     from agentcore.core.logging import get_logger
+    from agentcore.llm.turn_auth_dead import REASON_TURN_AUTH_DEAD, is_turn_auth_dead
     from agentcore.runtime.turn_token_budget import (
         REASON_TURN_TOKEN_BUDGET,
         budget_skip_warning_for_active_scope,
@@ -58,6 +59,9 @@ def _materialise_turn_token_budget_skips(
 
     logger = get_logger(__name__)
     warning = budget_skip_warning_for_active_scope()
+    skip_reason = (
+        REASON_TURN_AUTH_DEAD if is_turn_auth_dead() else REASON_TURN_TOKEN_BUDGET
+    )
     skipped_ids: list[str] = []
     page_qa_ids: list[str] = []
     for node in plan.nodes:
@@ -66,7 +70,7 @@ def _materialise_turn_token_budget_skips(
         gaps = [
             {
                 "description": warning,
-                "reason": REASON_TURN_TOKEN_BUDGET,
+                "reason": skip_reason,
             },
             *honesty_gaps_for_skipped_delivery_node(node),
         ]
@@ -76,14 +80,16 @@ def _materialise_turn_token_budget_skips(
             delivery_gaps=gaps,
         )
         agent_id = (node.agent_id if node.agent_id else "") or node.run_id
-        tool._sink.emit(run_skipped(node.run_id, agent_id, reason=REASON_TURN_TOKEN_BUDGET))
+        tool._sink.emit(run_skipped(node.run_id, agent_id, reason=skip_reason))
         skipped_ids.append(node.run_id)
         if is_page_qa_delivery_node(node):
             page_qa_ids.append(node.run_id)
     if skipped_ids:
         nested = current_nested_envelope()
         logger.info(
-            "delegate.turn_token_ceiling_skip",
+            "delegate.turn_token_ceiling_skip"
+            if skip_reason == REASON_TURN_TOKEN_BUDGET
+            else "delegate.turn_auth_dead_skip",
             skipped=len(skipped_ids),
             spent=current_turn_tokens(),
             ceiling=resolve_turn_token_ceiling(),
@@ -155,6 +161,10 @@ async def drive(
     # 到活动计数器即可。
     call_idx = call_idx if call_idx is not None else tool._calls
 
+    from agentcore.llm.turn_auth_dead import (
+        is_turn_auth_dead,
+        turn_auth_dead_reject_message,
+    )
     from agentcore.runtime.turn_token_budget import (
         NestedEnvelopeRejected,
         current_turn_tokens,
@@ -219,6 +229,40 @@ async def drive(
                 success=False,
                 output="",
                 error=turn_token_ceiling_reject_message(),
+                contract_failure=True,
+            )
+
+        if is_turn_auth_dead():
+            from agentcore.core.logging import get_logger
+
+            get_logger(__name__).info(
+                "delegate.turn_auth_dead_rejected",
+                via="drive",
+                has_seed=bool(seed_completed),
+                depth=depth,
+            )
+            if seed_completed:
+                results = dict(seed_completed)
+                _materialise_turn_token_budget_skips(tool, plan, results)
+                await _attach_light_website_gaps(tool, results)
+                return await finalize_drive(
+                    tool,
+                    plan,
+                    results,
+                    execution_id=execution_id,
+                    finalize=finalize,
+                    seed_completed=seed_completed,
+                    completion_criteria=completion_criteria,
+                    session=session,
+                    call_idx=call_idx,
+                    complexity_hint=complexity_hint,
+                    batch_metrics=[],
+                )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=turn_auth_dead_reject_message(),
                 contract_failure=True,
             )
 
@@ -324,6 +368,37 @@ async def _drive_body(
                 has_deps=False,
             )
 
+    # 收口后冷开整团重派硬闸（与同图 replan 补跑闸分轨；共用 MAX_GAP_FILL_ADDS）。
+    # 须在 team_preview 之前拒，避免开工卡先弹出。append / 并入活跃图不走本闸。
+    force = bool(getattr(tool, "_delegate_force", False))
+    if not force and not merging_into_active and seed_completed is None:
+        from agentcore.core.logging import get_logger
+        from agentcore.core.types import ToolEffect
+        from agentcore.runtime.delegate.batch_shape import annotate_batch_meta
+        from agentcore.runtime.delegate.post_close_gate import post_close_cold_open_error
+        from agentcore.tools.protocol import ToolResult
+
+        post_close_err = post_close_cold_open_error(tool, plan)
+        if post_close_err is not None:
+            get_logger(__name__).info(
+                "delegate.post_close_redelegation_rejected",
+                execution_id=execution_id,
+                nodes=len(plan.nodes),
+                call=call_idx,
+            )
+            return annotate_batch_meta(
+                ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=post_close_err,
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                ),
+                node_count=0,
+                has_deps=False,
+            )
+
     if session is None:
         preview_early = await team_preview_before_workers(
             tool,
@@ -339,7 +414,6 @@ async def _drive_body(
     # 同构再委派护栏：活跃协调上角色+任务高度同构 → 结构化拒绝（除非 force）。
     # 触顶换马甲护栏：近期 thrashing worker + 相似 task/artifacts → 拒冷派（除非 force /
     # continue_from）。与 isomorphic 同层；不挪用 note_completion_gap。
-    force = bool(getattr(tool, "_delegate_force", False))
     if not force:
         from agentcore.core.logging import get_logger
         from agentcore.core.types import ToolEffect

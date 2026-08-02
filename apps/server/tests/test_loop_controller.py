@@ -530,7 +530,10 @@ def test_permission_does_not_affect_transient_thresholds():
 
 
 def test_validation_same_fingerprint_stops_path_at_two():
-    """Validation ×2 same fingerprint → path-stop steer; tool stays available."""
+    """Validation ×2 same fingerprint → path-stop steer; tool stays available.
+
+    ×3 (re-hit after steer) → thrash latch + hard-stop pending (no second steer).
+    """
     c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
     rej = ToolAttempt(
         "same-fp",
@@ -541,6 +544,8 @@ def test_validation_same_fingerprint_stops_path_at_two():
     )
     c.record([rej])
     assert not c.tool_circuit_breaker()
+    assert not c.is_thrashing()
+    assert not c.take_validation_hard_stop()
     c.record([rej])
     cb = c.tool_circuit_breaker()
     assert cb.disabled == ()
@@ -550,9 +555,15 @@ def test_validation_same_fingerprint_stops_path_at_two():
     assert "delegate" in (cb.validation_stop or "")
     msg = cb.message() or ""
     assert "同因" in msg or "路径" in msg
-    # Idempotent for same fp; different fp can self-correct again.
+    assert not c.is_thrashing()
+    # Re-hit after path-stop: hard stop / thrashing (do not burn max_rounds).
     c.record([rej])
     assert not c.tool_circuit_breaker()
+    assert c.is_thrashing()
+    assert c.validation_thrash_latched
+    assert c.take_validation_hard_stop()
+    assert not c.take_validation_hard_stop()  # one-shot
+    # Different fp can still self-correct with a fresh path-stop steer.
     other = ToolAttempt(
         "other-fp",
         "delegate",
@@ -566,6 +577,106 @@ def test_validation_same_fingerprint_stops_path_at_two():
     cb2 = c.tool_circuit_breaker()
     assert cb2.validation_stop is not None
     assert cb2.disabled == ()
+
+
+def test_validation_stopped_fps_seed_round_trip_hard_stops_on_rehit():
+    """export_seed keeps stopped fps; new controller + seed thrashs on first re-hit."""
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        "same-fp",
+        "str_replace",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([rej])
+    c.record([rej])
+    assert c.tool_circuit_breaker().validation_stop is not None
+    seed = c.export_seed()
+    assert "same-fp" in seed["validation_stopped_fps"]
+    assert seed["validation_thrash_latched"] is False
+
+    restored = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    restored.apply_seed(seed)
+    assert not restored.is_thrashing()
+    # First re-hit of a seeded stopped fp → hard stop (no second steer-only pass).
+    restored.record([rej])
+    assert not restored.tool_circuit_breaker()
+    assert restored.is_thrashing()
+    assert restored.take_validation_hard_stop()
+
+
+def test_validation_empty_old_string_collapse_same_fp_thrash():
+    """空 old_string 塌缩为同一指纹：第2次 steer，第3次 thrash（回归）。"""
+    from agentcore.runtime.loop_controller import fingerprint_tool_call
+
+    fp = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "a.md", "old_string": "", "new_string": "AAA"}',
+    )
+    fp2 = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "b.md", "old_string": "   ", "new_string": "BBB"}',
+    )
+    assert fp == fp2
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        fp,
+        "str_replace",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([rej])
+    assert not c.tool_circuit_breaker()
+    c.record([rej])
+    assert c.tool_circuit_breaker().validation_stop is not None
+    c.record([rej])
+    assert c.is_thrashing()
+    assert c.take_validation_hard_stop()
+    # Landing tools stay available (no disable / force_segmented from this path).
+    assert c.tool_failure_count("str_replace") == 0
+
+
+def test_govern_validation_rehit_finalizes_without_burning_rounds():
+    """Governance consumes validation hard-stop → Finalize(UNPRODUCTIVE)."""
+    from agentcore.runtime.engine.directive import Finalize
+    from agentcore.runtime.engine.governance import govern_after_tools
+    from agentcore.runtime.engine.outcome import RoundOutcome
+    from agentcore.runtime.events import FinishReason
+
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        "same-fp",
+        "str_replace",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([rej])
+    c.record([rej])
+    assert c.tool_circuit_breaker().validation_stop is not None
+    c.record([rej])
+    assert c.is_thrashing()
+    messages: list = []
+    directive = govern_after_tools(
+        RoundOutcome(
+            content="",
+            reasoning="",
+            usage=None,
+            tool_calls=[],
+            tool_results=[],
+            attempts=[rej],
+        ),
+        c,
+        messages=messages,
+        round_idx=2,
+        run_id="r-val",
+        breaker_message=None,
+    )
+    assert isinstance(directive, Finalize)
+    assert directive.reason == "validation_thrash"
+    assert directive.finish_reason is FinishReason.UNPRODUCTIVE
 
 
 def test_transient_still_warns_at_two_disables_at_three():

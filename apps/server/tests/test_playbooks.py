@@ -135,8 +135,10 @@ def test_available_playbooks_lists_parallel_brief_before_research_report_semanti
     listing = available_playbooks()
     assert "parallel_brief" in listing
     assert "对齐推进" in listing or "方向笔记" in listing
+    assert "少扇出" in listing or "常 2" in listing
     assert "research_report" in listing
     assert "成文专线" in listing
+    assert "明示" in listing
 
 
 # ── research_report ───────────────────────────────────────────────────────────
@@ -343,24 +345,26 @@ def test_build_app_five_waves_default_modules():
     by_id = _by_id(tasks)
     assert "scaffold" in by_id
     assert "shared" in by_id
-    assert "module_0" in by_id and "module_1" in by_id
+    assert "module_0" in by_id
+    assert "module_1" not in by_id  # 瘦启动：默认仅 1 模块
     assert "integrate" in by_id
     assert "smoke" in by_id
+    assert len(tasks) == 5  # scaffold + shared + 1 module + integrate + smoke
     assert by_id["shared"]["depends_on"] == ["scaffold"]
     assert by_id["module_0"]["depends_on"] == ["shared"]
-    assert by_id["module_1"]["depends_on"] == ["shared"]
-    assert set(by_id["integrate"]["depends_on"]) == {"module_0", "module_1"}
+    assert set(by_id["integrate"]["depends_on"]) == {"module_0"}
     assert by_id["smoke"]["depends_on"] == ["integrate"]
     assert by_id["scaffold"]["deliverable"]["strict"] is True
     assert "铁律" in by_id["scaffold"]["task"]
     assert "悬空" in by_id["scaffold"]["task"]
     assert "npm" in by_id["smoke"]["task"].lower() or "build" in by_id["smoke"]["task"]
+    assert "test_run" in by_id["smoke"]["task"]
+    assert "code_execute" not in by_id["smoke"]["task"] or "勿" in by_id["smoke"]["task"]
     # Scaffold artifacts must include per-module stub views (no dangling router).
     scaffold_arts = by_id["scaffold"]["deliverable"]["artifacts"]
     stub_arts = [a for a in scaffold_arts if "/src/views/" in a and a.endswith(".vue")]
-    assert len(stub_arts) == 2
+    assert len(stub_arts) == 1
     assert by_id["module_0"]["deliverable"]["artifacts"][0] in scaffold_arts
-    assert by_id["module_1"]["deliverable"]["artifacts"][0] in scaffold_arts
 
 
 def test_build_app_custom_modules_and_root():
@@ -387,6 +391,31 @@ def test_build_app_custom_modules_and_root():
     assert any(a.startswith("ops-board/") for a in arts)
     assert "ops-board/src/views/" in " ".join(arts)
     assert "ops-board/src/router/index.ts" in arts
+
+
+def test_build_app_modules_fold_over_cap():
+    """显式 modules 超过扇出上限 → 折叠到末槽，不丢弃。"""
+    from agentcore.runtime.runs.build_app import _MAX_MODULE_FANOUT
+    from agentcore.runtime.runs.playbooks import collect_playbook_notes
+
+    mods = [f"模{i}" for i in range(_MAX_MODULE_FANOUT + 2)]
+    tasks, errors = expand_playbook("build_app", {"app": "大盘", "modules": mods})
+    assert errors == []
+    by_id = _by_id(tasks)
+    module_nodes = [t for t in tasks if str(t["id"]).startswith("module_")]
+    assert len(module_nodes) == _MAX_MODULE_FANOUT
+    assert "module_0" in by_id and f"module_{_MAX_MODULE_FANOUT - 1}" in by_id
+    assert f"module_{_MAX_MODULE_FANOUT}" not in by_id
+    last = by_id[f"module_{_MAX_MODULE_FANOUT - 1}"]
+    # 末槽覆盖折叠进来的多个模块名
+    for name in mods[_MAX_MODULE_FANOUT - 1 :]:
+        assert name in last["task"]
+    notes = collect_playbook_notes(tasks)
+    assert notes and "扇出折叠" in notes[0]
+    # stub 仍按逻辑模块全量写入 scaffold（路由不悬空）
+    scaffold_arts = by_id["scaffold"]["deliverable"]["artifacts"]
+    stub_arts = [a for a in scaffold_arts if "/src/views/" in a and a.endswith(".vue")]
+    assert len(stub_arts) == len(mods)
 
 
 def test_build_app_requires_app():
@@ -984,7 +1013,7 @@ def test_every_playbook_expansion_builds_a_valid_run_plan():
         "research_report": 5,
         "build_feature": 3,
         "repair_code": 3,
-        "build_app": 6,  # scaffold + shared + 2 modules + integrate + smoke
+        "build_app": 6,  # scaffold + shared + 2 explicit modules + integrate + smoke
         "build_website": 3,  # copy + frontend + qa
         "build_toolshed": 3,  # copy + frontend + qa
         "build_website_verify": 1,  # qa only

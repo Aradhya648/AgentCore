@@ -219,7 +219,7 @@ def test_blocked_with_criteria_gap_and_bind_action_on_cloud():
 
 
 def test_zero_landing_worker_and_criteria_merge_to_one_gap():
-    # 同一零落盘谓词：worker 契约 + 批次 files_written → 用户面一条 files_not_landed。
+    # 甲⁺：同一零落盘谓词合并为一条 files_not_landed soft note（notes，不 blocked）。
     from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
     from agentcore.runtime.runs.types import Deliverable
 
@@ -240,7 +240,9 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
                     "description": (
                         "未把产物写入工作区：交付物须用 file_write / str_replace / "
                         "file_append 或 code_execute / file_copy 落盘，而非粘在回复正文里"
-                    )
+                    ),
+                    "severity": "warning",
+                    "reason": "files_not_landed",
                 }
             ],
         )
@@ -250,16 +252,17 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
         plan,
         results,
         execution_id="e-merge",
-        criteria_gaps=[f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）"],
+        criteria_gaps=[f"提醒（不阻断验收）：本批未见落盘（需要 {tools}）"],
     )
     assert payload is not None
-    assert payload["state"] == "blocked"
+    assert payload["state"] == "notes"
     assert len(payload["gaps"]) == 1
     gap = payload["gaps"][0]
     assert gap["role"] == "验收"
     assert gap["reason"] == "files_not_landed"
-    assert "未交付" in gap["description"]
-    assert "工作区没有新文件" in gap["description"]
+    assert gap["severity"] == "warning"
+    assert "本批未见落盘" in gap["description"]
+    assert "file_write" in gap["description"] or "落盘" in gap["description"]
 
 
 def test_zero_landing_gap_attributes_channel_dead_from_transcript():
@@ -312,8 +315,11 @@ def test_zero_landing_gap_attributes_channel_dead_from_transcript():
     assert payload is not None
     gap = payload["gaps"][0]
     assert gap["reason"] == "files_not_landed"
+    assert gap["severity"] == "warning"
+    assert payload["state"] == "notes"
     assert "写盘通道不可用" in gap["description"]
     assert "粘在回复正文" not in gap["description"]
+    assert "本批未见落盘" in gap["description"]
 
 
 def test_zero_landing_gap_attributes_write_failed_from_transcript():
@@ -360,7 +366,10 @@ def test_zero_landing_gap_attributes_write_failed_from_transcript():
     assert payload is not None
     gap = payload["gaps"][0]
     assert gap["reason"] == "files_not_landed"
+    assert gap["severity"] == "warning"
+    assert payload["state"] == "notes"
     assert "已尝试写盘但未成功" in gap["description"]
+    assert "本批未见落盘" in gap["description"]
     assert "而非粘在回复正文" in gap["description"] or "粘在回复正文" not in gap[
         "description"
     ]

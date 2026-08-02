@@ -388,10 +388,15 @@ def run_failed(
     agent_id: str,
     error: str,
     *,
+    failure_kind: str | None = None,
     debrief: dict[str, Any] | None = None,
     execution_id: str = "",
 ) -> SSEEvent:
     payload: dict[str, Any] = {"run_id": run_id, "agent_id": agent_id, "error": error}
+    # Additive machine-readable face class (quality/model/call). Omit when unknown so
+    # old fixtures stay byte-identical and clients fall back to「失败」/空 error「调用失败」.
+    if failure_kind:
+        payload["failure_kind"] = failure_kind
     # 完工交接简报 on a FAILED run: a worker that produced a product + authored a 交接简报 but
     # missed its contract still has a useful wrap-up (结论/关键假设/建议下一步) — carried so the
     # run-detail shows the author's own conclusion next to the failure. Added ONLY when present

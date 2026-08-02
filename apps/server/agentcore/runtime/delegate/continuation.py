@@ -183,6 +183,7 @@ async def run_continuation(
                     spec.run_id,
                     agent_id,
                     exc.message,
+                    failure_kind="call",
                     execution_id=execution_id,
                 )
             )

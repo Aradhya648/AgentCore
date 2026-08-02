@@ -189,6 +189,28 @@ async def test_execute_parses_result_and_marks_dirty():
     assert local.dirty is True
 
 
+async def test_execute_forwards_registry_env():
+    local, registry, sink = _make()
+    response = {
+        "ok": True,
+        "value": {
+            "success": True,
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 0,
+            "duration_ms": 1,
+        },
+    }
+    req = ExecutionRequest(
+        code="print(1)",
+        language="python",
+        env={"NPM_CONFIG_REGISTRY": "https://registry.npmjs.org/", "SECRET": "no"},
+    )
+    _result, event = await _round_trip(local.execute(req), sink, registry, response)
+    assert event.payload["args"]["env"]["NPM_CONFIG_REGISTRY"].startswith("https://")
+    assert event.payload["args"]["env"]["SECRET"] == "no"
+
+
 # --- typed error mapping (the tool layer must see the same exceptions) ------
 
 
@@ -244,6 +266,37 @@ async def test_after_timeout_second_request_fail_fast():
     elapsed = asyncio.get_running_loop().time() - t0
     # Fail-fast: far shorter than the 2s channel timeout (no SSE / no suspend).
     assert elapsed < 0.2
+
+
+async def test_probe_exec_timeout_does_not_sticky_dead_channel():
+    """A1: language probe hang fail-closes advertise only — file channel stays alive."""
+    sink = EventSink()
+    registry = InteractionRegistry()
+    channel = WorkspaceChannel(
+        sink=sink,
+        conversation_id=CONV,
+        registry=registry,
+        timeout_seconds=0.05,
+        root_id=ROOT_ID,
+    )
+    with pytest.raises(WorkspaceIOError, match="probe_exec.*活性挂起"):
+        await channel.request(WorkspaceOp.PROBE_EXEC, {})
+
+    assert channel._dead is False  # noqa: SLF001
+    # Drain the unanswered probe SSE so the next await sees the file op.
+    while not sink._queue.empty():  # noqa: SLF001
+        sink._queue.get_nowait()
+
+    # A real file op must still emit SSE (not reject as channel dead).
+    task = asyncio.create_task(channel.request(WorkspaceOp.READ, {"path": "a.txt"}))
+    event = await _await_request(sink)
+    assert event.payload["op"] == "read"
+    assert registry.resolve(
+        event.payload["request_id"],
+        {"ok": True, "value": "alive"},
+        conversation_id=CONV,
+    )
+    assert await task == "alive"
 
 
 async def test_parallel_ops_one_timeout_fails_sibling_as_channel_dead():

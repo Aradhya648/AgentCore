@@ -16,13 +16,15 @@ A worker's product is accepted only if it satisfies its node's delivery spec
 网页接缝静态检查：同批落盘出现 HTML + CSS/JS 时，交叉校验 HTML class/id 与 CSS/JS
 选择器命中率（未命中率超过阈值则 fail → ``contract.retry``）；普通文档交付不触发。
 
-占位符 / 未核实内容扫描：内容类落盘（HTML / Markdown / …）检出硬信号（``400-XXX-XXXX``、
-``PLACEHOLDER``、``[占位]``、lorem ipsum 等）则 fail；软信号（「示例数据」「待核实」等自注）
-仅写入 :class:`ContractVerdict` 的 ``warnings``（不阻断验收）。代码文件豁免 TODO/XXX 习惯。
+占位符 / 未核实内容扫描（定案乙）：内容类落盘（HTML / Markdown / …）检出骨架标记
+（``400-XXX-XXXX``、``PLACEHOLDER``、``[占位]``、lorem ipsum 等）与自注（「示例数据」
+「待核实」等）一律写入 :class:`ContractVerdict` 的 ``warnings``（不阻断验收、不占满
+``contract.retry``）。字数 ``min_length`` / 必含词 ``must_contain`` 同为 soft。
+代码文件豁免 TODO/XXX 习惯。建站链 ``web_quality`` / ``web_seam`` 硬闸与引用/书目硬闸不变。
 
 引用 / 书目质量（台账接通时）：对内容类 ``artifact_contents`` 复用
 :func:`~agentcore.runtime.verify.citation_quality_reworks`（与 chat ``finish_guard`` 同源）——
-非法 ``#rN``、无绑定 GB/T ``[D]/[J]`` 著录等 → fail → 合同返工。
+非法 ``#rN``、无绑定 GB/T ``[DCOP[J]`` 著录等 → fail → 合同返工。
 
 判「写得好不好」的语义裁判（额外一次 LLM 调用）留作后续增强。
 
@@ -215,10 +217,10 @@ def check_contract(
 
     ``files_written`` is the count of workspace paths the run actually landed (from
     ``files_touched_from_transcript`` — successful file_write/append/str_replace/move/
-    copy results AND ``code_execute`` sandbox write-backs); it backs the
-    ``requires_files`` predicate so a file deliverable that never landed fails and
-    auto-reworks. ``landing_failure_kind`` (optional) attributes the zero-disk gap:
-    ``channel_dead`` / ``write_failed`` vs the default paste-into-prose framing.
+    copy results AND ``code_execute`` sandbox write-backs). ``form=files`` /
+    ``requires_files`` with zero successful landing becomes a soft ``warnings`` tip
+    (甲⁺：不再契约 fail / 短写盘 pass). ``landing_failure_kind`` (optional)
+    attributes the soft tip: ``channel_dead`` / ``write_failed`` vs paste framing.
     Stays a pure function (the caller derives the count / kind) so it remains
     trivially unit-testable.
 
@@ -231,8 +233,8 @@ def check_contract(
     pairs with ``artifacts``, the JSON gate reads these texts (file channel) instead of
     requiring the chat body to be JSON. When the same map holds an HTML+CSS/JS web batch,
     the web seam gate cross-checks HTML class/id tokens against CSS/JS selectors. When it
-    holds content surfaces (HTML / Markdown / …), the placeholder scan flags hard
-    placeholders as failures and soft self-notes as ``warnings``. When
+    holds content surfaces (HTML / Markdown / …), the placeholder scan flags skeleton
+    markers and soft self-notes as ``warnings`` (定案乙：不再 hard-fail). When
     ``ledger_entries`` is not ``None`` (turn evidence ledger connected; empty list
     still counts), content surfaces are also checked with
     :func:`~agentcore.runtime.verify.citation_quality_reworks` (same rules as chat
@@ -277,6 +279,7 @@ def check_contract(
 
     exempt_paths = _placeholder_hard_exempt_paths(deliverable, artifact_contents)
     failures = []  # deliverable-specific failures (distinct from early-return above)
+    soft_length_warnings: list[str] = []
     soft_keyword_warnings: list[str] = []
     # 交付形态对齐: a FILE deliverable's product lives on disk, so the content checks read
     # the run's landed files alongside the chat body. Prose deliverables (no file channel)
@@ -287,23 +290,22 @@ def check_contract(
         file_texts = [t for t in artifact_contents.values() if t and t.strip()]
     # 有效长度 = max(正文, 各交付文件)，不拼接（避免正文+文件虚高绕过 min）。
     length = max([len(text), *(len(t) for t in file_texts)])
+    # 定案乙：min_length / must_contain 一律 soft（不 fail、不占满 contract.retry）。
     if deliverable.min_length and length < deliverable.min_length:
-        failures.append(f"产出 {length} 字，少于要求的 {deliverable.min_length} 字")
+        soft_length_warnings.append(
+            f"篇幅提醒（软）：产出 {length} 字，少于要求的 {deliverable.min_length} 字"
+        )
     if deliverable.must_contain:
         # Case-insensitive, mirroring required_sections' casefold match — the keyword
         # is a content requirement, not a literal-byte check, so casing must not flip
-        # the verdict. The failure message still shows the operator's original text.
+        # the soft tip. The reminder still shows the operator's original text.
         # 正文或任一交付文件命中即满足。
         haystacks = [content.casefold(), *(t.casefold() for t in file_texts)]
         for keyword in deliverable.must_contain:
             if keyword and not any(keyword.casefold() in h for h in haystacks):
-                msg = f"缺少必须包含的内容：{keyword}"
-                if deliverable.must_contain_soft:
-                    soft_keyword_warnings.append(
-                        f"素材覆盖提醒（软）：未命中「{keyword}」——若有同级替代表达可保留并说明"
-                    )
-                else:
-                    failures.append(msg)
+                soft_keyword_warnings.append(
+                    f"素材覆盖提醒（软）：未命中「{keyword}」——若有同级替代表达可保留并说明"
+                )
     # required_sections = Markdown heading semantics. Skip when output_format=json to
     # avoid false failures from JSON field names stuffed into required_sections.
     # 章节在正文或任一交付文件中作为小标题出现即满足。
@@ -327,8 +329,12 @@ def check_contract(
             )
         elif not _is_json(content):
             failures.append("产出不是可解析的 JSON")
+    # 甲⁺：form=files / requires_files 零成功落盘 → soft tip（不 fail、不触发 write_pass）。
+    zero_files_warnings: list[str] = []
     if (deliverable.requires_files or deliverable.form == "files") and files_written <= 0:
-        failures.append(zero_files_gap_message(landing_failure_kind=landing_failure_kind))
+        zero_files_warnings.append(
+            zero_files_gap_message(landing_failure_kind=landing_failure_kind)
+        )
     # artifacts / artifact_dir 路径对账：有落盘即过；对不上降为 warnings（不阻断）。
     path_mismatch_warnings: list[str] = []
     if deliverable.artifacts:
@@ -356,8 +362,8 @@ def check_contract(
         )
     else:
         failures.extend(check_web_seam_failures(artifact_contents))
-    # 占位符 / 未核实：内容类文件硬信号 fail；软信号仅 warnings（不阻断）。
-    # Internal coordination paths may declare hard exemption on the deliverable.
+    # 占位符 / 未核实：内容类文件骨架标记 + 自注一律 warnings（定案乙：不硬拦）。
+    # Internal coordination paths may declare skeleton exemption on the deliverable.
     ph = scan_placeholder_signals(artifact_contents, hard_exempt_paths=exempt_paths)
     failures.extend(ph.failures)
     # 引用 / 书目：与 chat finish_guard 同源；仅台账接通时扫内容类落盘。
@@ -391,7 +397,13 @@ def check_contract(
         )
         failures.extend(wq.failures)
         soft_failures.extend(wq.soft_failures)
-    warnings = [*ph.warnings, *soft_keyword_warnings, *path_mismatch_warnings]
+    warnings = [
+        *ph.warnings,
+        *soft_length_warnings,
+        *soft_keyword_warnings,
+        *zero_files_warnings,
+        *path_mismatch_warnings,
+    ]
     # Soft web-quality hits flip ok so the executor can spend one rework shot;
     # after that shot the executor demotes them to warnings.
     ok = not failures and not soft_failures
@@ -673,19 +685,21 @@ def _json_artifact_failures(
     return failures
 
 
-# Format-only failures eligible for one in-place light repair (缺章节 / 过短 / 缺关键词).
+# Format-only failures eligible for one in-place light repair (缺章节).
+# 定案乙：min_length / must_contain 已降 soft，不再进 failures / light_repair。
 # Placeholders, web seam, empty product, missing files, JSON parse, etc. stay on full retry.
 _FORMAT_REPAIR_SECTION_PREFIX = "缺少必备章节："
-_FORMAT_REPAIR_KEYWORD_PREFIX = "缺少必须包含的内容："
-_FORMAT_REPAIR_TOO_SHORT_MARKER = "字，少于要求的"
+_FORMAT_REPAIR_KEYWORD_PREFIX = "缺少必须包含的内容："  # legacy residual only
+_FORMAT_REPAIR_TOO_SHORT_MARKER = "字，少于要求的"  # legacy residual only
 
 
 def is_format_repairable(verdict: ContractVerdict) -> bool:
-    """True when every failure is a format backfill (sections / min_length / keywords).
+    """True when every failure is a format backfill (primarily missing sections).
 
     Used by the executor to try one cheap in-place completion before a full
     ``contract.retry`` that re-opens investigation. Mixed or non-format failures
-    (占位符 / 网页接缝 / 网页质量 / 未落盘 / 空产出 / JSON …) return False.
+    (网页接缝 / 网页质量 / 空产出 / JSON …) return False. 定案乙后字数 / 必含词
+    不再出现在 ``failures``；保留 keyword/short markers 仅兼容遗留 verdict。
     """
     if verdict.ok or not verdict.failures or verdict.soft_failures or verdict.visual_failures:
         return False
@@ -739,14 +753,17 @@ def format_light_repair_feedback(
     )
 
 
-# Zero-disk gap eligible for one short write pass (not a full investigation retry).
-# Path-reconciliation copy (artifacts / artifact_dir) is warning-only — do not
-# treat those as zero-disk gaps.
+# Shared marker for zero-landing soft tips (contract warnings / delivery projection).
+# 甲⁺：零落盘已降为 soft warning，不再进 failures，故不再驱动 write_pass。
 _ZERO_FILES_GAP_MARKER = "未把产物写入工作区"
 
 
 def is_zero_files_gap(verdict: ContractVerdict) -> bool:
-    """True when failures include a true zero-disk gap (nothing landed in workspace)."""
+    """True when failures still carry a hard zero-disk gap (legacy / residual).
+
+    甲⁺：``check_contract`` puts zero-landing into ``warnings`` only, so this
+    returns False for current verdicts and write_pass is not triggered.
+    """
     if verdict.ok or not verdict.failures:
         return False
     return any(_ZERO_FILES_GAP_MARKER in str(f) for f in verdict.failures)
@@ -930,7 +947,7 @@ def describe_deliverable(deliverable: Deliverable | None) -> str:
         skeleton = "\n".join(f"## {section}\n" for section in deliverable.required_sections)
         lines.append("- 建议正文骨架（小标题须与上列一致，可在节内自由展开）：\n" + skeleton)
     if deliverable.must_contain:
-        lines.append("- 必须涉及：" + "、".join(deliverable.must_contain))
+        lines.append("- 建议覆盖（软）：" + "、".join(deliverable.must_contain))
     if deliverable.min_length:
         lines.append(f"- 篇幅不少于 {deliverable.min_length} 字")
     # prose form never surfaces file-landing requirements (even if a stale flag slipped in).

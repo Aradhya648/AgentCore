@@ -21,7 +21,11 @@ TASK_DELIVERABLE_SCHEMA: dict[str, object] = {
             "description": "prose=看；files=用（须落盘）。",
         },
         "required_sections": {"type": "array", "items": {"type": "string"}},
-        "must_contain": {"type": "array", "items": {"type": "string"}},
+        "must_contain": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "短主题词软提醒（勿塞细枚举清单）。",
+        },
         "min_length": {"type": "integer"},
         "output_format": {"type": "string", "enum": ["text", "json"]},
         "requires_files": {"type": "boolean"},
@@ -69,7 +73,8 @@ DELEGATE_PARAMETERS = {
                         "type": "string",
                         "description": (
                             "自包含=目标+边界+验收（宜短；worker 看不到完整历史）。"
-                            "细则进 deliverable.must_contain/artifacts；"
+                            "细则进任务范围/required_sections/artifacts；"
+                            "must_contain 仅短主题词软提醒（勿塞细清单）；"
                             "全队共识进顶层 team_brief（勿把长文塞进本字段）。"
                         ),
                     },

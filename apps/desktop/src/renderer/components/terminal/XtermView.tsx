@@ -14,7 +14,7 @@ function cssVar(name: string, fallback: string): string {
 }
 
 function buildTheme() {
-  const fg = cssVar("--foreground", "oklch(0.98 0.005 255)");
+  const fg = cssVar("--foreground", "oklch(0.93 0.005 255)");
   const mutedFg = cssVar("--muted-foreground", "oklch(0.55 0.02 255)");
   const primary = cssVar("--primary", "oklch(0.55 0.18 255)");
   const destructive = cssVar("--destructive", "oklch(0.55 0.2 25)");
@@ -24,10 +24,10 @@ function buildTheme() {
     background: cssVar("--muted", "transparent"),
     foreground: fg,
     cursor: fg,
-    cursorAccent: cssVar("--background", "oklch(0.16 0.01 255)"),
+    cursorAccent: cssVar("--background", "oklch(0.145 0.008 255)"),
     selectionBackground: cssVar("--accent", "oklch(0.9 0.01 255)"),
     selectionForeground: cssVar("--accent-foreground", fg),
-    black: cssVar("--background", "oklch(0.16 0.01 255)"),
+    black: cssVar("--background", "oklch(0.145 0.008 255)"),
     red: destructive,
     green: success,
     yellow: warning,

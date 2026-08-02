@@ -63,6 +63,9 @@ export type RunStatus =
   | "cancelled"
   | "skipped";
 
+/** `run_failed.failure_kind` — collaboration-graph face class (additive). */
+export type RunFailureKind = "quality" | "model" | "call";
+
 /** A web source consulted for the assistant message (citations event). */
 export interface ProjectedCitation {
   url: string;
@@ -184,6 +187,8 @@ export interface ProjectedRun {
   debrief: RunDebrief | null;
   durationMs: number | null;
   error: string | null;
+  /** `run_failed.failure_kind` — face class; null when absent (old journals). */
+  failureKind: RunFailureKind | null;
   parentRunId: string | null;
   kind: RunKind;
   role: string | null;

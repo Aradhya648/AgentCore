@@ -314,6 +314,8 @@ export interface RunNode {
   startedAt: number | null;
   /** Failure reason from `run_failed`; null unless this run failed. */
   error: string | null;
+  /** `run_failed.failure_kind` — face class; null/absent on old journals. */
+  failureKind?: import("@/types/events").RunFailureKind | null;
   /** Delegating run id (`run_started` slot). 阶段1 always null (flat workers
    * under the CEO); set for 阶段2 nested delegation. */
   parentRunId: string | null;

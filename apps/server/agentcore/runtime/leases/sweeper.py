@@ -31,9 +31,23 @@ from agentcore.runtime.turn_state import TurnState
 
 logger = get_logger(__name__)
 
+# Strong refs for detached recover tasks. ``asyncio.create_task`` alone is only a
+# weak ref in the loop — GC can cancel mid-flight after ``crash_delegate_ready``
+# and before ``crash_redrive`` (ready-only loop). Also dedupe concurrent recovers.
+_recover_tasks: set[asyncio.Task[None]] = set()
+_recovering_message_ids: set[str] = set()
+
 
 def _journal_has_turn_end(entries: list[dict]) -> bool:
     return any((e.get("kind") or "") == KIND_TURN_END for e in entries)
+
+
+async def _bump_recover_attempts(message_id: str, *, owner_id: str) -> int:
+    """Increment ``meta.recover_attempts`` on a just-claimed lease; return new count."""
+    async with async_session_factory() as session:
+        return await TurnLeaseRepository(session).bump_recover_attempts(
+            message_id, owner_id=owner_id
+        )
 
 
 async def salvage_interrupted_turn(
@@ -134,20 +148,46 @@ async def run_turn_lease_sweep() -> int:
 
         state = TurnState.from_journal(entries or [])
         if state.plan is not None and state.unfinished_run_ids:
+            mid = claimed.message_id
+            if mid in _recovering_message_ids:
+                logger.info(
+                    "turn_lease.sweep_skip_inflight",
+                    message_id=mid,
+                )
+                continue
+            attempts = await _bump_recover_attempts(mid, owner_id=owner)
+            meta = dict(claimed.meta) if isinstance(getattr(claimed, "meta", None), dict) else {}
+            meta["recover_attempts"] = attempts
+            claimed.meta = meta
             logger.info(
                 "turn_lease.sweep_recover",
-                message_id=claimed.message_id,
+                message_id=mid,
                 conversation_id=claimed.conversation_id,
                 unfinished=len(state.unfinished_run_ids),
                 completed=len(state.completed),
+                recover_attempts=attempts,
             )
-            # Detached recover — sweeper must not block the loop on a long redrive.
+            # Detached recover — keep a strong ref so GC cannot cancel after ready.
             from agentcore.runtime.recover import recover_expired_lease
 
-            asyncio.create_task(
-                recover_expired_lease(claimed, state),
-                name=f"recover-lease-{claimed.message_id}",
+            _recovering_message_ids.add(mid)
+
+            async def _run_recover(
+                lease=claimed,
+                turn_state=state,
+                message_id=mid,
+            ) -> None:
+                try:
+                    await recover_expired_lease(lease, turn_state)
+                finally:
+                    _recovering_message_ids.discard(message_id)
+
+            task = asyncio.create_task(
+                _run_recover(),
+                name=f"recover-lease-{mid}",
             )
+            _recover_tasks.add(task)
+            task.add_done_callback(_recover_tasks.discard)
             started += 1
             continue
 

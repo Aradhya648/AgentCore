@@ -28,7 +28,16 @@ class ExecutionRequest:
     #   is unsupported with ``--rootless``); outbound still subject to OS /
     #   SSRF policy for app-level fetches (``core/net.py``).
     #   Intended for ``full_trust`` cloud gVisor only — not SubprocessSandbox.
+    # Install path sets ``registry_egress=True`` instead of relying on host-net
+    # as a fake allowlist — see ``tools/sandbox/egress/``.
     network_mode: Literal["none", "restricted"] = "none"
+    # Packaging install only: netns + allowlist proxy + non-rootless
+    # ``--network=sandbox``, and (when cwd is set) durable workspace rw-bind
+    # instead of staging/base64 wrap. Never set for non-install restricted egress.
+    registry_egress: bool = False
+    # Optional DATA_DIR pkg-cache bucket (user_id / conversation id). Empty →
+    # per-open ``ephemeral-*`` under pkg-cache (no shared global fallback).
+    cache_bucket: str | None = None
     cpu_limit: float = 1.0
     pids_limit: int = 128
 

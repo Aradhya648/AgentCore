@@ -56,14 +56,17 @@ def test_custom_criteria_does_not_block_completion():
 
 
 def test_files_written_requires_workspace_write():
+    """甲⁺：未落盘 → soft note；有落盘 → 无 tip。均不挡批次。"""
     criteria = parse_completion_criteria("files_written")
-    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
-    assert not ok
-    assert "落盘" in gaps[0]
-
-    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run(files=["main.py"])})
+    ok, gaps, soft = check_delegate_completion(criteria, {"a": _run()})
     assert ok
     assert gaps == []
+    assert any("本批未见落盘" in n for n in soft)
+
+    ok, gaps, soft = check_delegate_completion(criteria, {"a": _run(files=["main.py"])})
+    assert ok
+    assert gaps == []
+    assert not any("本批未见落盘" in n for n in soft)
 
 
 def test_code_verified_rejects_bare_code_execute():
@@ -639,15 +642,16 @@ def test_files_written_empty_body_with_disk_write_passes():
     assert gaps == []
 
 
-def test_files_written_empty_body_without_evidence_is_gap_not_vacuous_pass():
-    """COMPLETED + empty body + no 落盘 must gap — never vacuous-pass the empty set."""
+def test_files_written_empty_body_without_evidence_is_soft_not_vacuous_block():
+    """甲⁺：COMPLETED + empty body + 无落盘 → soft note，不挡批次。"""
     criteria = parse_completion_criteria("files_written")
-    ok, gaps, _soft = check_delegate_completion(
+    ok, gaps, soft = check_delegate_completion(
         criteria,
         {"a": _run_empty_body(debrief={"summary": "写完了"})},
     )
-    assert not ok
-    assert "落盘" in gaps[0]
+    assert ok
+    assert gaps == []
+    assert any("本批未见落盘" in n for n in soft)
 
 
 def test_code_verified_empty_body_without_verify_is_gap():
@@ -826,21 +830,13 @@ def test_suppress_structured_skips_artifacts_inference():
 
 
 def test_files_written_gap_lists_landing_tools_from_serialize():
-    """Gap tool list must share serialize._FILE_PRODUCT_ARG + code_execute write-back."""
-    from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
-
+    """甲⁺：未落盘改为 soft note「本批未见落盘」（不再 binding gap / 工具清单硬拦）。"""
     criteria = parse_completion_criteria("files_written")
-    ok, gaps, _soft = check_delegate_completion(criteria, {"a": _run()})
-    assert not ok
-    expected = format_file_landing_tools_slash()
-    assert expected in gaps[0]
-    assert "file_write" in gaps[0]
-    assert "file_append" in gaps[0]
-    assert "str_replace" in gaps[0]
-    assert "write_section" in gaps[0]
-    assert "file_move" in gaps[0]
-    assert "file_copy" in gaps[0]
-    assert "code_execute" in gaps[0]
+    ok, gaps, soft = check_delegate_completion(criteria, {"a": _run()})
+    assert ok
+    assert gaps == []
+    assert any("本批未见落盘" in n for n in soft)
+    assert any("不阻断验收" in n for n in soft)
 
 def _terminal_ready_transcript():
     return [

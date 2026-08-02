@@ -76,6 +76,8 @@ async def test_recover_turn_crash_redrives_with_seed_completed():
         seen["seed"] = set(seed_completed)
         seen["decision"] = kwargs.get("decision")
         seen["execution_id"] = kwargs.get("execution_id")
+        seen["coordinate"] = kwargs.get("coordinate")
+        seen["coordination"] = kwargs.get("coordination")
         return ToolResult(tool_call_id="t1", success=True, output="redriven")
 
     delegate = MagicMock()
@@ -93,6 +95,8 @@ async def test_recover_turn_crash_redrives_with_seed_completed():
     assert seen["plan_ids"] == ["w1", "w2"]
     assert seen["decision"] is CheckpointDecision.CONTINUE
     assert seen["execution_id"] == "exec-crash-1"
+    assert seen["coordinate"] is True
+    assert seen["coordination"] == "wall"
 
 
 async def test_recover_turn_resume_plan_review_routes_through_same_primitive():
@@ -382,6 +386,13 @@ async def test_sweeper_claims_expired_lease_and_invokes_recover(monkeypatch):
             assert mid == message_id
             return claimed_row
 
+        async def bump_recover_attempts(self, mid, *, owner_id):
+            meta = dict(claimed_row.meta) if isinstance(claimed_row.meta, dict) else {}
+            attempts = int(meta.get("recover_attempts") or 0) + 1
+            meta["recover_attempts"] = attempts
+            claimed_row.meta = meta
+            return attempts
+
         async def release(self, mid, *, owner_id=None):
             pass
 
@@ -415,12 +426,17 @@ async def test_sweeper_claims_expired_lease_and_invokes_recover(monkeypatch):
         "agentcore.runtime.recover.recover_expired_lease",
         _fake_recover,
     )
+    # Reset process-local recover dedupe between tests.
+    sweeper_mod._recovering_message_ids.clear()
+    sweeper_mod._recover_tasks.clear()
 
     pending: list = []
 
     def _capture_task(coro, name=None):
         pending.append(coro)
-        return MagicMock()
+        m = MagicMock()
+        m.add_done_callback = MagicMock()
+        return m
 
     monkeypatch.setattr(sweeper_mod.asyncio, "create_task", _capture_task)
 
@@ -433,6 +449,7 @@ async def test_sweeper_claims_expired_lease_and_invokes_recover(monkeypatch):
     assert mid == message_id
     assert completed == {"w1"}
     assert unfinished == ["w2"]
+    assert claimed_row.meta.get("recover_attempts") == 1
 
 
 def test_plan_snapshot_round_trip_via_turn_state():
@@ -485,6 +502,13 @@ async def test_sweeper_claims_orphaned_lease_with_unfinished_dag(monkeypatch):
         async def claim_expired(self, mid, *, new_owner_id, before, phase="recovering"):
             return claimed_row
 
+        async def bump_recover_attempts(self, mid, *, owner_id):
+            meta = dict(claimed_row.meta) if isinstance(claimed_row.meta, dict) else {}
+            attempts = int(meta.get("recover_attempts") or 0) + 1
+            meta["recover_attempts"] = attempts
+            claimed_row.meta = meta
+            return attempts
+
         async def release(self, mid, *, owner_id=None):
             pass
 
@@ -518,11 +542,15 @@ async def test_sweeper_claims_orphaned_lease_with_unfinished_dag(monkeypatch):
         "agentcore.runtime.recover.recover_expired_lease",
         _fake_recover,
     )
+    sweeper_mod._recovering_message_ids.clear()
+    sweeper_mod._recover_tasks.clear()
     pending: list = []
 
     def _capture_task(coro, name=None):
         pending.append(coro)
-        return MagicMock()
+        m = MagicMock()
+        m.add_done_callback = MagicMock()
+        return m
 
     monkeypatch.setattr(sweeper_mod.asyncio, "create_task", _capture_task)
 
@@ -558,6 +586,29 @@ async def test_build_crash_delegate_tool_warns_when_unwired(monkeypatch):
     assert "set_crash_delegate_factory" in kw["hint"]
 
 
+def _patch_recover_lease_heartbeat(monkeypatch) -> list[dict]:
+    """Stub recovering heartbeat so unit tests do not touch the lease repo."""
+    hb_calls: list[dict] = []
+
+    async def _fake_hb(message_id, *, owner_id=None, phase=None):
+        hb_calls.append({"message_id": message_id, "phase": phase})
+        return True
+
+    async def _fake_hb_loop(message_id, *, owner_id, interval_seconds, stop, phase="running"):
+        # Exit immediately when stop is set by recover's finally.
+        await stop.wait()
+
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.service.heartbeat_turn_lease",
+        _fake_hb,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.service.lease_heartbeat_loop",
+        _fake_hb_loop,
+    )
+    return hb_calls
+
+
 async def test_recover_expired_lease_degrades_to_interrupted_when_unwired(monkeypatch):
     """Production crash-delegate factory is unwired → honest interrupted, not silent drop."""
     from agentcore.runtime.events import FinishReason
@@ -570,12 +621,13 @@ async def test_recover_expired_lease_degrades_to_interrupted_when_unwired(monkey
         message_id=message_id,
         conversation_id=conversation_id,
         user_id="u1",
-        meta={"trace_id": "tr-d"},
+        meta={"trace_id": "tr-d", "recover_attempts": 1},
         trace_id=None,
     )
     state = TurnState.from_journal(_partial_journal())
     salvage_calls: list[dict] = []
     released: list[str] = []
+    hb_calls = _patch_recover_lease_heartbeat(monkeypatch)
 
     async def _fake_orphan(**kwargs):
         return None
@@ -606,6 +658,7 @@ async def test_recover_expired_lease_degrades_to_interrupted_when_unwired(monkey
     assert salvage_calls[0]["message_id"] == message_id
     assert salvage_calls[0]["reason"] == "redrive_failed"
     assert released == [message_id]
+    assert any(c.get("phase") == "recovering" for c in hb_calls)
     # finish_reason constant still the interrupted terminal (salvage path contract)
     assert FinishReason.INTERRUPTED.value == "interrupted"
 
@@ -621,13 +674,14 @@ async def test_recover_expired_lease_redrives_when_factory_wired(monkeypatch):
         message_id=message_id,
         conversation_id=conversation_id,
         user_id="u1",
-        meta={"trace_id": "tr-r"},
+        meta={"trace_id": "tr-r", "recover_attempts": 1},
         trace_id=None,
     )
     state = TurnState.from_journal(_partial_journal())
     resume_calls: list[dict] = []
     salvage_calls: list[dict] = []
     released: list[str] = []
+    _patch_recover_lease_heartbeat(monkeypatch)
 
     async def _fake_orphan(**kwargs):
         return None
@@ -638,6 +692,8 @@ async def test_recover_expired_lease_redrives_when_factory_wired(monkeypatch):
                 "plan_ids": [n.run_id for n in plan.nodes],
                 "seed": set(seed_completed),
                 "execution_id": kwargs.get("execution_id"),
+                "coordinate": kwargs.get("coordinate"),
+                "coordination": kwargs.get("coordination"),
             }
         )
         return ToolResult(tool_call_id="t1", success=True, output="redriven")
@@ -678,6 +734,8 @@ async def test_recover_expired_lease_redrives_when_factory_wired(monkeypatch):
     assert resume_calls[0]["seed"] == {"w1"}
     assert resume_calls[0]["plan_ids"] == ["w1", "w2"]
     assert resume_calls[0]["execution_id"] == "exec-crash-1"
+    assert resume_calls[0]["coordinate"] is True
+    assert resume_calls[0]["coordination"] == "wall"
     assert salvage_calls == []
     assert released == [message_id]
 
@@ -693,12 +751,13 @@ async def test_recover_expired_lease_salvages_when_rebuild_fails(monkeypatch):
         message_id=message_id,
         conversation_id=conversation_id,
         user_id="u1",
-        meta={"trace_id": "tr-f"},
+        meta={"trace_id": "tr-f", "recover_attempts": 1},
         trace_id=None,
     )
     state = TurnState.from_journal(_partial_journal())
     salvage_calls: list[dict] = []
     released: list[str] = []
+    _patch_recover_lease_heartbeat(monkeypatch)
 
     async def _fake_orphan(**kwargs):
         return None
@@ -734,6 +793,301 @@ async def test_recover_expired_lease_salvages_when_rebuild_fails(monkeypatch):
     assert len(salvage_calls) == 1
     assert salvage_calls[0]["message_id"] == message_id
     assert salvage_calls[0]["reason"] == "redrive_failed"
+    assert released == [message_id]
+
+
+async def test_recover_expired_lease_timeout_salvages(monkeypatch):
+    """Hung arm (recover_turn) past recover timeout → salvage interrupted + release."""
+    import asyncio
+
+    from agentcore.config import settings
+    from agentcore.runtime.recover import recover_expired_lease
+    from agentcore.runtime.recover_hooks import set_crash_delegate_factory
+
+    monkeypatch.setattr(settings, "turn_lease_recover_timeout_seconds", 0.05)
+    message_id = "timeout00-0000-0000-0000-000000000001"
+    lease = SimpleNamespace(
+        message_id=message_id,
+        conversation_id="timeout00-0000-0000-0000-000000000002",
+        user_id="u1",
+        meta={"trace_id": "tr-t", "recover_attempts": 1},
+        trace_id=None,
+    )
+    state = TurnState.from_journal(_partial_journal())
+    salvage_calls: list[dict] = []
+    released: list[str] = []
+    _patch_recover_lease_heartbeat(monkeypatch)
+
+    async def _fake_orphan(**kwargs):
+        return None
+
+    async def _hang_resume(plan, seed_completed, **kwargs):
+        await asyncio.sleep(10)
+        return ToolResult(tool_call_id="t1", success=True, output="late")
+
+    async def _factory(lease_arg, state_arg, *, sink):
+        tool = MagicMock()
+        tool.resume_plan = _hang_resume
+        return tool
+
+    async def _fake_salvage(**kwargs):
+        salvage_calls.append(kwargs)
+        return True
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    set_crash_delegate_factory(_factory)
+    try:
+        monkeypatch.setattr(
+            "agentcore.runtime.interaction_orphan.orphan_turn_before_recover",
+            _fake_orphan,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.sweeper.salvage_interrupted_turn",
+            _fake_salvage,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.service.release_turn_lease",
+            _fake_release,
+        )
+        await recover_expired_lease(lease, state)
+    finally:
+        set_crash_delegate_factory(None)
+
+    assert len(salvage_calls) == 1
+    assert salvage_calls[0]["reason"] == "redrive_failed"
+    assert released == [message_id]
+
+
+async def test_recover_expired_lease_timeout_cancels_drive(monkeypatch):
+    """Arm timeout after drive started → cancel_coordination stops drive, then salvage."""
+    import asyncio
+
+    from agentcore.config import settings
+    from agentcore.runtime.coordination.session import (
+        CoordinationSession,
+        clear_active_coordination,
+        set_active_coordination,
+    )
+    from agentcore.runtime.coordination.session import (
+        cancel_coordination_on_user_stop as real_cancel,
+    )
+    from agentcore.runtime.recover import recover_expired_lease
+    from agentcore.runtime.recover_hooks import set_crash_delegate_factory
+
+    monkeypatch.setattr(settings, "turn_lease_recover_timeout_seconds", 0.05)
+    message_id = "timeout01-0000-0000-0000-000000000001"
+    conversation_id = "timeout01-0000-0000-0000-000000000002"
+    lease = SimpleNamespace(
+        message_id=message_id,
+        conversation_id=conversation_id,
+        user_id="u1",
+        meta={"trace_id": "tr-td", "recover_attempts": 1},
+        trace_id=None,
+    )
+    state = TurnState.from_journal(_partial_journal())
+    salvage_calls: list[dict] = []
+    released: list[str] = []
+    cancel_calls: list[dict] = []
+    drive_task_ref: list = []
+    _patch_recover_lease_heartbeat(monkeypatch)
+    clear_active_coordination()
+
+    async def _fake_orphan(**kwargs):
+        return None
+
+    async def _arm_then_hang(plan, seed_completed, **kwargs):
+        session = CoordinationSession(
+            execution_id="exec-crash-1",
+            total_workers=2,
+            conversation_id=conversation_id,
+        )
+
+        async def _hang() -> None:
+            await asyncio.Event().wait()
+
+        session.drive_task = asyncio.create_task(_hang())
+        drive_task_ref.append(session.drive_task)
+        set_active_coordination(session)
+        await asyncio.sleep(10)
+        return ToolResult(tool_call_id="t1", success=True, output="late")
+
+    async def _factory(lease_arg, state_arg, *, sink):
+        tool = MagicMock()
+        tool.resume_plan = _arm_then_hang
+        return tool
+
+    async def _fake_salvage(**kwargs):
+        salvage_calls.append(kwargs)
+        return True
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    def _spy_cancel(conversation_id=None, *, execution_id=None):
+        cancel_calls.append(
+            {"conversation_id": conversation_id, "execution_id": execution_id}
+        )
+        return real_cancel(conversation_id, execution_id=execution_id)
+
+    set_crash_delegate_factory(_factory)
+    try:
+        monkeypatch.setattr(
+            "agentcore.runtime.interaction_orphan.orphan_turn_before_recover",
+            _fake_orphan,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.sweeper.salvage_interrupted_turn",
+            _fake_salvage,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.service.release_turn_lease",
+            _fake_release,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.coordination.session.cancel_coordination_on_user_stop",
+            _spy_cancel,
+        )
+        await recover_expired_lease(lease, state)
+    finally:
+        set_crash_delegate_factory(None)
+        clear_active_coordination()
+
+    assert any(c.get("execution_id") == "exec-crash-1" for c in cancel_calls)
+    assert len(salvage_calls) == 1
+    assert salvage_calls[0]["reason"] == "redrive_failed"
+    assert released == [message_id]
+    assert drive_task_ref
+    assert drive_task_ref[0].cancelled() or drive_task_ref[0].done()
+
+
+async def test_recover_expired_lease_drive_outlives_timeout_succeeds(monkeypatch):
+    """Drive longer than arm timeout still settles — no false timeout salvage."""
+    import asyncio
+
+    from agentcore.config import settings
+    from agentcore.runtime.coordination.session import (
+        CoordinationSession,
+        clear_active_coordination,
+        set_active_coordination,
+    )
+    from agentcore.runtime.recover import recover_expired_lease
+    from agentcore.runtime.recover_hooks import set_crash_delegate_factory
+
+    monkeypatch.setattr(settings, "turn_lease_recover_timeout_seconds", 0.05)
+    message_id = "timeout02-0000-0000-0000-000000000001"
+    conversation_id = "timeout02-0000-0000-0000-000000000002"
+    lease = SimpleNamespace(
+        message_id=message_id,
+        conversation_id=conversation_id,
+        user_id="u1",
+        meta={"trace_id": "tr-long", "recover_attempts": 1},
+        trace_id=None,
+    )
+    state = TurnState.from_journal(_partial_journal())
+    salvage_calls: list[dict] = []
+    released: list[str] = []
+    _patch_recover_lease_heartbeat(monkeypatch)
+    clear_active_coordination()
+
+    async def _fake_orphan(**kwargs):
+        return None
+
+    async def _fast_arm_slow_drive(plan, seed_completed, **kwargs):
+        session = CoordinationSession(
+            execution_id="exec-crash-1",
+            total_workers=2,
+            conversation_id=conversation_id,
+        )
+        # Drive intentionally longer than arm timeout (0.05s).
+        session.drive_task = asyncio.create_task(asyncio.sleep(0.2))
+        set_active_coordination(session)
+        return ToolResult(tool_call_id="t1", success=True, output="armed")
+
+    async def _factory(lease_arg, state_arg, *, sink):
+        tool = MagicMock()
+        tool.resume_plan = _fast_arm_slow_drive
+        return tool
+
+    async def _fake_salvage(**kwargs):
+        salvage_calls.append(kwargs)
+        return True
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    set_crash_delegate_factory(_factory)
+    try:
+        monkeypatch.setattr(
+            "agentcore.runtime.interaction_orphan.orphan_turn_before_recover",
+            _fake_orphan,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.sweeper.salvage_interrupted_turn",
+            _fake_salvage,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.service.release_turn_lease",
+            _fake_release,
+        )
+        await recover_expired_lease(lease, state)
+    finally:
+        set_crash_delegate_factory(None)
+        clear_active_coordination()
+
+    assert salvage_calls == []
+    assert released == [message_id]
+
+
+async def test_recover_expired_lease_stalled_attempts_salvages(monkeypatch):
+    """Too many claim→ready cycles without settle → salvage (no another ready)."""
+    from agentcore.config import settings
+    from agentcore.runtime.recover import recover_expired_lease
+    from agentcore.runtime.recover_hooks import set_crash_delegate_factory
+
+    monkeypatch.setattr(settings, "turn_lease_recover_max_attempts", 3)
+    message_id = "stalled0-0000-0000-0000-000000000001"
+    lease = SimpleNamespace(
+        message_id=message_id,
+        conversation_id="stalled0-0000-0000-0000-000000000002",
+        user_id="u1",
+        meta={"trace_id": "tr-s", "recover_attempts": 4},
+        trace_id=None,
+    )
+    state = TurnState.from_journal(_partial_journal())
+    salvage_calls: list[dict] = []
+    released: list[str] = []
+    factory_calls: list[str] = []
+    _patch_recover_lease_heartbeat(monkeypatch)
+
+    async def _factory(lease_arg, state_arg, *, sink):
+        factory_calls.append("called")
+        return MagicMock()
+
+    async def _fake_salvage(**kwargs):
+        salvage_calls.append(kwargs)
+        return True
+
+    async def _fake_release(mid, *, owner_id=None):
+        released.append(mid)
+
+    set_crash_delegate_factory(_factory)
+    try:
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.sweeper.salvage_interrupted_turn",
+            _fake_salvage,
+        )
+        monkeypatch.setattr(
+            "agentcore.runtime.leases.service.release_turn_lease",
+            _fake_release,
+        )
+        await recover_expired_lease(lease, state)
+    finally:
+        set_crash_delegate_factory(None)
+
+    assert factory_calls == []
+    assert len(salvage_calls) == 1
     assert released == [message_id]
 
 

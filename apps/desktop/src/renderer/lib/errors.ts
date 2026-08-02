@@ -258,19 +258,41 @@ export interface DescribedError {
     sub2api_diagnosis?: string;
     sub2api_account?: string;
     retry_after?: number;
+    credential_source?: "user" | "platform" | string | null;
   };
 }
 
 /**
- * Map a backend error `code` to a config remedy. Auth / key / balance →「去设置」;
+ * Map a backend error `code` to a config remedy. Auth / key / balance → settings;
  * connectivity codes return null (the bubble shows「重试」instead).
+ *
+ * ``LLM_KEY_INVALID`` CTA 按凭据来源分流（甲）：
+ * - user BYOK →「去设置」换 Key
+ * - platform →「接入自己的 Key」（与 QUOTA_EXCEEDED 同出口；主文案已引导联系管理员）
+ * ``INFERENCE_TOKEN_EXPIRED`` 永不进 settings。
  */
 export function errorActionForCode(
   code: string | undefined,
+  opts?: {
+    credentialSource?: string | null;
+    message?: string | null;
+  },
 ): ErrorAction | null {
   // Inference JWT ≠ BYOK key — never push「去设置 · 服务商」.
   if (code === "INFERENCE_TOKEN_EXPIRED") {
     return null;
+  }
+  if (code === "LLM_KEY_INVALID") {
+    const src =
+      opts?.credentialSource === "platform" || opts?.credentialSource === "user"
+        ? opts.credentialSource
+        : opts?.message?.includes("平台模型暂时不可用")
+          ? "platform"
+          : "user";
+    if (src === "platform") {
+      return { label: "接入自己的 Key", href: "/more/providers" };
+    }
+    return { label: "去设置", href: "/more/providers" };
   }
   if (code !== undefined && SETTINGS_ERROR_CODES.includes(code)) {
     return { label: "去设置", href: "/more/providers" };
@@ -423,7 +445,12 @@ export function describeError(err: unknown): DescribedError | null {
       /invalid or expired inference token/i.test(f.serverMessage));
   return {
     message: resolveMessage(f),
-    action: inferenceTokenFailure ? null : errorActionForCode(f.code),
+    action: inferenceTokenFailure
+      ? null
+      : errorActionForCode(f.code, {
+          credentialSource: f.context?.credential_source,
+          message: f.serverMessage,
+        }),
     // Suppress retry on refusals that an immediate re-send can't fix (quota used /
     // key missing-or-invalid / wallet empty / server key-storage down / free tier
     // exhausted). Inference JWT expiry is remintable — keep retry. The shared

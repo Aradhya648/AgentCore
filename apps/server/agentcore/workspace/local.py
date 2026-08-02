@@ -449,18 +449,22 @@ class LocalWorkspace:
             for alias, m in self._mounts.items()
             if m.root_id and m.mode != "organize"
         }
+        args: dict[str, Any] = {
+            "code": req.code,
+            "language": req.language,
+            "timeout_seconds": req.timeout_seconds,
+            "memory_limit_mb": req.memory_limit_mb,
+            "stdin": req.stdin,
+            "cwd": self._base,
+            "conversation_id": self._channel.conversation_id,
+            "external_roots": external_roots,
+        }
+        # Registry/cache pin from test_run install — desktop whitelist-merges only.
+        if req.env:
+            args["env"] = dict(req.env)
         value: dict[str, Any] = await self._channel.request(
             WorkspaceOp.EXECUTE,
-            {
-                "code": req.code,
-                "language": req.language,
-                "timeout_seconds": req.timeout_seconds,
-                "memory_limit_mb": req.memory_limit_mb,
-                "stdin": req.stdin,
-                "cwd": self._base,
-                "conversation_id": self._channel.conversation_id,
-                "external_roots": external_roots,
-            },
+            args,
             # Outlive the desktop's own execution timeout (the authoritative kill)
             # by the slack, so a long but legal run is not cut off by the flat
             # file-op deadline — only a truly gone desktop trips the transport.

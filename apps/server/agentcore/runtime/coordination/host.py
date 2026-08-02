@@ -76,6 +76,7 @@ def admit_before_run_plan_emit(
     """
     from agentcore.runtime.coordination.append_guard import (
         append_overlap_reject_message,
+        apply_vacated_seat_replaces,
         find_append_overlaps,
         find_sibling_artifact_crosses,
     )
@@ -83,8 +84,6 @@ def admit_before_run_plan_emit(
     from agentcore.workspace.write_claims import file_ownership_v2_enabled
 
     force = getattr(tool, "_delegate_force", False) is True
-    if force:
-        return None
 
     existing = active_coordination(execution_id)
     merging = (
@@ -93,6 +92,17 @@ def admit_before_run_plan_emit(
         and int(getattr(tool, "_depth", 0) or 0) == 0
         and not finalize
     )
+
+    if merging and existing is not None:
+        apply_vacated_seat_replaces(
+            plan,
+            existing.live_plan,
+            completed_run_ids=existing.completed_run_ids,
+            vacated_run_ids=existing.vacated_run_ids,
+        )
+
+    if force:
+        return None
 
     if merging and existing is not None:
         from agentcore.runtime.coordination.isomorphic import (
@@ -227,9 +237,18 @@ def _seed_session_completed(
         RunPhase.CANCELLED,
         RunPhase.SKIPPED,
     }
+    vacated = {
+        RunPhase.FAILED,
+        RunPhase.CANCELLED,
+        RunPhase.SKIPPED,
+    }
     for run_id, state in seed_completed.items():
         if state.phase in terminal:
             session.mark_worker_completed(run_id)
+        if state.phase in vacated:
+            session.vacated_run_ids.add(run_id)
+        if state.phase is RunPhase.FAILED:
+            session.failed_run_ids.add(run_id)
     # Seeded terminals are prior-wave history — don't name them as「本轮新完成」.
     session.progress_reported_completed |= set(session.completed_run_ids)
 
@@ -380,6 +399,7 @@ def _merge_into_active_coordination(
     """Append ``plan`` workers onto the live session (budget / cancel / arbitration kept)."""
     from agentcore.runtime.coordination.append_guard import (
         append_overlap_reject_message,
+        apply_vacated_seat_replaces,
         declare_plan_artifacts,
         find_append_overlaps,
     )
@@ -400,10 +420,19 @@ def _merge_into_active_coordination(
     live = session.live_plan
     drive_running = session.drive_task is not None and not session.drive_task.done()
 
-    # Playbook/DAG still in flight: reject appends that overlap incomplete nodes
-    # on role duty or file deliverable targets (GEO collision class). C3: file
-    # side also consults session ownership (completed owners still hold). force=true
-    # bypasses — same escape hatch as isomorphic re-delegation.
+    # Seat reclaim: failed/cancelled/skipped seats auto-fill replaces_run_id before
+    # overlap / declare (same pipeline as explicit replaces).
+    apply_vacated_seat_replaces(
+        plan,
+        live,
+        completed_run_ids=session.completed_run_ids,
+        vacated_run_ids=session.vacated_run_ids,
+    )
+
+    # Playbook/DAG still in flight: reject appends that overlap incomplete seats
+    # or file deliverable targets. C3: file side also consults session ownership
+    # (completed owners still hold). force=true bypasses — same escape hatch as
+    # isomorphic re-delegation.
     force = getattr(tool, "_delegate_force", False) is True
     ownership = session.ensure_file_ownership() if file_ownership_v2_enabled() else None
     if not force:
@@ -1010,6 +1039,12 @@ def post_worker_progress(
         node = plan.by_id(run_id)
         role = (node.role if node else None) or run_id
         session.mark_worker_completed(run_id)
+        if state.phase in (
+            RunPhase.FAILED,
+            RunPhase.CANCELLED,
+            RunPhase.SKIPPED,
+        ):
+            session.vacated_run_ids.add(run_id)
         if state.phase is RunPhase.FAILED:
             session.failed_run_ids.add(run_id)
         session.post(

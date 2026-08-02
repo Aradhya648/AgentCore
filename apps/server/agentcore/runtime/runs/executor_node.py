@@ -73,6 +73,7 @@ from agentcore.runtime.runs.executor_identities import (
 from agentcore.runtime.runs.executor_shared import (
     _apply_cutoff_reasons,
     _apply_finish_interrupt,
+    _continuation_message,
     _delivery_gaps_from_warnings,
     _hard_gap_blocks_completion,
     _is_hard_failure,
@@ -92,7 +93,12 @@ from agentcore.runtime.runs.retrieval_budget import (
     RETRIEVAL_TOOL_NAMES,
     rework_refill_slots,
 )
-from agentcore.runtime.runs.salvage import cancelled_state_from_salvage, try_salvage_session
+from agentcore.runtime.runs.salvage import (
+    cancelled_state_from_salvage,
+    content_from_transcript,
+    freeze_partial_transcript,
+    try_salvage_session,
+)
 from agentcore.runtime.runs.serialize import (
     debrief_from_transcript,
     escalations_from_transcript,
@@ -221,6 +227,18 @@ def _wind_down_entered(
         settings.engine_worker_token_wind_down_reserve or DEFAULT_TOKEN_WIND_DOWN_RESERVE
     )
     return should_enter_token_wind_down(tokens_spent, token_ceiling, reserve)
+
+
+def should_skip_contract_retry_for_budget(
+    *,
+    handoff_ok: bool,
+    wind_down_entered: bool,
+) -> bool:
+    """定案 B：handoff 已成功且预算收尾/将尽 → 跳过自动契约返工（防空转）。
+
+    真缺口交给审校/CEO，不靠耗尽后再硬返工。硬顶短路见调用方的 ceiling 分支。
+    """
+    return bool(handoff_ok and wind_down_entered)
 
 
 def _narrow_for_light_repair(
@@ -606,40 +624,67 @@ async def execute_agent_node(
         # as a recoverable RunSession for 定向唤回 (统一「续写」原语, 见 §三).
         # received_blocks captures the SAME ContextBlocks the opening was rendered
         # from (单一源), so the run_context event ships exactly what the LLM was fed.
+        #
+        # Wave infra-retry 热续: when the scheduler seeds ``completed[self]`` with the
+        # prior FAILED+transcript attempt, resume that site (continue semantics) instead
+        # of cold ``_build_messages`` — same run_id, consume the hung transcript.
         received_blocks: list[ContextBlock] = []
-        messages[:] = _build_messages(
-            env.plan,
-            spec,
-            completed,
-            env.system_prompt,
-            env.user_message,
-            deliverable,
-            identity=identity,
-            index_paths=index_paths,
-            blocks_sink=received_blocks,
-            team_brief=env.team_brief,
-            shared_workspace=env.shared_workspace,
-            batch_completion_criteria=env.batch_completion_criteria,
-            context_inject=context_inject or None,
-            captain_recon=env.captain_recon,
-        )
-        # Worker window head (§8.3): journal the opening task-prompt so
-        # ``window_from_journal(run_id=…)`` anchors on THIS run's system+user, not the
-        # turn-level CEO ``turn_started``. ``user_origin=context_blocks`` marks the
-        # opening user as the ContextBlock join (diagnostic UI replaces it with the
-        # structured ``run_context`` segments).
-        record_turn_fact(
-            RunHeadFact(
-                run_id=spec.run_id,
-                system_prompt=messages[0].content or "",
-                user_message=messages[1].content or "",
-                user_origin="context_blocks",
-            ).to_fact()
-        )
-        # 上下文传递可视化: emit the received context right after assembly (before the
-        # LLM react loop) so the frontend's run detail lights up its「收到的上下文」as
-        # soon as the worker starts thinking. Bodies capped + journaled (see run_context).
-        env.sink.emit(run_context(spec.run_id, agent_id, _context_block_payloads(received_blocks)))
+        prior_attempt = completed.get(spec.run_id)
+        if (
+            prior_attempt is not None
+            and prior_attempt.phase is RunPhase.FAILED
+            and prior_attempt.transcript
+        ):
+            from agentcore.runtime.runs.executor_continue import (
+                _record_continuation_run_head,
+                _strip_historical_reasoning,
+            )
+
+            messages[:] = _strip_historical_reasoning(list(prior_attempt.transcript))
+            messages.append(
+                _continuation_message(
+                    "上一跳因临时上游失败中断。请在已有现场与产出上继续完成原任务。"
+                )
+            )
+            _record_continuation_run_head(
+                spec.run_id, messages, from_context_blocks=False
+            )
+        else:
+            messages[:] = _build_messages(
+                env.plan,
+                spec,
+                completed,
+                env.system_prompt,
+                env.user_message,
+                deliverable,
+                identity=identity,
+                index_paths=index_paths,
+                blocks_sink=received_blocks,
+                team_brief=env.team_brief,
+                shared_workspace=env.shared_workspace,
+                batch_completion_criteria=env.batch_completion_criteria,
+                context_inject=context_inject or None,
+                captain_recon=env.captain_recon,
+            )
+            # Worker window head (§8.3): journal the opening task-prompt so
+            # ``window_from_journal(run_id=…)`` anchors on THIS run's system+user, not the
+            # turn-level CEO ``turn_started``. ``user_origin=context_blocks`` marks the
+            # opening user as the ContextBlock join (diagnostic UI replaces it with the
+            # structured ``run_context`` segments).
+            record_turn_fact(
+                RunHeadFact(
+                    run_id=spec.run_id,
+                    system_prompt=messages[0].content or "",
+                    user_message=messages[1].content or "",
+                    user_origin="context_blocks",
+                ).to_fact()
+            )
+            # 上下文传递可视化: emit the received context right after assembly (before the
+            # LLM react loop) so the frontend's run detail lights up its「收到的上下文」as
+            # soon as the worker starts thinking. Bodies capped + journaled (see run_context).
+            env.sink.emit(
+                run_context(spec.run_id, agent_id, _context_block_payloads(received_blocks))
+            )
 
         # Worker 累计 token 硬顶 (loose backstop · 真执行): compaction (tool_clear)
         # 挑大梁做上下文瘦身,这只在失控时收口。≤0 = 关闭。
@@ -694,6 +739,9 @@ async def execute_agent_node(
         cutoff_reasons: list[str] = []
         # Last accepted react pass's tool-failure facts (circuit-breaker tally).
         tool_failures: list[dict] = []
+        # Cross-pass LoopController latches (validation path-stop / thrash).
+        pass_controller_seed: dict | None = None
+        controller_seed_out: list[dict] = []
         # Format-only / handoff-thin: one in-place light repair before full contract.retry.
         # Zero-disk (requires_files): one short write pass — never a full investigation retry.
         # 调研两阶段：A 跳过引用闸；cite 不干净时同 worker 自动升 B（一次），不过则 rejected。
@@ -711,6 +759,7 @@ async def execute_agent_node(
             finish_override.clear()
             cutoff_reasons.clear()
             tool_failures.clear()
+            controller_seed_out.clear()
             pass_token_budget = _retry_token_budget(
                 ceiling=token_ceiling, spent=run_usage.total_tokens
             )
@@ -788,12 +837,16 @@ async def execute_agent_node(
                     finish_override_sink=finish_override,
                     cutoff_reason_sink=cutoff_reasons,
                     tool_failure_sink=tool_failures,
+                    controller_seed=pass_controller_seed,
+                    controller_seed_sink=controller_seed_out,
                     files_expected=files_expected,
                     short_write_posture=short_write_posture,
                     tighten_verify_exec_thrash=tighten_verify_exec_thrash,
                     form_prose=deliverable_form == "prose",
                     product_landing_artifacts=product_landing_artifacts,
                 )
+            if controller_seed_out:
+                pass_controller_seed = dict(controller_seed_out[0])
             run_usage = run_usage + round_usage
             run_rounds += round_rounds
             # This pass's usage is now folded into run_usage via its return value;
@@ -1079,8 +1132,29 @@ async def execute_agent_node(
                 logger.info(
                     "contract.retry_skipped_budget",
                     run_id=spec.run_id,
+                    reason="hard_ceiling",
                     tokens=run_usage.total_tokens,
                     ceiling=token_ceiling,
+                )
+                break
+            # 定案 B：已交接成功且进入预算收尾/将尽 → 跳过契约返工（勿空转收尾）。
+            budget_wind_down = _wind_down_entered(
+                cutoff_reasons=cutoff_reasons,
+                token_ceiling=token_ceiling,
+                tokens_spent=run_usage.total_tokens,
+            )
+            if should_skip_contract_retry_for_budget(
+                handoff_ok=handoff_ok,
+                wind_down_entered=budget_wind_down,
+            ):
+                logger.info(
+                    "contract.retry_skipped_budget",
+                    run_id=spec.run_id,
+                    reason="wind_down",
+                    handoff_ok=True,
+                    tokens=run_usage.total_tokens,
+                    ceiling=token_ceiling,
+                    failures=verdict.failures,
                 )
                 break
             # 断流归因：这一遍是被 LLM 传输失败掐断的（ERROR = 没收到正文，
@@ -1182,11 +1256,7 @@ async def execute_agent_node(
             # never after wind_down（不得恢复全量检索）.
             rb = tool_ctx.retrieval_budget
             original_rb = int(spec.retrieval_budget or (rb.limit if rb else 0) or 0)
-            wind_down = _wind_down_entered(
-                cutoff_reasons=cutoff_reasons,
-                token_ceiling=token_ceiling,
-                tokens_spent=run_usage.total_tokens,
-            )
+            wind_down = budget_wind_down
             slice_n = rework_refill_slots(
                 original_limit=original_rb, wind_down_entered=wind_down
             )
@@ -1393,6 +1463,7 @@ async def execute_agent_node(
                     spec.run_id,
                     agent_id,
                     reason,
+                    failure_kind="quality",
                     debrief=debrief,
                     execution_id=env.execution_id,
                 )
@@ -1484,6 +1555,7 @@ async def execute_agent_node(
                     spec.run_id,
                     agent_id,
                     reason,
+                    failure_kind="quality",
                     debrief=debrief,
                     execution_id=env.execution_id,
                 )
@@ -1507,24 +1579,26 @@ async def execute_agent_node(
                 received_context=received_blocks,
             )
         # 刀1 / 方案 A：strict + 真未落盘仍硬拦；已落盘 + 仅交接降级 → 放行 COMPLETED。
-        hard_gap_reason = _hard_gap_blocks_completion(
+        hard_gap = _hard_gap_blocks_completion(
             delivery_gaps,
             debrief,
             deliverable,
             files_touched=len(touched or []),
         )
-        if hard_gap_reason:
+        if hard_gap:
             logger.info(
                 "contract.hard_gap_blocked_completion",
                 run_id=spec.run_id,
-                reason=hard_gap_reason,
+                reason=hard_gap.reason,
+                failure_kind=hard_gap.failure_kind,
                 gaps=delivery_gaps,
             )
             env.sink.emit(
                 run_failed(
                     spec.run_id,
                     agent_id,
-                    hard_gap_reason,
+                    hard_gap.reason,
+                    failure_kind=hard_gap.failure_kind,
                     debrief=debrief,
                     execution_id=env.execution_id,
                 )
@@ -1533,7 +1607,7 @@ async def execute_agent_node(
                 phase=RunPhase.FAILED,
                 content=content,
                 reasoning=reasoning,
-                error=hard_gap_reason,
+                error=hard_gap.reason,
                 error_retryable=False,
                 warnings=warnings,
                 delivery_gaps=delivery_gaps,
@@ -1547,7 +1621,7 @@ async def execute_agent_node(
                 file_acceptance=build_file_acceptance(
                     touched,
                     phase=RunPhase.FAILED,
-                    error=hard_gap_reason,
+                    error=hard_gap.reason,
                     path_rejections=path_rej,
                 ),
                 tool_failures=list(tool_failures),
@@ -1668,9 +1742,11 @@ async def execute_agent_node(
                 spec.run_id,
                 agent_id,
                 str(e),
+                failure_kind="call",
                 execution_id=env.execution_id,
             )
         )
+        frozen = freeze_partial_transcript(messages) if messages else []
         return _priced_failure(
             str(e),
             model=priced_model,
@@ -1678,6 +1754,8 @@ async def execute_agent_node(
             rounds=run_rounds,
             duration_ms=duration_ms,
             retryable=retryable,
+            transcript=frozen or None,
+            content=content_from_transcript(frozen) if frozen else "",
         )
     finally:
         # Browser B: release this run's session bind so a later worker omitting

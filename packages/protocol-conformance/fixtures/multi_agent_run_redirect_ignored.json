@@ -114,7 +114,8 @@
       "payload": {
         "run_id": "r1",
         "agent_id": "w1",
-        "error": "上游 400：提示过长（确定性失败，重试无益）"
+        "error": "上游 400：提示过长（确定性失败，重试无益）",
+        "failure_kind": "call"
       },
       "timestamp": "2026-01-01T00:00:00.009Z"
     },
@@ -258,6 +259,7 @@
         "debrief": null,
         "durationMs": null,
         "error": "上游 400：提示过长（确定性失败，重试无益）",
+        "failureKind": "call",
         "parentRunId": null,
         "kind": "agent",
         "role": null,
@@ -291,6 +293,7 @@
         "debrief": null,
         "durationMs": 1200,
         "error": null,
+        "failureKind": null,
         "parentRunId": null,
         "kind": "agent",
         "role": "member",

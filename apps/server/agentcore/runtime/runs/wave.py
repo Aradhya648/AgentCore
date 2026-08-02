@@ -153,16 +153,17 @@ class WaveScheduler:
           immediately (materialised SKIPPED into the completed map) so lenient fan-in
           can admit the priority tail; priority nodes still dispatch. No-op when no
           pending priority node exists. Orthogonal to hard ``should_stop``.
-        - ``cancel_run_ids`` is polled each cycle; run_ids in the returned set that
-          are currently in-flight are cancelled individually — the cancelled node gets
-          ``RunPhase.CANCELLED``, siblings keep running, and dependents follow
-          the fan-in rule: default ≥1 upstream COMPLETED → still run (absent
-          upstreams annotated in task input); ``require_upstream=True`` keeps
-          cascade-skip on any cancel/failure. ``force_continue=True`` allows a
+        - ``cancel_run_ids`` is polled each cycle. In-flight matches are cancelled
+          individually → ``RunPhase.CANCELLED``. Not-yet-dispatched matches are
+          withdrawn as ``RunPhase.SKIPPED`` (``on_skipped(abort)``) so
+          ``cancel_worker`` on a queued node never launches. Siblings keep running;
+          dependents follow the fan-in rule: default ≥1 upstream COMPLETED → still
+          run (absent upstreams annotated in task input); ``require_upstream=True``
+          keeps cascade-skip on any cancel/failure. ``force_continue=True`` allows a
           node even with zero successful upstreams. A dependent revived via
           ``replaces_run_id`` still runs.
-          Used by delegate drive for user-initiated worker redirect and hard-timeout
-          force-cancel.
+          Used by delegate drive for user-initiated worker redirect,
+          ``cancel_worker`` pending withdraw, and hard-timeout force-cancel.
         - ``on_progress`` fires after *each* node finishes with the completed-so-far
           map, so the host gets smooth progress (one increment per node).
         - ``on_node_done`` (optional, additive) fires once per *executed* node with
@@ -355,6 +356,36 @@ class WaveScheduler:
                                 1 for n in plan.nodes if n.run_id not in completed
                             ),
                         )
+                    # CEO cancel_worker on a queued node: withdraw before ready-scan
+                    # so cancel_ids never silently re-dispatch after a fake success.
+                    if cancel_run_ids is not None:
+                        pending_cancel = cancel_run_ids()
+                        if pending_cancel:
+                            withdrew = False
+                            for node in plan.nodes:
+                                rid = node.run_id
+                                if rid not in pending_cancel:
+                                    continue
+                                if (
+                                    rid in completed
+                                    or rid in skipped
+                                    or rid in dispatched
+                                ):
+                                    continue
+                                skipped.add(rid)
+                                dispatched.add(rid)
+                                completed[rid] = RunState(phase=RunPhase.SKIPPED)
+                                if on_skipped is not None:
+                                    agent_id = (
+                                        (node.agent_id if node.agent_id else "")
+                                        or rid
+                                    )
+                                    on_skipped(rid, agent_id, "abort")
+                                withdrew = True
+                            if withdrew and on_progress is not None:
+                                maybe = on_progress(completed)
+                                if inspect.isawaitable(maybe):
+                                    await maybe
                     # ``replaces_run_id`` mid-run may rewrite edges off a failed dep —
                     # revive cascade-skipped dependents so they wait on the replacement.
                     self._revive_cascade_skips(plan, completed, skipped, dispatched)
@@ -707,7 +738,20 @@ class WaveScheduler:
                         source="on_failure",
                         error=str(last.error) if last and last.error else None,
                     )
-                state = await executor(spec, completed)
+                # Infra-retry 热续: prior FAILED with a non-empty transcript is seeded
+                # into the completed snapshot under this run_id so the executor consumes
+                # that site (continue semantics) instead of cold-opening from scratch.
+                dispatch_completed: Mapping[str, RunState] = completed
+                if (
+                    last is not None
+                    and last.phase is RunPhase.FAILED
+                    and last.transcript
+                    and last.error_retryable
+                ):
+                    seeded = dict(completed)
+                    seeded[spec.run_id] = last
+                    dispatch_completed = seeded
+                state = await executor(spec, dispatch_completed)
                 state.attempt = attempt
                 if last is not None:
                     state = _merge_retry_billing(last, state)

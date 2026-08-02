@@ -151,10 +151,13 @@ class WorkspaceChannel:
     ``LocalWorkspace`` builds the JSON-safe ``args`` and interprets the returned
     ``value`` per op.
 
-    Sticky dead: the first transport ``TimeoutError`` (desktop liveness hang) marks
-    the channel dead for the rest of the turn — subsequent ``request``s fail-fast
-    without SSE, and same-channel inflight ops are settled with a failure envelope
-    so they do not burn the remaining deadline.
+    Sticky dead: the first transport ``TimeoutError`` on a **real** workspace op
+    (desktop liveness hang) marks the channel dead for the rest of the turn —
+    subsequent ``request``s fail-fast without SSE, and same-channel inflight ops
+    are settled with a failure envelope so they do not burn the remaining deadline.
+    ``probe_exec`` (language advertise probe at turn prepare) is exempt: its
+    timeout/failure only fail-closes the language surface, and must not sticky-dead
+    the file channel.
 
     Bounded in-flight: a semaphore caps concurrent desktop round-trips
     (``max_inflight``, default 2). Extra callers queue before suspend; queue wait
@@ -244,8 +247,9 @@ class WorkspaceChannel:
         read-only mounts under ``external/<alias>/``); omit to use the workspace
         binding root. Does not change the conversation workspace binding contract.
 
-        After the first liveness timeout the channel stays sticky-dead: new requests
-        raise immediately (no SSE) so a hung desktop cannot cascade into more 60s waits.
+        After the first real-op liveness timeout the channel stays sticky-dead: new
+        requests raise immediately (no SSE) so a hung desktop cannot cascade into
+        more 60s waits. ``probe_exec`` timeouts do not enter that sticky state.
 
         Concurrency order: dead-check → acquire slot → dead-check → suspend. A
         waiter that obtains a slot after the channel died fail-fasts without SSE.
@@ -297,7 +301,10 @@ class WorkspaceChannel:
                     )
                 except TimeoutError as e:
                     logger.info("workspace.op_timeout", op=op_name, request_id=request_id)
-                    self._mark_dead(op=op_name, request_id=request_id)
+                    # Language advertise probe only: fail-closed at resolve_exec_languages,
+                    # never sticky-dead the file IO channel (A1).
+                    if op_name != WorkspaceOp.PROBE_EXEC:
+                        self._mark_dead(op=op_name, request_id=request_id)
                     raise WorkspaceIOError(
                         f"local workspace op '{op_name}' timed out（活性挂起）"
                     ) from e

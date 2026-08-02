@@ -124,6 +124,7 @@ async def react_loop(
     cutoff_reason_sink: list[str] | None = None,
     controller_seed: Mapping[str, Any] | None = None,
     tool_failure_sink: list[dict[str, Any]] | None = None,
+    controller_seed_sink: list[dict[str, Any]] | None = None,
     files_expected: bool = False,
     short_write_posture: bool = False,
     tighten_verify_exec_thrash: bool = False,
@@ -240,6 +241,11 @@ async def react_loop(
 
     ``tool_failure_sink``: when given, replaced at every terminal exit with this run's
     tool-failure fact dicts (same tally as the circuit breaker — for RunState / CEO).
+
+    ``controller_seed_sink``: when given, replaced at every terminal exit with this
+    run's :meth:`LoopController.export_seed` snapshot so a follow-up pass
+    (write_pass / light_repair / contract retry) can restore validation path-stop
+    memory across a fresh controller.
     """
     profile = profile or get_profile("chat")
     if usage_sink is not None:
@@ -354,6 +360,16 @@ async def react_loop(
             return
         tool_failure_sink.clear()
         tool_failure_sink.extend(f.to_dict() for f in controller.tool_failure_facts())
+
+    def _export_controller_seed() -> None:
+        if controller_seed_sink is None:
+            return
+        controller_seed_sink.clear()
+        controller_seed_sink.append(dict(controller.export_seed()))
+
+    def _export_terminal_state() -> None:
+        _export_tool_failures()
+        _export_controller_seed()
 
     def _exit(
         content: str, reasoning: str, usage: TokenUsage, rounds: int
@@ -1071,7 +1087,7 @@ async def react_loop(
                 form_prose=form_prose,
             )
             if applied.action == "return":
-                _export_tool_failures()
+                _export_terminal_state()
                 return _exit(
                     applied.content,
                     applied.reasoning,
@@ -1172,7 +1188,7 @@ async def react_loop(
             files_expected=files_expected,
             form_prose=form_prose,
         )
-        _export_tool_failures()
+        _export_terminal_state()
         return _exit(*result)
     finally:
         if captain_token is not None:

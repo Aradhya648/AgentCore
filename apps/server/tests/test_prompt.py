@@ -255,13 +255,15 @@ def test_core_teaches_split_criterion_over_count():
     assert "拿不准先少派" in hint
     assert "可分解" in hint and "质量面" in hint
     assert "finalize=true" in hint and "机械单步" in hint
-    # 结局分层：A parallel_brief / B research_report；多角≠成文；禁一人自搜+成文
+    # 结局分层：默认 A parallel_brief（未明示成文）；B research_report 仅明示成文
     assert "结局分层" in hint
     assert "parallel_brief" in hint
-    assert "对齐推进" in hint
+    assert "对齐推进" in hint or "默认走 A" in hint or "默认 A" in hint
     assert "research_report" in hint
     assert "成文交付" in hint or "成文专线" in hint or "成篇" in hint
     assert "禁止" in hint and "research_report" in hint  # A 禁套 B
+    assert "少扇出" in hint or "常 2" in hint
+    assert "论文" in hint and ("资料" in hint or "开源" in hint)  # 论文/开源 ≠ 明示成文
     assert "一人包办" in hint or "自搜+成文" in hint
     assert "角 prose" in hint and "仅主笔落盘" in hint
     assert "form=files" in hint

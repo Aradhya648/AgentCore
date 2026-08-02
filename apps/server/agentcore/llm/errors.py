@@ -256,8 +256,14 @@ def error_context_from(exc: BaseException) -> dict[str, int | str | float | None
     retry_after = exc.details.get("retry_after")
     if isinstance(exc, LLMRateLimitError) and retry_after is None:
         retry_after = getattr(exc, "retry_after", None)
+    credential_source = exc.details.get("credential_source")
 
-    if status is None and retry_after is None and not isinstance(exc, LLMRateLimitError):
+    if (
+        status is None
+        and retry_after is None
+        and not isinstance(exc, LLMRateLimitError)
+        and credential_source not in ("user", "platform")
+    ):
         return None
 
     ctx: dict[str, int | str | float | None] = {}
@@ -268,6 +274,8 @@ def error_context_from(exc: BaseException) -> dict[str, int | str | float | None
     if retry_after is not None:
         with contextlib.suppress(TypeError, ValueError):
             ctx["retry_after"] = float(retry_after)
+    if credential_source in ("user", "platform"):
+        ctx["credential_source"] = credential_source
     if exc.details.get("sub2api_diagnosis"):
         ctx["sub2api_diagnosis"] = exc.details["sub2api_diagnosis"]
     if exc.details.get("sub2api_account"):

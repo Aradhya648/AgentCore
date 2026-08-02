@@ -86,10 +86,14 @@ class ObservingLLMProvider:
         return 1
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
+        from agentcore.llm.turn_auth_dead import mark_turn_auth_dead, raise_if_turn_auth_dead
+
         start = time.monotonic()
         try:
+            raise_if_turn_auth_dead()
             response = await self._inner.complete(request)
         except Exception as e:
+            mark_turn_auth_dead(e)
             log_llm_call_failed(
                 scenario=request.scenario,
                 model=request.model,
@@ -121,6 +125,8 @@ class ObservingLLMProvider:
         return response
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
+        from agentcore.llm.turn_auth_dead import mark_turn_auth_dead, raise_if_turn_auth_dead
+
         start = time.monotonic()
         usage: TokenUsage | None = None
         finish_reason: str | None = None
@@ -131,6 +137,7 @@ class ObservingLLMProvider:
         aborted = False
         outcome = "open"
         try:
+            raise_if_turn_auth_dead()
             async for chunk in self._inner.stream(request):
                 if chunk.aborted:
                     aborted = True
@@ -165,6 +172,7 @@ class ObservingLLMProvider:
             raise
         except Exception as e:
             outcome = "failed"
+            mark_turn_auth_dead(e)
             log_llm_call_failed(
                 scenario=request.scenario,
                 model=request.model,

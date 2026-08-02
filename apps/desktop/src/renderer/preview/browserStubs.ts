@@ -121,6 +121,7 @@ const sidecarApi: SidecarApi = {
 const updaterApi: UpdaterApi = {
   configure: async () => {},
   check: async () => {},
+  download: async () => {},
   quitAndInstall: async () => {},
   getStatus: async () => ({ phase: "unsupported" }),
   onStatus: () => noop,

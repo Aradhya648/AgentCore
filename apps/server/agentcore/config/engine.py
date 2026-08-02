@@ -97,7 +97,8 @@ class EngineSettings(BaseModel):
     engine_llm_stream_idle_timeout_seconds: float = 100.0
     # force_finalize 绝对墙钟（秒）：硬顶/收敛收尾 LLM 流的独立上限。与 idle 闸正交——idle
     # 按 chunk 重置，长流可无限拖；本墙钟不重置，超时走既有 salvage（保留 prior 交付）。
-    # 不改 mark_llm_inflight 暂停语义。≤0 关闭。
-    engine_force_finalize_wall_seconds: float = 60.0
+    # 默认 120：保留防挂死墙，给大上下文健康长收尾留余地（巡检 60s 误砍偏多）。≤0 关闭。
+    # 不改 mark_llm_inflight 暂停语义。
+    engine_force_finalize_wall_seconds: float = 120.0
 
     observability_span_export_enabled: bool = True

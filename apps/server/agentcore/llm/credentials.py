@@ -63,3 +63,27 @@ def bind_credential_pricing_context(creds: LLMCredentials | None) -> None:
     if creds.provider_id:
         bind_log_context(provider_id=creds.provider_id)
 
+
+_API_KEY_NON_ASCII_MESSAGE = (
+    "API Key 含有全角或中文符号，无法用于请求。"
+    "请重新复制粘贴纯英文/数字的 Key，勿混入中文括号等字符。"
+)
+
+
+def require_http_header_safe_api_key(api_key: str) -> str:
+    """Reject keys that cannot be placed in an HTTP ``Authorization`` header.
+
+    httpx encodes header values as ASCII; fullwidth punctuation (e.g. ``（``)
+    otherwise raises ``UnicodeEncodeError`` → unhandled 500 on /test and chat.
+    """
+    from agentcore.core.errors import ValidationError
+
+    text = (api_key or "").strip()
+    if not text:
+        raise ValidationError("API Key 不能为空")
+    try:
+        text.encode("ascii")
+    except UnicodeEncodeError as e:
+        raise ValidationError(_API_KEY_NON_ASCII_MESSAGE) from e
+    return text
+

@@ -227,7 +227,9 @@ async def test_code_execute_blocks_npm_install_to_test_run():
     assert result.success is False
     assert result.contract_failure is True
     assert result.metadata.get("code") == "project_verify_redirect"
-    assert "test_run" in (result.error or "")
+    err = result.error or ""
+    assert "test_run" in err
+    assert "check=install" in err
     assert backend.requests == []
 
 

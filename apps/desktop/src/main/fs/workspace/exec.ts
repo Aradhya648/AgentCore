@@ -110,6 +110,24 @@ function resolveLangCmd(
 }
 
 /**
+ * Allowlist registry / package-cache env keys from the server execute payload.
+ * Arbitrary env injection from the API is rejected (PATH / LD_* / secrets…).
+ */
+const REGISTRY_ENV_KEY =
+  /^(NPM_CONFIG_|npm_config_|YARN_|PNPM_|HTTPS_PROXY|HTTP_PROXY|ALL_PROXY|NO_PROXY|https_proxy|http_proxy|all_proxy|no_proxy)/;
+
+export function pickRegistryEnv(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!REGISTRY_ENV_KEY.test(key)) continue;
+    if (typeof value !== "string") continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * 在 `cwd` 下跑一个脚本文件，捕获 stdout/stderr，超时则强杀。
  *
  * 镜像服务端 SubprocessSandbox：超时 → stdout 清空、stderr 写超时说明、exit -1；
@@ -259,11 +277,13 @@ export async function opExecute(
     await fs.writeFile(scriptFile, code, "utf-8");
     // W3: inject AGENTCORE_EXTERNAL_* + D11′ PYTHONPATH (. + src/lib) so local
     // code_execute can import src-layout packages the same way TestExitCode does.
+    // Registry/cache pins from server (test_run install) are whitelist-merged only.
     const envExtra: Record<string, string> = {
       ...buildExternalEnvFromRoots(
         args.external_roots as Record<string, unknown> | undefined,
         String(args.conversation_id ?? ""),
       ),
+      ...pickRegistryEnv(args.env),
     };
     if (language === "python") {
       Object.assign(envExtra, buildWorkspacePythonpathEnv(cwdAbs));

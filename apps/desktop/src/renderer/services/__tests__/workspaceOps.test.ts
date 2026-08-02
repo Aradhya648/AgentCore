@@ -9,6 +9,7 @@ import { BASE_URL } from "@/services/api";
 import { resetClientToolFulfillmentForTests } from "@/services/clientToolFulfill";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import { performWorkspaceOp } from "@/services/workspaceOps";
+import { useWorkspaceChannelStore } from "@/stores/workspaceChannel";
 import type { WorkspaceOpRequiredPayload } from "@/types/events";
 
 vi.mock("@/services/sidecarRouting", () => ({
@@ -60,6 +61,7 @@ const postedBody = (fetchMock: ReturnType<typeof vi.fn>, call = 0) =>
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   resetClientToolFulfillmentForTests();
+  useWorkspaceChannelStore.setState({ notReady: false });
   fetchMock = vi.fn().mockResolvedValue(okResponse());
   vi.stubGlobal("fetch", fetchMock);
   resolveTarget.mockReset();
@@ -67,6 +69,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   resetClientToolFulfillmentForTests();
+  useWorkspaceChannelStore.setState({ notReady: false });
   vi.unstubAllGlobals();
 });
 
@@ -229,6 +232,35 @@ describe("performWorkspaceOp (本地工作区 op 回填)", () => {
     };
     expect(body.ok).toBe(false);
     expect(body.error.kind).toBe("WorkspaceIOError");
+    expect(body.error.detail).toContain("活性挂起");
+    expect(useWorkspaceChannelStore.getState().notReady).toBe(true);
+  });
+
+  it("probe_exec abort does not raise the file-channel banner", async () => {
+    const workspaceOp = vi.fn(
+      () =>
+        new Promise<{ ok: true; value: string }>((resolve) => {
+          setTimeout(() => resolve({ ok: true, value: "late" }), 500);
+        }),
+    );
+    stubFsApi(workspaceOp);
+
+    await performWorkspaceOp(
+      payload({
+        request_id: "r-probe-abort",
+        op: "probe_exec",
+        args: {},
+        timeout_ms: 20,
+      }),
+      "c1",
+    );
+
+    expect(useWorkspaceChannelStore.getState().notReady).toBe(false);
+    const body = postedBody(fetchMock) as {
+      ok: boolean;
+      error: { detail: string };
+    };
+    expect(body.ok).toBe(false);
     expect(body.error.detail).toContain("活性挂起");
   });
 });

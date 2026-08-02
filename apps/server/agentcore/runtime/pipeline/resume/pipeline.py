@@ -199,6 +199,7 @@ async def resume_chat_pipeline(
     session_saver = roster_writer.save if roster_writer is not None else None
     fact_log = TurnFactLog(inherited_entries=list(suspension.journal_entries))
     fact_log_token = current_fact_log.set(fact_log)
+    from agentcore.llm.turn_auth_dead import bind_turn_auth_dead, reset_turn_auth_dead
     from agentcore.runtime.turn_token_budget import (
         bind_turn_token_meter,
         reset_turn_token_meter,
@@ -209,6 +210,7 @@ async def resume_chat_pipeline(
     turn_token_meter_token = bind_turn_token_meter(
         seed=tokens_from_journal_entries(suspension.journal_entries)
     )
+    turn_auth_dead_token = bind_turn_auth_dead()
     execution_id_token = None
     bound_execution_id: str | None = None
     pre_pause = ""
@@ -556,6 +558,7 @@ async def resume_chat_pipeline(
         if ledger_token is not None:
             turn_evidence_ledger.reset(ledger_token)
         reset_turn_token_meter(turn_token_meter_token)
+        reset_turn_auth_dead(turn_auth_dead_token)
         if execution_id_token is not None:
             from agentcore.runtime.coordination.session import (
                 current_execution_id,

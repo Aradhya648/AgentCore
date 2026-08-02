@@ -17,6 +17,7 @@ function run(partial: Partial<RunNode> & { id: string }): RunNode {
     durationMs: null,
     startedAt: null,
     error: null,
+    failureKind: null,
     parentRunId: null,
     kind: "agent",
     role: null,

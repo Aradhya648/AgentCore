@@ -104,6 +104,8 @@ export interface AgentNodeData {
   reviewConcern?: ReviewConcernLevel | null;
   /** Failure reason from `run_failed` — drives face「模型中断/调用失败」+ peek. */
   error?: string | null;
+  /** `run_failed.failure_kind` — preferred face class over error-text heuristics. */
+  failureKind?: import("@/types/events").RunFailureKind | null;
   /** Folded child runs under this unit root (delegation drill-in). */
   foldedChildCount?: number;
   unitExpanded?: boolean;
@@ -170,10 +172,17 @@ export function statusLabel(status: RunStatus): string {
 }
 
 /**
- * Short face label for a failed worker (llm abort / call failure / other).
- * Keeps the card scannable; full `error` stays in peek / run detail.
+ * Short face label for a failed worker (quality / model interrupt / call failure).
+ * Prefer machine-readable ``failureKind``; keep a thin error-text fallback for old journals.
+ * Full `error` stays in peek / run detail.
  */
-export function failureFaceLabel(error: string | null | undefined): string {
+export function failureFaceLabel(
+  error: string | null | undefined,
+  failureKind?: import("@/types/events").RunFailureKind | null,
+): string {
+  if (failureKind === "quality") return "未达标";
+  if (failureKind === "model") return "模型中断";
+  if (failureKind === "call") return "调用失败";
   const raw = (error ?? "").trim();
   if (!raw) return "调用失败";
   if (
@@ -210,6 +219,8 @@ export function statusFaceLabel(
   /** Worker mid-flight activity phase — preferred over bare「执行中」when running. */
   phase?: WorkerRunPhase | null,
   phaseTool?: string | null,
+  /** `run_failed.failure_kind` — preferred over error-text heuristics. */
+  failureKind?: import("@/types/events").RunFailureKind | null,
 ): { text: string; cls: string; tickElapsed: boolean } {
   if (debateRoundPhase && status === "running") {
     const suffix =
@@ -261,7 +272,7 @@ export function statusFaceLabel(
     }
     case "failed":
       return {
-        text: failureFaceLabel(error),
+        text: failureFaceLabel(error, failureKind),
         cls: "text-destructive",
         tickElapsed: false,
       };

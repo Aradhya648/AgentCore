@@ -88,11 +88,11 @@ def _permission_allows_restricted_network(raw: str | None) -> bool:
 
 _USAGE_TAIL = (
     "\n用法要点：① 只跑【会很快自行退出】的短命令或内联代码（如小段 python/node、"
-    "一次性计算、短 install）。【禁止】用本工具跑项目级慢验证（全量 tsc / "
-    "typecheck / npm run build / 整仓 pytest·vitest）——请改用 test_run（有界"
-    "项目验证，分钟级预算）。【禁止】启动永不退出的进程（npm run dev / vite / "
-    "next dev / watch / 开发服务器等）——会卡满超时；本地模式请改用 terminal"
-    "（subcommand=start，建议带 wait_for 等 ready 信号）。② 优先用 "
+    "一次性计算）。【禁止】用本工具跑项目级慢验证或装包（npm/pnpm/yarn install|ci、"
+    "全量 tsc / typecheck / npm run build / 整仓 pytest·vitest）——请改用 test_run"
+    "（有界项目验证，分钟级预算；装包 check=install）。【禁止】启动永不退出的进程"
+    "（npm run dev / vite / next dev / watch / 开发服务器等）——会卡满超时；本地模式"
+    "请改用 terminal（subcommand=start，建议带 wait_for 等 ready 信号）。② 优先用 "
     "language=python 或 javascript 直接运行内联代码，少用 bash 外壳——bash 在"
     "部分主机（如 Windows）可能不可用。③ 代码的工作目录就是工作区根目录，访问"
     "工作区文件请用相对路径（如 fib.py），不要假设 /workspace 之类的绝对路径。"

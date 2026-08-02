@@ -37,6 +37,7 @@ WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS: tuple[str, ...] = (
     "file_move",
     "file_copy",
     "file_batch",
+    "mkdir",
     "grep",
     "host_ping",
 )
@@ -58,3 +59,24 @@ def is_liveness_timeout_detail(detail: str | None) -> bool:
     """True when a workspace/channel failure is a hang / no-response timeout."""
     text = (detail or "").lower()
     return any(m.lower() in text for m in LIVENESS_TIMEOUT_DETAIL_MARKERS)
+
+
+def channel_dead_retire_metadata() -> dict[str, object]:
+    """ToolResult.metadata for sticky channel-dead (first-fail retire + steer)."""
+    return {
+        "liveness_timeout": True,
+        "timeout_layer": "channel",
+        "error_class": "permanent",
+        "workspace_channel_dead": True,
+        "retire_tools": list(WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS),
+        "retire_message": WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
+    }
+
+
+def channel_dead_error_message(detail: str) -> str:
+    """User/model-facing error text when the local file channel is sticky-dead."""
+    return (
+        f"本地工作区通道活性挂起（无响应）：{detail}。"
+        "这不是文件过大或参数合同失败——"
+        f"{WORKSPACE_CHANNEL_DEAD_RETIRE_STEER}"
+    )

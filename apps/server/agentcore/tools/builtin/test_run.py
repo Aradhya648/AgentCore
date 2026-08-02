@@ -1,16 +1,21 @@
-"""Bounded project verification — test / typecheck / build with a minute-level budget.
+"""Bounded project verification — test / typecheck / build / install with a minute-level budget.
 
 Expands the historical ``test_run`` surface into the first-class verify tool of the
 short-exec / bounded-verify / long-running triad:
 
 - ``code_execute`` — short, self-exiting scripts only
-- **this tool** — project checks (test / typecheck / build / explicit verify command)
+- **this tool** — project checks (install / test / typecheck / build / explicit command)
 - ``terminal`` — long-running processes
 
 Runs through the same sandbox chain and GRANTABLE posture as ``code_execute``.
 Over-budget timeouts are ``contract_failure`` (verify incomplete), not circuit-breaker
 fuel. Local runs launch via a Python argv runner so Windows never defaults through a
 WSL bash trampoline.
+
+Install path: registry pin / argv deny — see ``package_install``. Cloud
+(``backend.location=server``) also requires the packaging egress chokepoint
+(``registry_egress_available``). Local runs skip that host gate (desktop /
+sidecar policy) but still need the permission axis; else honest 甲 degrade.
 """
 
 from __future__ import annotations
@@ -25,6 +30,19 @@ from agentcore.core.errors import SandboxError
 from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.runtime.context.workspace_profile import WorkspaceProfile, detect_workspace_profile
 from agentcore.tools.builtin.code_execute import _permission_allows_restricted_network
+from agentcore.tools.builtin.package_install import (
+    apply_working_directory,
+    install_cache_env,
+    install_prefix_allowed,
+    is_install_shaped_argv,
+    is_safe_relpath,
+    network_unavailable_code,
+    network_unavailable_message,
+    registry_pin_env,
+    reject_shell_chain_command,
+    resolve_install_argv,
+    validate_install_argv,
+)
 from agentcore.tools.builtin.test_parsers import (
     TestRunResult,
     parse_generic_output,
@@ -43,10 +61,11 @@ from agentcore.workspace.protocol import PathNotFound, WorkspaceBackend
 
 Framework = Literal["pytest", "vitest", "jest"]
 Scope = Literal["all", "affected", "file"]
-CheckKind = Literal["test", "typecheck", "build", "command"]
+CheckKind = Literal["test", "typecheck", "build", "install", "command"]
 
-# Minute-level verify budget. Engine schema timeout adds slack so the sandbox
-# returns Timeout first and we can mark ``contract_failure`` (not engine cancel).
+# Minute-level verify budget (incl. install). Engine schema timeout adds slack so the
+# sandbox returns Timeout first and we can mark ``contract_failure`` (not engine cancel).
+# Aligned with ``settings.gvisor_timeout_max_seconds`` (300) — do not trap install at 60s.
 _VERIFY_BUDGET_SECONDS = 300
 _ENGINE_TIMEOUT_SLACK_SECONDS = 30
 _DEFAULT_TIMEOUT = _VERIFY_BUDGET_SECONDS
@@ -56,21 +75,31 @@ TEST_RUN_PARAMETERS: dict[str, Any] = {
     "properties": {
         "check": {
             "type": "string",
-            "enum": ["test", "typecheck", "build", "command"],
+            "enum": ["test", "typecheck", "build", "install", "command"],
             "default": "test",
             "description": (
-                "验证种类：test=测试套件；typecheck=类型检查（tsc 等）；"
-                "build=项目构建；command=显式跑 command（用于 completion_criteria / "
-                "verify_command）。慢 build / 全量 tsc / 项目测试请用本工具，勿用 "
-                "code_execute。全量 typecheck/build/`tsc -b` 仅验收员；"
-                "fix worker 请用窄范围（包内 / 改动相关 / 单文件），勿三路并行全仓 tsc。"
+                "验证种类：install=云端受控装包（npm/pnpm/yarn install|ci，需受限出网）；"
+                "test=测试套件；typecheck=类型检查（tsc 等）；build=项目构建；"
+                "command=显式跑 command（用于 completion_criteria / verify_command）。"
+                "绿场验包优先 check=install 再 build/typecheck。慢 build / 全量 tsc / "
+                "项目测试 / 装包请用本工具，勿用 code_execute。全量 typecheck/build/"
+                "`tsc -b` 仅验收员；fix worker 请用窄范围（包内 / 改动相关 / 单文件），"
+                "勿三路并行全仓 tsc。"
             ),
         },
         "command": {
             "type": "string",
             "description": (
                 "check=command 时必填：要跑的验证命令（如 pnpm test、npx tsc --noEmit、"
-                "npm run build）。须为项目检查形，禁止长驻进程。"
+                "npm run build、npm install）。须为项目检查/装包形，禁止长驻进程与 "
+                "cd&& shell 链；子目录用 --prefix/--dir 或 working_directory。"
+            ),
+        },
+        "working_directory": {
+            "type": "string",
+            "description": (
+                "可选：工作区相对子目录（禁止绝对路径 / ..）。装包时注入 "
+                "npm --prefix / pnpm --dir / yarn --cwd；亦可直接在 command 里写这些旗标。"
             ),
         },
         "scope": {
@@ -106,6 +135,21 @@ TEST_RUN_PARAMETERS: dict[str, Any] = {
 }
 
 _ALLOWED_PREFIXES: tuple[tuple[str, ...], ...] = (
+    # package install / ci (bounded; registry pinned via package_install env)
+    ("npm", "install"),
+    ("npm", "ci"),
+    ("npm", "i"),
+    ("pnpm", "install"),
+    ("pnpm", "ci"),
+    ("pnpm", "i"),
+    ("pnpm", "add"),
+    ("yarn", "install"),
+    ("yarn", "ci"),
+    # npm/pnpm/yarn with safe --prefix/--dir/--cwd before verb (matched via helper)
+    ("npm", "--prefix"),
+    ("pnpm", "--dir"),
+    ("pnpm", "-C"),
+    ("yarn", "--cwd"),
     # tests
     ("pytest",),
     ("python", "-m", "pytest"),
@@ -150,6 +194,7 @@ _ALLOWED_PREFIXES: tuple[tuple[str, ...], ...] = (
 _VERIFY_SHAPED_RE = re.compile(
     r"\b(?:"
     r"tsc\b|vue-tsc\b|typecheck\b|"
+    r"(?:npm|pnpm|yarn)\s+(?:ci|install|i|add)\b|"
     r"(?:npm|pnpm|yarn)\s+run\s+(?:test|typecheck|type-check|build|lint)\b|"
     r"(?:npm|pnpm|yarn)\s+test\b|"
     r"pytest\b|vitest\b|\bjest\b|mypy\b|"
@@ -192,8 +237,21 @@ def _make_output_callback(context: ToolContext):
 def _is_allowed_command(argv: list[str]) -> bool:
     if not argv:
         return False
+    # Install with ``--prefix`` / ``--dir`` / ``--cwd`` before the verb: prefix table
+    # alone is insufficient (variable path token); validate via package_install.
+    if install_prefix_allowed(argv):
+        return validate_install_argv(argv) is None
     for prefix in _ALLOWED_PREFIXES:
         if len(argv) >= len(prefix) and tuple(argv[: len(prefix)]) == prefix:
+            # Bare ``npm --prefix`` without a following install verb is not enough.
+            dir_prefixes = (
+                ("npm", "--prefix"),
+                ("pnpm", "--dir"),
+                ("pnpm", "-C"),
+                ("yarn", "--cwd"),
+            )
+            if prefix in dir_prefixes:
+                return install_prefix_allowed(argv) and validate_install_argv(argv) is None
             return True
     return False
 
@@ -201,6 +259,8 @@ def _is_allowed_command(argv: list[str]) -> bool:
 def _is_allowed_verify_argv(argv: list[str]) -> bool:
     if _is_allowed_command(argv):
         return True
+    if is_install_shaped_argv(argv):
+        return validate_install_argv(argv) is None
     return bool(_VERIFY_SHAPED_RE.search(_argv_to_shell(argv)))
 
 
@@ -219,12 +279,19 @@ def _parse_command(command: str) -> list[str] | None:
     return argv or None
 
 
-def _python_argv_runner(argv: list[str]) -> str:
+def _python_argv_runner(argv: list[str], *, chdir: str | None = None) -> str:
     """Run ``argv`` under Python so local Windows never needs a bash trampoline."""
+    chdir_block = ""
+    if chdir:
+        chdir_block = (
+            "import os\n"
+            f"os.chdir({chdir!r})\n"
+        )
     return (
         "import shutil\n"
         "import subprocess\n"
         "import sys\n"
+        f"{chdir_block}"
         f"argv = {list(argv)!r}\n"
         "resolved = shutil.which(argv[0])\n"
         "if resolved:\n"
@@ -570,7 +637,7 @@ async def _resolve_test_argv(
 
 
 class TestRunTool:
-    """Bounded project verification (test / typecheck / build / explicit command)."""
+    """Bounded project verification (install / test / typecheck / build / command)."""
 
     registration = ToolRegistration(
         surface=ToolSurface.BUILTIN,
@@ -583,10 +650,12 @@ class TestRunTool:
         return ToolSchema(
             name="test_run",
             description=(
-                "有界项目验证：跑工作区声明的检查（测试 / typecheck / build / 显式 "
-                "verify 命令），分钟级预算、可流式输出。适合 completion_criteria="
-                "code_verified 与慢 build、全量 tsc、项目测试——【不要】用 code_execute "
-                "跑这些。超预算返回「验证未完成」，不是工具故障。长驻进程请用 terminal。"
+                "有界项目验证：跑工作区声明的检查（受控装包 / 测试 / typecheck / build / "
+                "显式 verify 命令），分钟级预算、可流式输出。适合 completion_criteria="
+                "code_verified 与慢 build、全量 tsc、项目测试、npm/pnpm/yarn install——"
+                "【不要】用 code_execute 跑这些。云端装包用 check=install（或 "
+                "check=command + npm install），需受限出网；无网时诚实降级，勿空转。"
+                "超预算返回「验证未完成」，不是工具故障。长驻进程请用 terminal。"
                 "【范围】修码 / fix worker 默认窄范围（scope=file、包内、改动相关）；"
                 "全量 typecheck / build / `tsc -b` 仅验收员角色执行——"
                 "禁止多名 fix worker 三路并行全仓 tsc。"
@@ -602,8 +671,23 @@ class TestRunTool:
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
         start = time.monotonic()
         check: CheckKind = arguments.get("check", "test")  # type: ignore[assignment]
-        if check not in ("test", "typecheck", "build", "command"):
+        if check not in ("test", "typecheck", "build", "install", "command"):
             check = "test"
+
+        working_directory = (arguments.get("working_directory") or "").strip() or None
+        if working_directory is not None and not is_safe_relpath(working_directory):
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=(
+                    f"working_directory 必须是工作区相对安全路径（禁止绝对路径 / ..）："
+                    f"{working_directory}"
+                ),
+                duration_ms=0,
+                contract_failure=True,
+                metadata={"code": "verify_contract"},
+            )
 
         profile = await detect_workspace_profile(context.backend)
         framework: Framework | None = None
@@ -622,6 +706,17 @@ class TestRunTool:
                     contract_failure=True,
                     metadata={"code": "verify_contract"},
                 )
+            chain_err = reject_shell_chain_command(raw_cmd)
+            if chain_err:
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=chain_err,
+                    duration_ms=0,
+                    contract_failure=True,
+                    metadata={"code": "verify_contract"},
+                )
             argv = _parse_command(raw_cmd)
             if argv is None:
                 return ToolResult(
@@ -633,6 +728,12 @@ class TestRunTool:
                     contract_failure=True,
                     metadata={"code": "verify_contract"},
                 )
+            argv = apply_working_directory(argv, working_directory)
+        elif check == "install":
+            argv = resolve_install_argv(
+                package_managers=list(profile.package_managers or []),
+                working_directory=working_directory,
+            )
         elif check == "typecheck":
             argv = await _resolve_typecheck_argv(context.backend, profile)
             if argv is None:
@@ -666,6 +767,19 @@ class TestRunTool:
             )
         assert argv is not None
 
+        if is_install_shaped_argv(argv) or check == "install":
+            install_err = validate_install_argv(argv)
+            if install_err:
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=install_err,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    contract_failure=True,
+                    metadata={"code": "verify_contract"},
+                )
+
         if not _is_allowed_verify_argv(argv):
             return ToolResult(
                 tool_call_id="",
@@ -677,17 +791,65 @@ class TestRunTool:
                 metadata={"code": "verify_contract"},
             )
 
+        needs_install_net = is_install_shaped_argv(argv) or check == "install"
+        allows_restricted = _permission_allows_restricted_network(
+            context.permission_preset
+        )
+        is_local_backend = getattr(context.backend, "location", "server") == "local"
+        if needs_install_net and not allows_restricted:
+            msg = network_unavailable_message()
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output=msg,
+                error=msg,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                contract_failure=True,
+                metadata={"code": network_unavailable_code(), "check": check},
+            )
+        # Host gVisor egress gate is cloud-only. Local execution must not inherit
+        # "API host has runsc" as permission to bare-install on the desktop.
+        if needs_install_net and not is_local_backend:
+            from agentcore.tools.sandbox.egress import registry_egress_available
+
+            if not registry_egress_available():
+                msg = network_unavailable_message()
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=msg,
+                    error=msg,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    contract_failure=True,
+                    metadata={"code": network_unavailable_code(), "check": check},
+                )
+
         command_shell = _argv_to_shell(argv)
+        env: dict[str, str] | None = None
+        cache_bucket: str | None = None
+        registry_egress = False
+        if needs_install_net:
+            if is_local_backend:
+                # Local: pin registry only. Package managers use the user's own
+                # caches — do not require /pkg-cache or cloud egress.
+                env = {**registry_pin_env()}
+            else:
+                env = {**registry_pin_env(), **install_cache_env()}
+                registry_egress = True
+                # Prefer user_id; conversation_id as secondary. Missing → leave None so
+                # open_package_egress mints a per-run ephemeral-* bucket (no shared global).
+                cache_bucket = (context.user_id or "").strip() or (
+                    (context.conversation_id or "").strip() or None
+                )
         request = ExecutionRequest(
             code=_python_argv_runner(argv),
             language="python",
             timeout_seconds=_VERIFY_BUDGET_SECONDS,
             on_output=_make_output_callback(context),
-            network_mode=(
-                "restricted"
-                if _permission_allows_restricted_network(context.permission_preset)
-                else "none"
-            ),
+            network_mode="restricted" if allows_restricted else "none",
+            registry_egress=registry_egress,
+            cache_bucket=cache_bucket,
+            env=env,
         )
 
         if context.on_phase:
@@ -698,6 +860,19 @@ class TestRunTool:
         except SandboxError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             msg = e.message or str(e)
+            details = getattr(e, "details", None) or {}
+            egress_code = details.get("code") if isinstance(details, dict) else None
+            if needs_install_net and egress_code == "egress_unavailable":
+                degrade = network_unavailable_message()
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=degrade,
+                    error=degrade,
+                    duration_ms=duration_ms,
+                    contract_failure=True,
+                    metadata={"code": network_unavailable_code(), "check": check},
+                )
             return ToolResult(
                 tool_call_id="",
                 success=False,

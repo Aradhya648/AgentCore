@@ -233,7 +233,8 @@ class TerminalTool:
                 "wait_for（如 Local:|ready in）等到 ready 信号，勿仅凭首段输出下结论；"
                 "read：读尾部输出或按正则等待；stop：终止；list：列本对话进程"
                 "（可能含用户交互终端「用户终端 #N」，可读不可停）。"
-                "会自行退出的短命令（npm install、build、test）请用 code_execute（worker）。"
+                "会自行退出的短命令中，装包 / build / test 请用 test_run（worker）；"
+                "其它极短 CLI 可用 code_execute（worker）。"
                 "仅本地模式可用，进程跨回合存活。"
             ),
             parameters=TERMINAL_TOOL_PARAMETERS,

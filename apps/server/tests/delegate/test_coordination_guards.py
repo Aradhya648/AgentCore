@@ -370,8 +370,11 @@ def test_roles_and_file_targets_detect_geo_class_overlap():
     )
     from agentcore.runtime.runs.types import Deliverable
 
-    assert roles_overlap("内容文案", "内容策略")
+    # Seat = normalized exact equality only (no fuzzy prefix / stem / edit distance).
+    assert not roles_overlap("内容文案", "内容策略")
+    assert not roles_overlap("痛点调研员", "定价调研员")
     assert roles_overlap("页面 QA", "页面 QA")
+    assert roles_overlap("痛点调研员", " 痛点调研员 ")
     assert not roles_overlap("前端工程师", "测试工程师")
     assert not roles_overlap("SEO 优化师", "内容文案")
 
@@ -418,9 +421,212 @@ def test_roles_and_file_targets_detect_geo_class_overlap():
     )
     assert find_append_overlaps(non_overlap, live, completed_run_ids=set()) == []
 
+    # Same seat still collides; different seats with shared job suffix do not.
+    same_seat = _plan(RunSpec(run_id="qa2", role="页面 QA", task="再质检"))
+    assert find_append_overlaps(same_seat, live, completed_run_ids=set())
+    assert find_append_overlaps(same_seat, live, completed_run_ids=set())[0].reason == "role"
+    fe_vs_qa = _plan(RunSpec(run_id="fe_only", role="前端工程师", task="写组件（无站点文件）"))
+    assert find_append_overlaps(fe_vs_qa, live, completed_run_ids=set()) == []
+
+
+def test_vacated_seat_auto_replaces_pain_point_case():
+    """痛点失败 + 定价未完成 + 再派痛点（无 replaces）→ 放行并接替痛点空位。"""
+    from agentcore.runtime.coordination.append_guard import (
+        apply_vacated_seat_replaces,
+        declare_plan_artifacts,
+        find_append_overlaps,
+    )
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    live = _plan(
+        RunSpec(
+            run_id="pain",
+            role="痛点调研员",
+            task="调研痛点",
+            deliverable=Deliverable(artifacts=["research/pain.md"]),
+        ),
+        RunSpec(
+            run_id="price",
+            role="定价调研员",
+            task="调研定价",
+            deliverable=Deliverable(artifacts=["research/pricing.md"]),
+        ),
+        RunSpec(
+            run_id="channel",
+            role="渠道调研员",
+            task="调研渠道",
+            deliverable=Deliverable(artifacts=["research/channel.md"]),
+        ),
+    )
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(live, ownership)
+    assert ownership.owner_of("research/pain.md") == "pain"
+
+    # 痛点终态失败；定价/渠道仍在跑。
+    completed = {"pain"}
+    vacated = {"pain"}
+    redispatch = _plan(
+        RunSpec(
+            run_id="pain2",
+            role="痛点调研员",
+            task="补调研痛点",
+            deliverable=Deliverable(artifacts=["research/pain.md"]),
+        )
+    )
+    applied = apply_vacated_seat_replaces(
+        redispatch,
+        live,
+        completed_run_ids=completed,
+        vacated_run_ids=vacated,
+    )
+    assert applied == [("pain2", "pain")]
+    assert redispatch.nodes[0].replaces_run_id == "pain"
+    assert (
+        find_append_overlaps(
+            redispatch, live, completed_run_ids=completed, ownership=ownership
+        )
+        == []
+    )
+    declare_plan_artifacts(redispatch, ownership)
+    assert ownership.owner_of("research/pain.md") == "pain2"
+
+    # 成功完成的座位不自动空出。
+    live_ok = _plan(
+        RunSpec(
+            run_id="pain_ok",
+            role="痛点调研员",
+            task="已成功",
+            deliverable=Deliverable(artifacts=["research/pain.md"]),
+        ),
+        RunSpec(
+            run_id="price2",
+            role="定价调研员",
+            task="仍在跑",
+            deliverable=Deliverable(artifacts=["research/pricing.md"]),
+        ),
+    )
+    own2 = WriteCoordinator()
+    declare_plan_artifacts(live_ok, own2)
+    again = _plan(
+        RunSpec(
+            run_id="pain3",
+            role="痛点调研员",
+            task="再派",
+            deliverable=Deliverable(artifacts=["research/pain.md"]),
+        )
+    )
+    assert (
+        apply_vacated_seat_replaces(
+            again,
+            live_ok,
+            completed_run_ids={"pain_ok"},
+            vacated_run_ids=set(),
+        )
+        == []
+    )
+    hits = find_append_overlaps(
+        again, live_ok, completed_run_ids={"pain_ok"}, ownership=own2
+    )
+    assert hits
+    assert hits[0].reason == "deliverable"
+
+
+def test_same_seat_incomplete_still_rejects():
+    """定价未完成时再派定价 → 仍拒（真撞座位）。"""
+    from agentcore.runtime.coordination.append_guard import (
+        apply_vacated_seat_replaces,
+        find_append_overlaps,
+    )
+
+    live = _plan(
+        RunSpec(run_id="price", role="定价调研员", task="调研定价"),
+        RunSpec(run_id="channel", role="渠道调研员", task="调研渠道"),
+    )
+    dup = _plan(RunSpec(run_id="price2", role="定价调研员", task="再派定价"))
+    assert (
+        apply_vacated_seat_replaces(
+            dup, live, completed_run_ids=set(), vacated_run_ids=set()
+        )
+        == []
+    )
+    hits = find_append_overlaps(dup, live, completed_run_ids=set())
+    assert hits
+    assert hits[0].reason == "role"
+    assert hits[0].live_run_id == "price"
+
+
+async def test_merge_auto_replaces_vacated_seat_and_rewrites_deps():
+    """merge 入闸：空位自动 replaces + 下游 depends_on 改边。"""
+    from agentcore.runtime.coordination.host import _merge_into_active_coordination
+    from agentcore.runtime.runs.types import Deliverable
+
+    clear_active_coordination()
+    live = _plan(
+        RunSpec(
+            run_id="pain",
+            role="痛点调研员",
+            task="调研痛点",
+            deliverable=Deliverable(artifacts=["research/pain.md"]),
+        ),
+        RunSpec(
+            run_id="price",
+            role="定价调研员",
+            task="调研定价",
+            deliverable=Deliverable(artifacts=["research/pricing.md"]),
+        ),
+        RunSpec(
+            run_id="synth",
+            role="汇总",
+            task="汇总三路",
+            depends_on=["pain", "price"],
+        ),
+    )
+    session = CoordinationSession(execution_id="e-seat", total_workers=3)
+    session.live_plan = live
+    session.completed_run_ids.add("pain")
+    session.vacated_run_ids.add("pain")
+    session.failed_run_ids.add("pain")
+    session.drive_task = asyncio.create_task(asyncio.sleep(30))
+    set_active_coordination(session)
+    try:
+        result = _merge_into_active_coordination(
+            _fake_merge_tool(),
+            _plan(
+                RunSpec(
+                    run_id="pain2",
+                    role="痛点调研员",
+                    task="补派痛点",
+                    deliverable=Deliverable(artifacts=["research/pain.md"]),
+                )
+            ),
+            session,
+            execution_id="e-seat",
+            seed_completed=None,
+            finalize=False,
+            seed_notes=None,
+            complexity_hint="",
+            call_idx=2,
+            completion_criteria=None,
+            coordination="none",
+        )
+        assert result.success is True
+        pain2 = next(n for n in live.nodes if n.run_id == "pain2")
+        assert pain2.replaces_run_id == "pain"
+        synth = next(n for n in live.nodes if n.run_id == "synth")
+        assert "pain2" in synth.depends_on
+        assert "pain" not in synth.depends_on
+        assert "price" in synth.depends_on
+    finally:
+        session.drive_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await session.drive_task
+        clear_active_coordination("e-seat")
+
 
 async def test_merge_rejects_overlapping_append_with_explanation():
-    """DAG 未完成时追加职责/文件重叠队员 → 拒绝且回执含解释。"""
+    """DAG 未完成时追加文件重叠队员 → 拒绝且回执含解释（异座仍可因文件拒）。"""
+    from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
     from agentcore.runtime.coordination.host import _merge_into_active_coordination
     from agentcore.runtime.runs.types import Deliverable
 
@@ -443,6 +649,7 @@ async def test_merge_rejects_overlapping_append_with_explanation():
     )
     session = CoordinationSession(execution_id="e-overlap", total_workers=2)
     session.live_plan = live
+    declare_plan_artifacts(live, session.ensure_file_ownership())
     session.drive_task = asyncio.create_task(asyncio.sleep(30))
     set_active_coordination(session)
     try:
@@ -474,6 +681,7 @@ async def test_merge_rejects_overlapping_append_with_explanation():
         assert "replaces_run_id" in err
         assert "cancel_worker" in err
         assert "已完成" in err and "不能靠 cancel" in err
+        assert "文件主人" in err or "交付物" in err
         assert result.contract_failure is True
         assert session.total_workers == 2
         assert len(live.nodes) == 2

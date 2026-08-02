@@ -99,11 +99,20 @@ async def _resolve_assist_credentials(
     user: User,
     cost_repo: CostEventRepository,
 ):
-    """一次性文件辅助调用的计费门禁，与回合 preflight 同决策。"""
-    from agentcore.llm.resolve import resolve_account_default_model
+    """一次性文件辅助调用的计费门禁，与回合 preflight 同决策。
+
+    Platform origin: ``preflight_llm_credentials`` returns ``None`` after quota
+    (same as chat). Resolve per-model platform credentials before ``build_provider``
+    — never pass ``None`` (that raised ``MissingLLMCredentialsError`` → unhandled 500).
+    """
+    from agentcore.core.errors import PlatformBillingUnavailableError
+    from agentcore.llm.resolve import (
+        platform_llm_credentials,
+        resolve_account_default_model,
+    )
 
     selection = await resolve_account_default_model(session, user.user_id)
-    return await preflight_llm_credentials(
+    credentials = await preflight_llm_credentials(
         session=session,
         user=user,
         cost_repo=cost_repo,
@@ -111,7 +120,15 @@ async def _resolve_assist_credentials(
             "请先在「设置 · 模型配置」中填入你的 DeepSeek API Key，再使用 AI 改写。"
         ),
         model_origin=selection.origin,
+        provider_id=selection.provider_id,
     )
+    if selection.origin == "platform":
+        credentials = platform_llm_credentials(model=selection.model)
+        if credentials is None:
+            raise PlatformBillingUnavailableError(
+                "平台模型暂不可用，请稍后再试或在「设置 · 模型配置」中接入自己的 API Key。"
+            )
+    return credentials
 
 
 async def rewrite_selection_for_user(

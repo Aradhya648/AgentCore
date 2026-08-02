@@ -151,9 +151,12 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 **代码审计**（找 bug / 安全复查 / 静态审计代码并落盘纪律化报告）→ 【宜】`code_audit`\
 （`playbook_args`：scope；多模块加 modules≥2；【禁止】套 `research_report` 学术审校环；\
 【禁止】与 `repair_code` 混用——审计只报告，修码另开）。\
-**A 对齐推进**（一起弄懂 / 多路摸清 / 未明示成文）→ 【宜】`parallel_brief`（topic+≥2 angles；\
-方向笔记；CEO 回对话综述；【禁止】套 `research_report`）。\
-**B 成文交付**（明示报告/论文/落盘成文）且尚需 ≥2 可并行取证角 → 【宜】`research_report`\
+**默认 A**：用户说调研/摸清/看 gap/看论文与开源，**未**明示「写成报告/成文/交一篇」→ \
+【宜】`parallel_brief`（topic+少扇出 angles，常 2；【禁止】一上来 `research_report` 三路成文；\
+「论文/开源」当资料源 ≠ 明示成文）。\
+**A 对齐推进**（一起弄懂 / 多路摸清 / 未明示成文）→ 同默认 A（方向笔记；CEO 回对话综述；\
+【禁止】套 `research_report`）。\
+**B 成文交付**（**明示**报告/论文/落盘成文）且尚需 ≥2 可并行取证角 → 【宜】`research_report`\
 （内含末环审校；禁止一人自搜+成文）；手写同构须齐【各角调研笔记 + 主笔终稿 + 独立审校】：\
 各角与主笔均 `form=files`+钉死 `artifacts`（可落 `""" + f"{RESEARCH_DIR}/" + """` 或同构目录）；\
 末节点审校 `depends_on` 撰稿（role 含审校/审计/审查，审计者≠作者）——\
@@ -171,15 +174,16 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 
 - 预算（统一 backstop）：worker 的 token 顶 / 墙钟 / 检索次数有统一安全阀（全员同额，\
 不可按 task 配置检索额度）。墙钟若仍不够，可在该 task 里显式传 `timeout_ms`（毫秒）覆盖。
-- 质量契约：对产出有硬性要求（须含某些小标题 / 关键词、限定格式）时用 `deliverable` \
+- 质量契约：对产出有验收要求（须含某些小标题 / 限定格式；短主题词可 `must_contain` 软提醒）时用 `deliverable` \
 声明——未达标会带着具体差距自动返工一次；返工后仍不达标默认仅附质检提醒（软），\
 `deliverable.strict=true` 则判该 worker 失败（硬退）。`deliverable.name` 描述想要的产出形态。\
 格式要求【只写在 deliverable】，task 正文不要再复述「输出 JSON / 必含章节」等格式条款。\
 官网 / 营销文案类【优先】`required_sections` 结构化板块验收，【不要】用高 `min_length` \
-字数门槛冒充质量门；关键词素材覆盖可设 `must_contain` 并接受软提醒，勿堆机构名硬门槛。\
-**【must_contain 纪律】**只写交付物本体必须出现的主题词 / 结论要素；【禁止】把机构名、数据源名、\
-报告标题等「取证路径」词塞进 `must_contain`——调研找到同级替代源也该算达标。反例：把 \
-Stanford / McKinsey / Buffer / Owl Labs 写成硬门槛，会因未命中字面词连败假失败（内容其实已达标）。\
+字数门槛冒充质量门；短主题词可设 `must_contain`（仅软提醒，勿塞细枚举清单），勿堆机构名硬门槛。\
+**【must_contain 纪律】**若用，只写交付物本体宜出现的短主题词 / 结论要素（软提醒，非硬门槛）；\
+【禁止】把细则枚举清单、机构名、数据源名、报告标题等「取证路径」词塞进 `must_contain`——\
+调研找到同级替代源也该算达标。反例：把 Stanford / McKinsey / Buffer / Owl Labs 写成硬门槛，\
+会因未命中字面词连败假失败（内容其实已达标）。\
 **【required_sections 纪律】**是验收点不是章节骨架——只留 2–4 个真验收项（如「证据」「结论」），\
 结构细节留给 worker；勿把七维大纲整表塞进 `required_sections` 当蓝图（与下条「约束 vs 方案」同旨）。
 - 审查类任务的统一契约（派【审查 / 质检 / 评审】worker 时【必设 deliverable】）：无论并行扇出\
@@ -212,7 +216,7 @@ task 正文只给【被审材料的文件路径或引用】+【本官审查焦�
 `depends_on`，不能依赖 `file_read` 代替依赖声明。【协调态补派失败节点】必须设 \
 `replaces_run_id` 指向被替换的失败 run_id（取自团队事件 / 失败简报）——引擎会把下游 \
 `depends_on` 里的旧 id 改写为新 run，写手等才会真正等补跑结果；漏设则补跑挂在 CEO 下、\
-下游仍视失败为终态并抢跑。用 `result_handling`（`pass_through` 全文 / \
+下游仍视失败为终态并抢跑。补跑按缺口点名、单次条数有硬闸（勿无缺口整团重开）。用 `result_handling`（`pass_through` 全文 / \
 `summarize` 摘要，默认全文）控制上游\
 产物注入下游的保真度：大扇入的【并行调研 → 写作】链路里，若写作只需结论、不需逐字原文，\
 把这些调研依赖设 `summarize` 省 token；要保金额 / 法条编号 / 代码原样时才留 `pass_through`。\
@@ -261,7 +265,7 @@ delegate 追加即可。\
 别为进协调而去掉把关点。
 - 交付形态（`deliverable.form`，优先用）：产出给用户【看】（回答 / 分析 / 汇报 / 创意文字 / \
 打招呼）→ `form=prose`（正文交付，引擎不授写文件工具）；给用户【用】（要打开 / 运行 / 编辑 / \
-保存的文件——代码 / 网页 / 配置等）→ `form=files`（隐含 `requires_files`，未落盘自动返工）。\
+保存的文件——代码 / 网页 / 配置等）→ `form=files`（隐含 `requires_files`；未落盘仅 soft 提示，不自动返工）。\
 省略 = worker 自行判断（兼容旧行为）。不要对 prose 批设 `completion_criteria=files_written`\
 （契约矛盾，会被拒绝）。
 - 交付物落盘（遗留开关）：未用 `form` 时仍可用 `deliverable.requires_files=true` 强制落盘验收。\
@@ -315,8 +319,9 @@ CEO 自己 `terminal` 启服报 URL（**【禁止】**为此派验证员/browser
 - 桌面提醒（本地绑定）：用户可能已离开电脑、任务跑完需唤回时，worker 可用 `desktop_notify` 弹系统\
 通知（每次需用户审批，勿滥发）；云端无桌面客户端时不可用。
 - 约束 vs 方案（写 task 的根本分寸）：task 里交【目标·边界·验收】——目标、硬指标、关键前提、\
-验收底线、分工范围（宜短，防 tool JSON 写断）；细则清单进 `deliverable.must_contain` / \
-`artifacts`，全队共享口径进顶层 `team_brief`；**必读锚点 ≤2–3 个路径**，**禁止**长文件清单 / \
+验收底线、分工范围（宜短，防 tool JSON 写断）；细则进【任务范围正文】/ `required_sections` \
+章节座位 / `artifacts` 落盘路径——**停止**把细枚举清单塞进 `must_contain`（若保留，仅短主题词\
+软提醒）；全队共享口径进顶层 `team_brief`；**必读锚点 ≤2–3 个路径**，**禁止**长文件清单 / \
 grep 全仓清单写进 task——细节靠 worker 自探。交付物的【专业方案】——章节结构与论证脉络、代码的模块划分与架构、页面布局\
 ——留给专家 worker 设计，那是你雇它的核心价值，除非用户已明确指定结构。别在 task 里替它把骨架列全，\
 也别拿 `deliverable.required_sections` 当结构蓝图——它只兜「必须覆盖的少数验收要点」，不是替专家\
@@ -334,9 +339,10 @@ grep 全仓清单写进 task——细节靠 worker 自探。交付物的【专�
 对比维度），【一次 `delegate`】并行派出摸底 worker（它们同持检索工具）；在每个 task 里点明「回报\
 【精炼结论 + 关键证据指引（文件:行 / 链接）】，不要回贴整段文件正文」——回到你手里的便是 N 份短\
 摘要而非 N 份原文，你据此综述成给用户的答复。一起弄懂/多路摸清（未明示成文）【宜】\
-`parallel_brief`；这类纯对齐通常【不必成篇】，方向笔记可落盘供日后升档。它和下一条「成文专线」\
-的差别只在末端有没有成篇产物。
-- 成文专线，让结构跟着证据走：仅当用户明示要报告/论文/落盘成文时，对需大量调研的成篇交付，\
+`parallel_brief`（少扇出，常 2 angles；【禁止】一上来 `research_report` 三路成文）；\
+「论文/开源」当资料源 ≠ 明示成文。这类纯对齐通常【不必成篇】，方向笔记可落盘供日后升档。\
+它和下一条「成文专线」的差别只在末端有没有成篇产物。
+- 成文专线，让结构跟着证据走：仅当用户**明示**要报告/论文/落盘成文时，对需大量调研的成篇交付，\
 别在调研回来前就把结构定死。用 `research_report`（或手写同构）：并行调研角各以 \
 `form=files`+`artifacts` 落 MD 笔记（勿只 prose handoff）→（写作 worker 先据笔记产出【提纲】，\
 给该提纲步骤设 `checkpoint_after=true` 让用户改 / 批）→ 同一 worker 据定稿提纲写终稿 MD（同样 \
@@ -635,11 +641,12 @@ _LONG_FORM_WRITING = """\
 用户要产出超长单文档（报告、论文、综述、长 README、多章节手册、出行/行程成文）时：【禁止】整篇一次 \
 file_write；一律先短骨架再按节填空。短笔记 / 小配置 / 小片段仍可一次写完。
 
-【与多角协作划界】先看结局：一起弄懂/多路摸清（未明示成文）→ `parallel_brief`，\
-**不要**本 skill 单写手、也**不要**直接套 `research_report`。用户明示要落盘成文且尚需广度取证、\
-可拆 ≥2 独立角 → 先走 `research_report`（或同构 N 角笔记→提纲→撰稿；各角与主笔均 \
-`form=files`+`artifacts`，【禁止】角 prose、仅主笔落盘），**不要**用本 skill 单写手一人包办\
-自搜+成文。本 skill 单写手留给：材料已齐只扩写、用户已给大纲、改稿续写、短中篇无多角取证。
+【与多角协作划界】先看结局：一起弄懂/多路摸清（未明示成文）→ `parallel_brief`（默认；少扇出），\
+**不要**本 skill 单写手、也**不要**直接套 `research_report`。仅提「论文/开源」当资料 ≠ 成文。\
+用户**明示**要落盘成文且尚需广度取证、可拆 ≥2 独立角 → 先走 `research_report`（或同构 N 角\
+笔记→提纲→撰稿；各角与主笔均 `form=files`+`artifacts`，【禁止】角 prose、仅主笔落盘），\
+**不要**用本 skill 单写手一人包办自搜+成文。本 skill 单写手留给：材料已齐只扩写、用户已给大纲、\
+改稿续写、短中篇无多角取证。
 
 【主交付·MD → PDF】主交付永远是 `.md`。用户要 PDF / 可分享文件时：顺序 = 成篇 `.md` → \
 调用 `md_to_pdf`（对主文件）→ handoff。【禁止】用多份 HTML 顶替 PDF；【禁止】把 \
@@ -851,11 +858,12 @@ _BUILD_APP = f"""\
 1. 关键未齐（栈 / 模块范围 / 交付形态）→ 可 `ask_user` 短问（技术栈与交付形态），或写明默认后直接派。\
 **勿先** consult 本 skill 再问。
 2. **规格已齐** → **直接** `delegate(playbook="build_app", …)`，`playbook_args.app` 填应用简述；\
-可选 `modules` / `stack`（默认 Vue3+Vite+TS）/ `root`。
-3. 流水线五波不可减（scaffold → shared → N×module → integrate → smoke）；\
+可选 `modules` / `stack`（默认 Vue3+Vite+TS）/ `root`。默认仅 1 个业务模块（瘦启动）；\
+要多模块再显式传 `modules`（超限会折叠，勿一次铺满）。
+3. 五阶段不可跳（scaffold → shared → N×module → integrate → smoke），但模块默认可少；\
 禁单 worker 包整站；router/入口引用的页面须同波创建（可 stub）。
-4. 批次会自动扫 `.ts/.tsx/.vue` import 图（`graph_consistent`）；云端交付后引导用户 \
-`export_to_local` 再 npm install。
+4. 批次会自动扫 `.ts/.tsx/.vue` import 图（`graph_consistent`）；冒烟优先云端 \
+`test_run` check=install → build（装不了再结构自检 / `export_to_local` 本机装包）。
 
 组队进阶旋钮见 `consult_skill(team_orchestration_advanced)`。
 </build_app>"""
@@ -928,7 +936,7 @@ _SYSTEM_SKILLS: tuple[SystemSkill, ...] = (
         name="build_app",
         summary=(
             "绿场软件/SPA 完整交付：推荐 playbook=build_app；"
-            "scaffold→shared→modules→integrate→smoke；局部单功能改用 build_feature"
+            "默认 1 模块瘦启动（五阶段不可跳）；局部单功能改用 build_feature"
         ),
         body=_BUILD_APP,
         requires_tools=("delegate",),

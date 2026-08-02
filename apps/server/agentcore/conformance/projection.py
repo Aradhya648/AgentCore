@@ -131,6 +131,7 @@ def _run_from_plan(s: dict[str, Any], *, act_id: str) -> dict[str, Any]:
         "debrief": None,
         "durationMs": None,
         "error": None,
+        "failureKind": None,
         "parentRunId": s.get("parent_run_id"),
         "kind": s.get("kind") or "agent",
         "role": None,
@@ -589,6 +590,8 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
             if run is not None:
                 run["status"] = "failed"
                 run["error"] = p.get("error")
+                # Additive face class; absent on old journals → None（脸回退「失败」）.
+                run["failureKind"] = p.get("failure_kind")
                 # 完工交接简报 on a failed run: the author's wrap-up when a contract-missing
                 # worker still produced one (else absent → stays None).
                 run["debrief"] = p.get("debrief")

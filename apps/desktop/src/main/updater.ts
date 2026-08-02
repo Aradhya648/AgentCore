@@ -1,8 +1,8 @@
 import { UPDATER_CHANNELS, type UpdaterStatus } from "@shared/updater-contract";
 import { net, type BrowserWindow, app, ipcMain, powerMonitor } from "electron";
-import { autoUpdater } from "electron-updater";
+import { type UpdateInfo, autoUpdater } from "electron-updater";
 
-// 检查频率（前端技术与架构.md §7.6）：启动 + 每 4h + 系统唤醒。
+// 检查频率（发布与门禁.md §7.6）：启动 + 每 4h + 系统唤醒。
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 let mainWindow: BrowserWindow | null = null;
@@ -14,6 +14,8 @@ let intervalTimer: ReturnType<typeof setInterval> | null = null;
 let apiBaseUrl: string | null = null;
 // 检查调度只起一次——在收到 API 基址后启动，确保首检也过远程熔断闸。
 let scheduleStarted = false;
+// 防重复点「立即更新」并发起多次 downloadUpdate。
+let downloadInFlight = false;
 
 function pushStatus(next: UpdaterStatus): void {
   status = next;
@@ -22,8 +24,44 @@ function pushStatus(next: UpdaterStatus): void {
   }
 }
 
+/** Normalize electron-updater releaseNotes (string | note list) to plain text. */
+function normalizeReleaseNotes(info: UpdateInfo): string | null {
+  const raw = info.releaseNotes;
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(raw)) {
+    const parts: string[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const note = (item as { note?: string | null }).note;
+      if (typeof note === "string" && note.trim()) parts.push(note.trim());
+    }
+    return parts.length > 0 ? parts.join("\n\n") : null;
+  }
+  return null;
+}
+
+/** Sum package file sizes from UpdateInfo when present. */
+function packageSizeBytes(info: UpdateInfo): number | null {
+  const files = info.files;
+  if (!Array.isArray(files) || files.length === 0) return null;
+  let total = 0;
+  let any = false;
+  for (const f of files) {
+    const size = (f as { size?: number }).size;
+    if (typeof size === "number" && Number.isFinite(size) && size > 0) {
+      total += size;
+      any = true;
+    }
+  }
+  return any ? total : null;
+}
+
 /**
- * 远程熔断查询（前端技术与架构.md §7.6, 部署与运维.md §7.9）：检查前查后端策略
+ * 远程熔断查询（发布与门禁.md §7.6, 部署与运维.md §7.9）：检查前查后端策略
  * `GET /updates/policy`，`enabled:false` 即暂停下载（坏版本急停闸）。**fail-open**——
  * 未配置基址 / 非 200 / 网络错一律视为放行（已发布的安全网络要保活，与特性开关的
  * fail-safe 刻意相反）。完整灰度 / 双通道仍依赖 §7.9 特性开关，未在此消费。
@@ -46,6 +84,19 @@ async function runCheck(): Promise<void> {
     await autoUpdater.checkForUpdates();
   } catch {
     // 网络等失败也会经 'error' 事件推状态；这里吞掉 reject 防未处理的 promise 异常。
+  }
+}
+
+async function runDownload(): Promise<void> {
+  if (downloadInFlight) return;
+  if (status.phase !== "available" && status.phase !== "error") return;
+  downloadInFlight = true;
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch {
+    // 失败经 'error' 事件推状态。
+  } finally {
+    downloadInFlight = false;
   }
 }
 
@@ -73,12 +124,13 @@ export function initUpdater(window: BrowserWindow): void {
     status = { phase: "unsupported" };
     ipcMain.handle(UPDATER_CHANNELS.configure, () => {});
     ipcMain.handle(UPDATER_CHANNELS.check, () => {});
+    ipcMain.handle(UPDATER_CHANNELS.download, () => {});
     ipcMain.handle(UPDATER_CHANNELS.quitAndInstall, () => {});
     return;
   }
 
-  // 静默下载、不自动安装（§7.6）：发现即下载，安装时机交给用户（点「重启安装」）。
-  autoUpdater.autoDownload = true;
+  // 发现即说明、用户同意后再下载；安装仍须显式 quitAndInstall（§7.6）。
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("checking-for-update", () =>
@@ -86,7 +138,12 @@ export function initUpdater(window: BrowserWindow): void {
   );
   autoUpdater.on("update-available", (info) => {
     pendingVersion = info.version;
-    pushStatus({ phase: "available", version: info.version });
+    pushStatus({
+      phase: "available",
+      version: info.version,
+      releaseNotes: normalizeReleaseNotes(info),
+      sizeBytes: packageSizeBytes(info),
+    });
   });
   autoUpdater.on("update-not-available", () =>
     pushStatus({ phase: "not-available" }),
@@ -96,6 +153,9 @@ export function initUpdater(window: BrowserWindow): void {
       phase: "downloading",
       version: pendingVersion,
       percent: Math.round(progress.percent),
+      bytesPerSecond: Math.max(0, Math.round(progress.bytesPerSecond || 0)),
+      transferred: Math.max(0, Math.round(progress.transferred || 0)),
+      total: Math.max(0, Math.round(progress.total || 0)),
     }),
   );
   autoUpdater.on("update-downloaded", (info) =>
@@ -114,6 +174,7 @@ export function initUpdater(window: BrowserWindow): void {
     startSchedule();
   });
   ipcMain.handle(UPDATER_CHANNELS.check, () => runCheck());
+  ipcMain.handle(UPDATER_CHANNELS.download, () => runDownload());
   ipcMain.handle(UPDATER_CHANNELS.quitAndInstall, () => {
     // isSilent=false：显示安装进度；isForceRunAfter=true：装毕重启应用。
     autoUpdater.quitAndInstall(false, true);

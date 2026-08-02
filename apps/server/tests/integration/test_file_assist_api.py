@@ -89,10 +89,13 @@ def stub_provider(monkeypatch):
 
     Patched in ``assist.rewrite`` (where the provider is now built): the route is a thin
     delegate that no longer touches ``llm`` (api ⊥ llm)."""
-    monkeypatch.setattr(
-        "agentcore.assist.rewrite.build_provider",
-        lambda creds: _FakeProvider(_REWRITTEN),
-    )
+    def _stub(creds):
+        # Platform preflight returns None until assist resolves platform credentials;
+        # regression must not reach build_provider(None) → unhandled 500.
+        assert creds is not None, "rewrite must resolve credentials before build_provider"
+        return _FakeProvider(_REWRITTEN)
+
+    monkeypatch.setattr("agentcore.assist.rewrite.build_provider", _stub)
 
 
 @pytest.fixture

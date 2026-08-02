@@ -820,7 +820,7 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
             )
         else:
             how_line = (
-                "；用 test_run 跑通项目检查（check=test|typecheck|build，或 "
+                "；用 test_run 跑通项目检查（check=install|test|typecheck|build，或 "
                 "check=command + 约定命令）且 exit 0"
             )
         return (
@@ -1158,15 +1158,16 @@ def check_delegate_completion(
     ``debrief``, prose ``content``)—not only workers with non-empty body text.
     A pure file_write / handoff finish with empty streamed content must still be
     checked; with no matching evidence the result is a binding gap, never a
-    vacuous pass.
+    vacuous pass — except ``files_written`` (甲⁺): unmet landing is soft_notes
+    only and does **not** block the batch.
 
     ``ok`` is True iff ``binding_gaps`` is empty. Soft overlays (D2: .ts/.tsx
-    without verify; auto import-graph scan on .ts/.tsx/.vue) produce
-    ``soft_notes`` only — they do **not** block the batch, do **not** fire
-    ``criteria_unmet``, and do **not** feed gap fingerprint / streak. Explicit
-    ``code_verified`` / ``graph_consistent`` remain binding. Soft overlays are
-    skipped for ``runtime_ready`` batches and when the matching kind is already
-    the binding criteria.
+    without verify; auto import-graph scan on .ts/.tsx/.vue; 甲⁺ files_written
+    unmet) produce ``soft_notes`` only — they do **not** block the batch, do
+    **not** fire ``criteria_unmet``, and do **not** feed gap fingerprint / streak.
+    Explicit ``code_verified`` / ``graph_consistent`` remain binding. Soft
+    overlays are skipped for ``runtime_ready`` batches and when the matching
+    kind is already the binding criteria.
 
     ``backend`` / ``file_map`` feed ``graph_consistent`` / auto-scan reads
     (``file_map`` preferred when pre-loaded async by drive_finalize).
@@ -1179,13 +1180,12 @@ def check_delegate_completion(
         return True, [], []
 
     binding_gaps: list[str] = []
+    soft_notes: list[str] = []
     if criteria is not None:
         if criteria.kind == "files_written":
+            # 甲⁺：files_written（含 form=files 结构化推断）不再挡整批收工；仅 soft 提示。
             if not any(_worker_files_written(s) for s in completed):
-                from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
-
-                tools = format_file_landing_tools_slash()
-                binding_gaps.append(f"尚无 worker 将产物写入工作区（需要 {tools} 落盘）")
+                soft_notes.append(_as_overlay_soft_note("本批未见落盘"))
         elif criteria.kind == "code_verified":
             if not any(_run_verified_in_transcript(s.transcript) for s in completed):
                 binding_gaps.append(_verify_gap_message())
@@ -1210,7 +1210,6 @@ def check_delegate_completion(
             # files_written / code_verified / runtime_ready / deliverable.artifacts.
             pass
 
-    soft_notes: list[str] = []
     kind = criteria.kind if criteria is not None else None
     # Soft D2: .ts/.tsx landed without verify — remind only (not criteria_unmet).
     # Skip when binding is already code_verified, or batch is runtime_ready.
@@ -1540,9 +1539,10 @@ def format_worker_gaps_block(
         return ""
     has_cutoff = False
     lines = [
-        "\n### ⚠️ 契约缺口（请据缺口补派 / continue_from_run_id 续派，勿靠自觉扫清单）\n"
+        "\n### ⚠️ 契约缺口（请据缺口同图点名补，勿整团重开）\n"
         "以下是各队员收尾后仍未对齐的声明交付物 / 交接缺口（含收敛强制收尾后无法再写文件"
-        "留下的缺口，以及预算/超时掐断信号）。用 delegate / continue_from_run_id 补齐，"
+        "留下的缺口，以及预算/超时掐断信号）。优先同一协作图 `replan(add)` +"
+        "`replaces_run_id` / `continue_from_run_id` 按缺口点名补；禁止无缺口另开大派，"
         "别假装收工。\n"
     ]
     for label, gaps in gaps_by_worker:

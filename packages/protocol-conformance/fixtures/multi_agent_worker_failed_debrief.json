@@ -81,6 +81,7 @@
         "run_id": "r1",
         "agent_id": "w1",
         "error": "未通过契约：缺少必需的引用来源",
+        "failure_kind": "quality",
         "debrief": {
           "summary": "完成初步调研，但未满足引用契约",
           "key_points": [
@@ -188,6 +189,7 @@
         },
         "durationMs": null,
         "error": "未通过契约：缺少必需的引用来源",
+        "failureKind": "quality",
         "parentRunId": null,
         "kind": "agent",
         "role": null,

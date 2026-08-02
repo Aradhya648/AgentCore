@@ -6,6 +6,7 @@ rendering the executor uses for the retry prompt.
 """
 
 from agentcore.runtime.runs.contract import (
+    ContractVerdict,
     check_contract,
     debrief_meets_minimum,
     describe_deliverable,
@@ -58,27 +59,34 @@ def test_non_empty_passes_without_contract():
     assert v.failures == []
 
 
-def test_min_length_failure_and_pass():
-    assert not check_contract("短", RunContract(min_length=10)).ok
+def test_min_length_soft_warn_and_pass():
+    # 定案乙：字数不足 → soft warning，不 fail。
+    short = check_contract("短", RunContract(min_length=10))
+    assert short.ok
+    assert short.failures == []
+    assert any("少于" in w for w in short.warnings)
     assert check_contract("这是一段足够长的产出内容", RunContract(min_length=5)).ok
+    long_ok = check_contract("这是一段足够长的产出内容", RunContract(min_length=5))
+    assert long_ok.warnings == [] or not any("少于" in w for w in long_ok.warnings)
 
 
-def test_must_contain_failure_and_pass():
+def test_must_contain_soft_warn_and_pass():
+    # 定案乙：缺必含词 → soft warning，不 fail（无论 must_contain_soft 旗标）。
     contract = RunContract(must_contain=["风险", "结论"])
     v = check_contract("这里只讨论了结论", contract)
-    assert not v.ok
-    assert any("风险" in f for f in v.failures)
+    assert v.ok
+    assert v.failures == []
+    assert any("风险" in w for w in v.warnings)
     assert check_contract("既有风险也有结论", contract).ok
 
 
 def test_must_contain_case_insensitive():
-    # Mirrors required_sections' casefold match: casing must not flip the verdict.
+    # Mirrors required_sections' casefold match: casing must not flip the soft tip.
     contract = RunContract(must_contain=["API", "ROI"])
     assert check_contract("本方案的 api 设计与 roi 测算如下", contract).ok
-    # A genuinely missing keyword still fails, and the reason shows原始大小写.
     v = check_contract("只提到了 api 设计", contract)
-    assert not v.ok
-    assert any("ROI" in f for f in v.failures)
+    assert v.ok
+    assert any("ROI" in w for w in v.warnings)
 
 
 def test_required_section_heading_shapes_detected():
@@ -113,22 +121,25 @@ def test_json_format_failure_on_prose():
     assert any("JSON" in f for f in v.failures)
 
 
-def test_multiple_failures_collected():
+def test_length_and_keyword_soft_warnings_collected():
+    # 定案乙：字数 + 必含词均为 soft；不进 failures。
     v = check_contract("短文本", RunContract(min_length=100, must_contain=["X"]))
-    assert len(v.failures) == 2
+    assert v.ok
+    assert v.failures == []
+    assert len(v.warnings) == 2
 
 
-def test_format_feedback_lists_reasons():
+def test_format_feedback_empty_when_only_soft_gaps():
+    # Soft-only gaps → ok verdict → format_feedback 空（硬失败反馈通道不触发）。
     fb = format_feedback(check_contract("短", RunContract(min_length=10, must_contain=["X"])))
-    assert "少于" in fb
-    assert "X" in fb
-    assert fb.startswith("你上一次")
+    assert fb == ""
 
 
 def test_format_feedback_steers_worker_to_skip_meta_commentary():
-    # The worker has a single rework shot — spend it on the corrected product,
-    # not on apologies or explanations.
-    fb = format_feedback(check_contract("短", RunContract(min_length=10)))
+    # Hard shortfall still gets the no-apology steer (sections miss, not length).
+    fb = format_feedback(
+        check_contract("正文里没有章节", RunContract(required_sections=["结论"]))
+    )
     assert "完整最终产出" in fb
     assert "不要解释" in fb
     assert "不要道歉" in fb
@@ -138,15 +149,18 @@ def test_format_feedback_empty_when_ok():
     assert format_feedback(check_contract("ok 内容", None)) == ""
 
 
-def test_is_format_repairable_for_section_and_short():
+def test_is_format_repairable_for_section_only():
+    # 定案乙：字数 / 必含词已 soft → 不再进 light_repair；章节缺失仍可 format repair。
     section = check_contract(
         "正文里没有章节", RunContract(required_sections=["结论"])
     )
     assert is_format_repairable(section)
     short = check_contract("短", RunContract(min_length=10))
-    assert is_format_repairable(short)
+    assert short.ok
+    assert not is_format_repairable(short)
     keyword = check_contract("只有别的", RunContract(must_contain=["风险"]))
-    assert is_format_repairable(keyword)
+    assert keyword.ok
+    assert not is_format_repairable(keyword)
     mixed = check_contract(
         "短", RunContract(min_length=10, output_format="json")
     )
@@ -158,6 +172,8 @@ def test_is_format_repairable_for_section_and_short():
 
 def test_format_light_repair_feedback_carries_prior_and_skips_reinvestigate():
     v = check_contract("草稿缺章", RunContract(required_sections=["结论"], min_length=5))
+    # min_length soft；缺章节仍 hard → light repair 只谈章节。
+    assert is_format_repairable(v)
     fb = format_light_repair_feedback(v, prior_content="草稿缺章\n更多正文")
     assert "不必重新调查" in fb
     assert "缺少必备章节" in fb
@@ -171,12 +187,19 @@ def test_format_light_repair_feedback_carries_prior_and_skips_reinvestigate():
 
 
 def test_zero_files_gap_and_write_pass_feedback():
+    # 甲⁺：零落盘进 warnings，不再是 hard gap / write_pass 触发条件。
     v = check_contract(
         "只有文字", Deliverable(requires_files=True), files_written=0
     )
-    assert is_zero_files_gap(v)
-    assert not is_format_repairable(v)
-    fb = format_write_pass_feedback(v)
+    assert v.ok
+    assert any("未把产物写入工作区" in w for w in v.warnings)
+    assert not is_zero_files_gap(v)
+    # format_write_pass_feedback 仍可对遗留 hard verdict 拼文案（防御保留）。
+    legacy = ContractVerdict(
+        ok=False, failures=["未把产物写入工作区：粘贴正文"], warnings=[]
+    )
+    assert is_zero_files_gap(legacy)
+    fb = format_write_pass_feedback(legacy)
     assert "短写盘 pass" in fb
     assert "file_write" in fb
     assert not is_zero_files_gap(
@@ -244,6 +267,8 @@ def test_describe_deliverable_renders_rules():
     # json + required_sections: describe only surfaces JSON (Markdown sections skipped)
     assert "JSON" in desc
     assert "风险" in desc
+    assert "建议覆盖（软）" in desc
+    assert "必须涉及" not in desc
     assert "200" in desc
     assert "小标题" not in desc
 
@@ -342,15 +367,17 @@ def test_json_file_channel_without_contents_still_warns_existence():
 # --- requires_files: the deliverable-landed gate over files_written -------------
 
 
-def test_requires_files_fails_when_none_written():
+def test_requires_files_soft_when_none_written():
+    """甲⁺：requires_files ∧ 零落盘 → soft warning，不 fail。"""
     from agentcore.runtime.runs.contract import zero_files_gap_message
 
     v = check_contract("我把整份代码贴在这里", RunContract(requires_files=True), files_written=0)
-    assert not v.ok
-    assert any("工作区" in f for f in v.failures)
-    assert any("粘在回复正文" in f for f in v.failures)
+    assert v.ok
+    assert not v.failures
+    assert any("工作区" in w for w in v.warnings)
+    assert any("粘在回复正文" in w for w in v.warnings)
     # Default attribution = paste framing (no landing_failure_kind).
-    assert zero_files_gap_message() in v.failures
+    assert zero_files_gap_message() in v.warnings
 
 
 def test_requires_files_zero_disk_attributes_channel_dead_not_paste():
@@ -360,8 +387,8 @@ def test_requires_files_zero_disk_attributes_channel_dead_not_paste():
         files_written=0,
         landing_failure_kind="channel_dead",
     )
-    assert not v.ok
-    assert any("写盘通道不可用" in f and "粘在回复正文" not in f for f in v.failures)
+    assert v.ok
+    assert any("写盘通道不可用" in w and "粘在回复正文" not in w for w in v.warnings)
 
 
 def test_requires_files_zero_disk_attributes_write_failed_not_paste():
@@ -371,9 +398,9 @@ def test_requires_files_zero_disk_attributes_write_failed_not_paste():
         files_written=0,
         landing_failure_kind="write_failed",
     )
-    assert not v.ok
-    assert any("已尝试写盘但未成功" in f and "此缺口来自写盘失败" in f for f in v.failures)
-    assert not any(f.endswith("而非粘在回复正文里") for f in v.failures)
+    assert v.ok
+    assert any("已尝试写盘但未成功" in w and "此缺口来自写盘失败" in w for w in v.warnings)
+    assert not any(w.endswith("而非粘在回复正文里") for w in v.warnings)
 
 
 def test_requires_files_passes_when_a_file_was_written():
@@ -463,7 +490,8 @@ def test_file_deliverable_empty_body_passes_when_artifact_text_loaded():
     assert "产出为空" not in str(v.failures)
 
 
-def test_file_deliverable_still_fails_when_nothing_landed():
+def test_file_deliverable_empty_body_still_fails_baseline_when_nothing_landed():
+    """甲⁺：零落盘不再单独 fail；但空正文+零盘+无 handoff 仍触「产出为空」基线。"""
     v = check_contract(
         "",
         Deliverable(form="files", artifacts=["site/QA.md"], requires_files=True),
@@ -472,7 +500,7 @@ def test_file_deliverable_still_fails_when_nothing_landed():
         artifact_contents=None,
     )
     assert not v.ok
-    assert any("产出为空" in f or "工作区" in f for f in v.failures)
+    assert any("产出为空" in f for f in v.failures)
 
 
 def test_form_files_reviews_landing_counts_as_product():
@@ -756,6 +784,7 @@ def test_file_form_length_uses_max_of_body_and_files_not_sum():
     )
     assert v.ok
     # Two short texts must NOT add up past the floor — max, not sum.
+    # 定案乙：字数不足 → soft warning，不 fail。
     v2 = check_contract(
         "正" * 60,
         contract,
@@ -763,8 +792,8 @@ def test_file_form_length_uses_max_of_body_and_files_not_sum():
         workspace_paths=["paper.md"],
         artifact_contents={"paper.md": "正" * 60},
     )
-    assert not v2.ok
-    assert any("少于" in f for f in v2.failures)
+    assert v2.ok
+    assert any("少于" in w for w in v2.warnings)
 
 
 def test_prose_deliverable_ignores_file_contents():

@@ -33,7 +33,26 @@ export class StreamHttpError extends Error {
 /** Map a backend error `code` to the model-config remedy, or null. */
 export function errorActionForCode(
   code: string | undefined,
+  opts?: {
+    credentialSource?: string | null;
+    message?: string | null;
+  },
 ): ErrorAction | null {
+  if (code === "INFERENCE_TOKEN_EXPIRED") {
+    return null;
+  }
+  if (code === "LLM_KEY_INVALID") {
+    const src =
+      opts?.credentialSource === "platform" || opts?.credentialSource === "user"
+        ? opts.credentialSource
+        : opts?.message?.includes("平台模型暂时不可用")
+          ? "platform"
+          : "user";
+    if (src === "platform") {
+      return { label: "接入自己的 Key", href: MODEL_CONFIG_PATH };
+    }
+    return { label: "去配置", href: MODEL_CONFIG_PATH };
+  }
   if (
     code !== undefined &&
     (KEY_CONFIG_ERROR_CODES as readonly string[]).includes(code)
@@ -63,7 +82,10 @@ export function describeStreamHttpError(err: StreamHttpError): {
   } else {
     message = `请求失败 (${err.status})`;
   }
-  return { message, action: errorActionForCode(err.code) };
+  return {
+    message,
+    action: errorActionForCode(err.code, { message: err.serverMessage }),
+  };
 }
 
 /**

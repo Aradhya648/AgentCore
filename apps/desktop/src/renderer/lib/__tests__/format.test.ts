@@ -1,10 +1,13 @@
 import {
   COST_ESTIMATE_LABEL,
+  formatBytes,
+  formatBytesPerSecond,
   formatCompact,
   formatCost,
   formatCostCaption,
   formatDateDivider,
   formatDisplayCost,
+  formatDownloadProgress,
   formatMessageTime,
   formatMessageTimeOfDay,
   pickCostMoney,
@@ -13,6 +16,41 @@ import { describe, expect, it, vi } from "vitest";
 
 // 1 元 = 1e9 nano-CNY (ledger canonical unit).
 const YUAN = 1_000_000_000;
+
+describe("formatDownloadProgress", () => {
+  it("joins percent, size, and speed", () => {
+    expect(
+      formatDownloadProgress({
+        percent: 42,
+        transferred: 83_886_080,
+        total: 198_180_864,
+        bytesPerSecond: 524_288,
+      }),
+    ).toBe("42% · 80 MB / 189 MB · 512 KB/s");
+  });
+
+  it("omits size and speed when unknown", () => {
+    expect(
+      formatDownloadProgress({
+        percent: 10,
+        transferred: 0,
+        total: 0,
+        bytesPerSecond: 0,
+      }),
+    ).toBe("10%");
+  });
+});
+
+describe("formatBytesPerSecond", () => {
+  it("returns null for non-positive rates", () => {
+    expect(formatBytesPerSecond(0)).toBeNull();
+    expect(formatBytesPerSecond(-1)).toBeNull();
+  });
+
+  it("appends /s to formatBytes", () => {
+    expect(formatBytesPerSecond(1024)).toBe(`${formatBytes(1024)}/s`);
+  });
+});
 
 describe("formatCost", () => {
   it("converts nano-CNY to ¥, rounded to fen", () => {

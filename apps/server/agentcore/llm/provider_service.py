@@ -150,6 +150,9 @@ class LlmProviderService:
         api_key = (api_key or "").strip()
         if not api_key:
             raise ValidationError("API Key 不能为空")
+        from agentcore.llm.credentials import require_http_header_safe_api_key
+
+        api_key = require_http_header_safe_api_key(api_key)
         enc = self._encryptor()
         if enc is None:
             raise KeyStorageUnavailableError(
@@ -207,7 +210,10 @@ class LlmProviderService:
                 raise KeyStorageUnavailableError(
                     "服务端未配置加密主密钥，暂时无法保存 API Key，请联系管理员"
                 )
-            kwargs["api_key_enc"] = enc.encrypt(api_key.strip().encode())
+            from agentcore.llm.credentials import require_http_header_safe_api_key
+
+            safe_key = require_http_header_safe_api_key(api_key.strip())
+            kwargs["api_key_enc"] = enc.encrypt(safe_key.encode())
         if "base_url" in fields_set:
             resolved = (base_url or settings.platform_base_url).strip()
             if not resolved:

@@ -110,8 +110,10 @@ def test_controller_seed_round_trip_json_safe():
         "debate_gate_fired": True,
         "debate_executed": True,
         "turn_token_budget_gate_fired": True,
+        "validation_stopped_fps": [],
+        "validation_thrash_latched": False,
     }
-    assert all(isinstance(v, (bool, int)) for v in seed.values())
+    assert all(isinstance(v, (bool, int, list)) for v in seed.values())
 
     restored = create_loop_controller(frozenset(), seed=seed)
     assert restored.export_seed() == seed
@@ -124,6 +126,7 @@ def test_controller_seed_round_trip_json_safe():
     assert restored.debate_gate_fired is True
     assert restored.debate_executed is True
     assert restored.turn_token_budget_gate_fired is True
+    assert restored.validation_thrash_latched is False
 
 
 def test_seed_blocks_team_gate_reinjection():

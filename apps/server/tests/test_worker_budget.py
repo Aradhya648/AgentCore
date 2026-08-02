@@ -483,3 +483,50 @@ def test_merge_persist_write_tools_and_light_repair_grant():
     assert "str_replace" in granted
     assert "handoff" in granted
     assert "grep" not in granted  # investigation stripped
+
+
+def test_should_skip_contract_retry_for_budget_handoff_ok_wind_down():
+    """定案 B：handoff_ok + wind_down → 短路；缺一不可。"""
+    from agentcore.runtime.runs.executor_node import (
+        _wind_down_entered,
+        should_skip_contract_retry_for_budget,
+    )
+
+    assert should_skip_contract_retry_for_budget(
+        handoff_ok=True, wind_down_entered=True
+    )
+    assert not should_skip_contract_retry_for_budget(
+        handoff_ok=True, wind_down_entered=False
+    )
+    assert not should_skip_contract_retry_for_budget(
+        handoff_ok=False, wind_down_entered=True
+    )
+    assert not should_skip_contract_retry_for_budget(
+        handoff_ok=False, wind_down_entered=False
+    )
+
+    # wind_down via cutoff reason (token/timeout) also counts as entered.
+    assert _wind_down_entered(
+        cutoff_reasons=["token_budget"],
+        token_ceiling=100_000,
+        tokens_spent=1,
+    )
+    assert should_skip_contract_retry_for_budget(
+        handoff_ok=True,
+        wind_down_entered=_wind_down_entered(
+            cutoff_reasons=["token_budget"],
+            token_ceiling=100_000,
+            tokens_spent=1,
+        ),
+    )
+    # Soft reserve path: spent past ceiling − reserve.
+    assert _wind_down_entered(
+        cutoff_reasons=[],
+        token_ceiling=80_000,
+        tokens_spent=55_000,  # reserve default 30k → enter at ≥50k
+    )
+    assert not _wind_down_entered(
+        cutoff_reasons=[],
+        token_ceiling=80_000,
+        tokens_spent=40_000,
+    )

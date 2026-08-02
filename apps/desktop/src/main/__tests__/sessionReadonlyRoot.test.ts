@@ -8,6 +8,7 @@ import { executeWorkspaceOp } from "../fs/workspace/dispatch";
 import {
   buildExternalEnvFromRoots,
   buildWorkspacePythonpathEnv,
+  pickRegistryEnv,
 } from "../fs/workspace/exec";
 
 const readonlyRoot: StoredRoot = {
@@ -171,5 +172,32 @@ describe("buildWorkspacePythonpathEnv (D11′)", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("pickRegistryEnv", () => {
+  it("keeps registry/cache keys and drops arbitrary env", () => {
+    expect(
+      pickRegistryEnv({
+        NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/",
+        npm_config_cache: "/tmp/npm",
+        YARN_REGISTRY: "https://registry.npmjs.org/",
+        PNPM_STORE_PATH: "/tmp/pnpm",
+        PATH: "/evil",
+        LD_PRELOAD: "x",
+        SECRET: "no",
+      }),
+    ).toEqual({
+      NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/",
+      npm_config_cache: "/tmp/npm",
+      YARN_REGISTRY: "https://registry.npmjs.org/",
+      PNPM_STORE_PATH: "/tmp/pnpm",
+    });
+  });
+
+  it("returns empty for non-objects", () => {
+    expect(pickRegistryEnv(null)).toEqual({});
+    expect(pickRegistryEnv("x")).toEqual({});
+    expect(pickRegistryEnv(["NPM_CONFIG_REGISTRY"])).toEqual({});
   });
 });

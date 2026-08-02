@@ -42,5 +42,7 @@ def project_verify_redirect_message(matched: str) -> str:
         f"禁止用 code_execute 跑项目级慢验证（检测到：{matched}）。"
         "本工具约 60s 硬顶，不适配 install / tsc / 全量 test·build。"
         "请改用 test_run（有界项目验证，分钟级预算）："
-        "check=command 并填同一命令，或 check=test|typecheck|build。"
+        "装包用 check=install（或 check=command + `npm|pnpm|yarn install|ci`，"
+        "子目录用 --prefix/--dir 或 working_directory，禁止 cd&&）；"
+        "验绿用 check=test|typecheck|build，或 check=command 填同一命令。"
     )

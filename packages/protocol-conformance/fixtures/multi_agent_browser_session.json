@@ -310,6 +310,7 @@
         "debrief": null,
         "durationMs": 4200,
         "error": null,
+        "failureKind": null,
         "parentRunId": null,
         "kind": "agent",
         "role": "member",

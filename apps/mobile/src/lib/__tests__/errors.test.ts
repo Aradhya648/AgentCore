@@ -16,9 +16,15 @@ describe("errorActionForCode", () => {
     });
   });
 
-  it("routes LLM_KEY_INVALID to 去配置", () => {
+  it("routes LLM_KEY_INVALID to 去配置 (BYOK) or 接入自己的 Key (platform)", () => {
     expect(errorActionForCode("LLM_KEY_INVALID")).toEqual({
       label: "去配置",
+      href: MODEL_CONFIG_PATH,
+    });
+    expect(
+      errorActionForCode("LLM_KEY_INVALID", { credentialSource: "platform" }),
+    ).toEqual({
+      label: "接入自己的 Key",
       href: MODEL_CONFIG_PATH,
     });
   });

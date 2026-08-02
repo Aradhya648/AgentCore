@@ -127,6 +127,11 @@ class WorkspaceSettings(BaseModel):
     browser_proxy_port: int = 8899
     browser_veth_subnet_base: str = "10.201"
 
+    # Packaging install egress (allowlist proxy + netns; distinct from browser SSRF).
+    # Hostnames from ``ALLOWED_NPM_REGISTRIES`` + ``ALLOWED_NPM_HOSTS`` (CDN ≠ pin).
+    package_egress_proxy_port: int = 8898
+    package_veth_subnet_base: str = "10.202"
+
     # ── L3 团队浏览器 M1 直播（内置浏览器与Agent浏览器提案.md · D13–D15）─────────
     # Live screencast baseline (D14): CDP Page.startScreencast params. The gVisor gate
     # (scripts/poc_browser_gvisor/run_screencast.py) measured ~57fps @ ~14KB/frame at

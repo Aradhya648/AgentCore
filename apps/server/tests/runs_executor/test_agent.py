@@ -6,7 +6,7 @@ RunState, injects an upstream product into a downstream node's prompt, and emits
 the ``run_*`` graph events.
 """
 
-from agentcore.llm.provider.protocol import LLMChunk, ToolCallDelta
+from agentcore.llm.provider.protocol import LLMChunk
 from agentcore.runtime.events import EventSink, EventType
 from agentcore.runtime.facts import FactKind, TurnFactLog, current_fact_log
 from agentcore.runtime.journal import completed_from_journal
@@ -30,7 +30,6 @@ from tests.runs_executor.conftest import (
     _MeteredRoundThenBoom,
     _OfferRecorder,
     _ResearchTool,
-    _ScriptedRounds,
     _ToolCallThenContent,
     _UsageProvider,
 )
@@ -335,6 +334,8 @@ async def test_worker_hard_failure_bills_completed_rounds():
     plan, _ = build_run_plan([{"role": "A", "task": "做A"}], id_prefix="t")
     reg = ToolRegistry()
     reg.register(_GrantableTool("noop"))  # un-gated here → the metered round runs
+    # Isolate from Wave infra-retry so we assert the first FAILED state's transcript.
+    plan.nodes[0].policy.max_retries = 0
     executor = build_agent_executor(
         plan=plan,
         llm=_MeteredRoundThenBoom(),
@@ -353,6 +354,50 @@ async def test_worker_hard_failure_bills_completed_rounds():
     assert state.usage["cache_miss"] == 1000
     assert state.usage["output"] == 400
     assert state.cost["total"] > 0
+    # Exception path hangs the in-flight transcript (合同硬失败同契约 → 可登记).
+    assert state.transcript
+    assert any(m.role in ("assistant", "tool") for m in state.transcript)
+
+
+async def test_executor_infra_retry_consumes_seeded_transcript():
+    """Wave seeds FAILED+transcript into completed[self] → executor 热续, not cold open."""
+    from agentcore.llm.provider.protocol import LLMMessage
+    from agentcore.runtime.runs.types import RunState
+
+    plan, _ = build_run_plan([{"role": "A", "task": "做A"}], id_prefix="t")
+    prior = [
+        LLMMessage(role="system", content="SYS"),
+        LLMMessage(role="user", content="做A"),
+        LLMMessage(role="assistant", content="半成品草稿"),
+    ]
+    provider = _ContentProvider(["续写完成"])
+    executor = build_agent_executor(
+        plan=plan,
+        llm=provider,
+        tools=ToolRegistry(),
+        sink=EventSink(),
+        base_tool_context=_ctx(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        execution_id="e",
+    )
+    seeded = {
+        "t_1": RunState(
+            phase=RunPhase.FAILED,
+            error="upstream disconnect",
+            transcript=prior,
+            content="半成品草稿",
+        )
+    }
+    state = await executor(plan.nodes[0], seeded)
+    assert state.phase is RunPhase.COMPLETED
+    assert state.content == "续写完成"
+    assert provider.calls == 1
+    roles = [r for r, _ in provider.requests[0]]
+    # Prior assistant draft is still in the window (hot), and a 续干 user was appended.
+    assert "assistant" in roles
+    assert any(c == "半成品草稿" for r, c in provider.requests[0] if r == "assistant")
+    assert any("续干指令" in c for r, c in provider.requests[0] if r == "user")
 
 
 async def test_failed_worker_run_final_fact_reseeds_from_journal():
@@ -419,39 +464,46 @@ async def test_worker_failure_before_any_usage_has_no_ledger_row():
     assert not state.cost
 
 
-async def test_contract_retry_then_pass():
-    # min_length contract: first output too short → re-prompt → second passes.
+async def test_contract_min_length_soft_completes_first_try():
+    # 定案乙：字数不足 → soft warning，首轮即 COMPLETED，不 contract.retry。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "deliverable": {"min_length": 8}}], id_prefix="t"
     )
-    provider = _ContentProvider(["短", "这是一段足够长的合格产出"])
+    provider = _ContentProvider(["短"])
     res = await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
-    assert provider.calls == 2
+    assert provider.calls == 1
     assert res["t_1"].phase is RunPhase.COMPLETED
-    assert res["t_1"].content == "这是一段足够长的合格产出"
-    assert res["t_1"].warnings == []
-    # usage is summed across both attempts, not just the last one.
-    assert res["t_1"].usage["input"] >= 0
+    assert res["t_1"].content == "短"
+    assert any("少于" in w for w in res["t_1"].warnings)
 
 
-async def test_contract_retry_continues_on_same_transcript_seeing_old_draft():
-    # 统一「续写」: auto-rework no longer rebuilds the prompt from scratch — it
-    # CONTINUES on the same transcript, so the worker sees its own prior draft
-    # (assistant turn) with the shortfall appended as the last user turn (修隐患).
+async def test_contract_must_contain_soft_completes_first_try():
+    # 定案乙：缺必含词 → soft，不触发续写 / light_repair。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "deliverable": {"must_contain": ["风险"]}}], id_prefix="t"
     )
-    provider = _ContentProvider(["没有那个词", "已包含风险二字"])
+    provider = _ContentProvider(["没有那个词"])
+    res = await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
+    assert provider.calls == 1
+    assert res["t_1"].phase is RunPhase.COMPLETED
+    assert any("风险" in w for w in (res["t_1"].warnings or []))
+
+
+async def test_contract_section_retry_continues_on_same_transcript():
+    # required_sections 仍硬拦：续写同 transcript，worker 可见旧稿。
+    plan, _ = build_run_plan(
+        [{"role": "A", "task": "做A", "deliverable": {"required_sections": ["结论"]}}],
+        id_prefix="t",
+    )
+    provider = _ContentProvider(["没有章节", "# 结论\n已补上"])
     await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
+    assert provider.calls == 2
     second = provider.requests[1]
-    # the worker's own prior draft is in context now (was invisible before)
-    assert any(role == "assistant" and content == "没有那个词" for role, content in second)
-    # the shortfall is the LAST turn, a fresh user message (not folded into the task)
+    assert any(role == "assistant" and content == "没有章节" for role, content in second)
     last_role, last_content = second[-1]
     assert last_role == "user"
-    # Light repair (format-only) or full contract.retry — either is a correction user turn.
     assert ("修正" in last_content) or ("补全" in last_content)
-    assert "风险" in last_content
+    assert "结论" in last_content
 
 
 async def test_completed_run_captures_full_transcript():
@@ -501,26 +553,20 @@ async def test_worker_system_prompt_grants_structure_ownership():
     assert "答题边界" in sys
 
 
-async def test_contract_strict_hard_fails_after_retries():
+async def test_contract_strict_min_length_still_soft_completes():
+    # 定案乙：min_length 已降 soft；即便 strict 也不因字数 FAILED / 不占满 retry。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "deliverable": {"min_length": 50, "strict": True}}],
         id_prefix="t",
     )
-    # Default on_failure=retry must NOT cold-start the node after contract retries
-    # are exhausted (W2 hard stop: error_retryable=False).
     assert plan.nodes[0].policy.on_failure == "retry"
     sink = EventSink()
-    # Format miss: light_repair (no attempt++) + one full contract.retry → 3 LLM calls.
-    # A 4th scripted reply would only be consumed if the wave cold-retried.
-    provider = _ContentProvider(["短", "还是短", "第三次仍短", "第四次冷启不应发生"])
+    provider = _ContentProvider(["短"])
     res = await WaveScheduler().run(plan, _executor(plan, provider, sink))
     sink.close()
-    assert provider.calls == 3
-    assert res["t_1"].phase is RunPhase.FAILED
-    assert res["t_1"].error_retryable is False
-    assert "少于" in res["t_1"].error
-    types = [e.type async for e in sink]
-    assert EventType.RUN_FAILED in types
+    assert provider.calls == 1
+    assert res["t_1"].phase is RunPhase.COMPLETED
+    assert any("少于" in w for w in (res["t_1"].warnings or []))
 
 
 async def test_contract_empty_hard_fail_not_wave_retried():
@@ -539,14 +585,15 @@ async def test_contract_empty_hard_fail_not_wave_retried():
 
 
 async def test_contract_soft_accepts_with_warning():
+    # 定案乙：字数不足首轮即 soft-complete（不再 light_repair + retry 三轮）。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "deliverable": {"min_length": 50}}], id_prefix="t"
     )
-    # light_repair + full retry ⇒ three scripted replies; last is soft-accepted.
-    provider = _ContentProvider(["短", "还是短", "第三次仍短"])
+    provider = _ContentProvider(["短"])
     res = await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
+    assert provider.calls == 1
     assert res["t_1"].phase is RunPhase.COMPLETED
-    assert res["t_1"].content == "第三次仍短"
+    assert res["t_1"].content == "短"
     assert any("少于" in w for w in res["t_1"].warnings)
 
 
@@ -558,7 +605,8 @@ async def test_no_contract_passes_first_try_without_extra_call():
     assert res["t_1"].phase is RunPhase.COMPLETED
 
 
-async def test_requires_files_reworks_when_not_written_then_passes_on_write():
+async def test_requires_files_soft_completes_without_forcing_write():
+    """甲⁺：粘贴正文不落盘 → soft-complete；不再 write_pass 逼写。"""
     plan, _ = build_run_plan(
         [{"role": "前端", "task": "建页面", "deliverable": {"requires_files": True}}],
         id_prefix="t",
@@ -566,25 +614,7 @@ async def test_requires_files_reworks_when_not_written_then_passes_on_write():
     reg = ToolRegistry()
     fw = _FileWriteTool()
     reg.register(fw)
-    rounds = [
-        # attempt 1 (one round): only pastes the file into the reply, no file_write
-        [LLMChunk(delta_content="<html>整份贴在聊天里</html>")],
-        # attempt 2 round 1: call file_write; round 2: final answer
-        [
-            LLMChunk(
-                delta_tool_calls=[
-                    ToolCallDelta(
-                        index=0,
-                        id="c1",
-                        function_name="file_write",
-                        arguments_delta='{"path": "index.html", "content": "<html></html>"}',
-                    )
-                ]
-            )
-        ],
-        [LLMChunk(delta_content="已写入 index.html")],
-    ]
-    provider = _ScriptedRounds(rounds)
+    provider = _ContentProvider(["<html>整份贴在聊天里</html>"])
     executor = build_agent_executor(
         plan=plan,
         llm=provider,
@@ -598,29 +628,28 @@ async def test_requires_files_reworks_when_not_written_then_passes_on_write():
     res = await WaveScheduler().run(plan, executor)
     state = res["t_1"]
     assert state.phase is RunPhase.COMPLETED
-    assert fw.calls == 1  # the rework actually wrote the file
-    assert state.files_touched == ["index.html"]
-    assert state.warnings == []
+    assert fw.calls == 0
+    assert state.files_touched == []
+    assert any("未把产物写入工作区" in w for w in (state.warnings or []))
 
 
-async def test_requires_files_write_pass_then_hard_fails_when_never_written():
-    # 交付真相：零落盘走写盘 pass（非满轮调查 retry），再失败 → FAILED（非 soft-complete）。
+async def test_requires_files_soft_completes_without_write_pass():
+    """甲⁺：零落盘 soft-complete，不触发 write_pass，不 FAILED。"""
     plan, _ = build_run_plan(
         [{"role": "前端", "task": "建页面", "deliverable": {"requires_files": True}}],
         id_prefix="t",
     )
     provider = _ContentProvider(["只有文字一", "只有文字二"])
     res = await WaveScheduler().run(plan, _executor(plan, provider, EventSink()))
-    assert provider.calls == 2  # initial + write pass（无第三轮满轮 retry）
+    assert provider.calls == 1  # 无 write_pass 第二轮
     state = res["t_1"]
-    assert state.phase is RunPhase.FAILED
-    assert "工作区" in (state.error or "")
+    assert state.phase is RunPhase.COMPLETED
     assert state.files_touched == []
-    assert state.error_retryable is False
-    assert any("落盘契约未满足" in (e.get("question") or "") for e in state.escalations)
+    assert any("未把产物写入工作区" in w for w in (state.warnings or []))
 
 
-async def test_requires_files_strict_hard_fails_when_never_written():
+async def test_requires_files_strict_soft_completes_when_never_written():
+    """甲⁺：即使 strict，零落盘 alone 也不 fail（已降 soft warning，verdict.ok）。"""
     plan, _ = build_run_plan(
         [
             {
@@ -636,10 +665,10 @@ async def test_requires_files_strict_hard_fails_when_never_written():
     res = await WaveScheduler().run(plan, _executor(plan, provider, sink))
     sink.close()
     state = res["t_1"]
-    assert state.phase is RunPhase.FAILED
-    assert "工作区" in state.error
+    assert state.phase is RunPhase.COMPLETED
+    assert any("未把产物写入工作区" in w for w in (state.warnings or []))
     types = [e.type async for e in sink]
-    assert EventType.RUN_FAILED in types
+    assert EventType.RUN_FAILED not in types
 
 
 async def test_worker_grantable_tool_gated_when_gate_denies():

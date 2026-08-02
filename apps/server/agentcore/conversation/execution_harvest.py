@@ -226,31 +226,41 @@ async def run_harvest_closing_turn(
     )
 
     async def _run() -> None:
+        from agentcore.runtime.delegate.post_close_gate import (
+            EXECUTION_HARVEST_ORIGIN,
+            bind_user_message_origin,
+            reset_user_message_origin,
+        )
+
         # Adopt before pipeline so CEO wait binds the live execution_id.
         adopt_active_execution(conversation_id, event_sink=sink)
-        async with workspace_lock(
-            workspace_storage_key(
-                user_id=user_id, folder_id=folder_id, conversation_id=conversation_id
-            )
-        ):
-            await run_and_persist(
-                conversation_id=conversation_id,
-                user_message=user_text,
-                user_id=user_id,
-                folder_id=folder_id,
-                sink=sink,
-                history=history[:-1] if history else [],
-                attachments=None,
-                backend=backend,
-                llm_credentials=llm_credentials,
-                profile_set=profile_set,
-                memory_enabled=memory_enabled,
-                conversation_history_access=conversation_history_access,
-                permission_axes=permission_axes,
-                board_id=board_id,
-                llm_supports_tools=None,
-                x_client_platform=None,
-            )
+        origin_token = bind_user_message_origin(EXECUTION_HARVEST_ORIGIN)
+        try:
+            async with workspace_lock(
+                workspace_storage_key(
+                    user_id=user_id, folder_id=folder_id, conversation_id=conversation_id
+                )
+            ):
+                await run_and_persist(
+                    conversation_id=conversation_id,
+                    user_message=user_text,
+                    user_id=user_id,
+                    folder_id=folder_id,
+                    sink=sink,
+                    history=history[:-1] if history else [],
+                    attachments=None,
+                    backend=backend,
+                    llm_credentials=llm_credentials,
+                    profile_set=profile_set,
+                    memory_enabled=memory_enabled,
+                    conversation_history_access=conversation_history_access,
+                    permission_axes=permission_axes,
+                    board_id=board_id,
+                    llm_supports_tools=None,
+                    x_client_platform=None,
+                )
+        finally:
+            reset_user_message_origin(origin_token)
         await _notify_harvest_complete(
             user_id=user_id,
             conversation_id=conversation_id,

@@ -18,6 +18,10 @@ PlanRevisionKind = Literal["bind", "steer"]
 ActKind = Literal["multi_agent", "debate"]
 # 幕授权来源（批 B）：推进卡点开辩 / 自动开辩 / 开工卡确认。
 ActAuthorizedBy = Literal["stage_card", "auto", "preview"]
+# run_failed 可机读原因类（additive）：协作图脸优先按此类贴文案。
+# quality=契约/硬缺口/空交付→「未达标」；model=中断/停滞/降级交接→「模型中断」；
+# call=LLM/超时→「调用失败」；缺省→「失败」/空 error「调用失败」。
+RunFailureKind = Literal["quality", "model", "call"]
 
 
 class PlanRevision(WirePayload):
@@ -288,7 +292,7 @@ class DeliveryGap(WirePayload):
     comes from a structured engine signal — known:
     ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
     ``unverified_note`` (soft 待核实/示例自注) /
-    ``files_not_landed`` (零落盘：worker 契约与批次 files_written 合并投影) /
+    ``files_not_landed`` (零落盘 soft tip：契约与 files_written 合并；甲⁺ 起不挡收工) /
     ``verify_failed`` (验证形工具失败：browser_navigate / test_run /
     verify 形 code_execute·terminal).
     Absent for ordinary contract / criteria prose gaps that have not been projected.
@@ -445,6 +449,8 @@ class RunFailedPayload(WirePayload):
     run_id: str
     agent_id: str
     error: str
+    # Additive：旧客户端 / 旧 journal 忽略；缺省时脸回退「失败」/空 error「调用失败」。
+    failure_kind: RunFailureKind | None = absent()
     debrief: RunDebrief | None = absent()
     execution_id: str | None = absent()
 

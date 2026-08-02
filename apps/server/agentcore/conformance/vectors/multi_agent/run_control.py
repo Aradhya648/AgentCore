@@ -71,7 +71,7 @@ def _multi_agent_run_skipped_cascade() -> list[SSEEvent]:
         ),
         run_started("r1", "w1"),
         run_output_delta("r1", "w1", "调研中断"),
-        run_failed("r1", "w1", "上游失败：资料源不可用"),
+        run_failed("r1", "w1", "上游失败：资料源不可用", failure_kind="call"),
         # Cascade: r2 depends on r1 (on_failure=skip) — never dispatched.
         run_skipped("r2", "w2", reason="cascade"),
         # Graceful abort tail: independent r3 never launched before scheduling ended.
@@ -130,7 +130,12 @@ def _multi_agent_run_redirect_ignored() -> list[SSEEvent]:
         run_output_delta("r2", "w2", "开始撰写"),
         # r1 hits a deterministic (non-retryable) failure; the user's mid-flight redirect on r1
         # arrives too late to steer a run that is already terminal — nothing lands on the wire.
-        run_failed("r1", "w1", "上游 400：提示过长（确定性失败，重试无益）"),
+        run_failed(
+            "r1",
+            "w1",
+            "上游 400：提示过长（确定性失败，重试无益）",
+            failure_kind="call",
+        ),
         run_progress(0, 2),
         run_completed(
             "r2",

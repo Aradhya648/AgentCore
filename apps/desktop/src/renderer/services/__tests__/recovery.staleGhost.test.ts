@@ -140,6 +140,54 @@ describe("settleCloudRunningAssistant (stale recovery race)", () => {
     expect(usePausedTurnStore.getState().pending).toHaveLength(0);
   });
 
+  it("stale usage.paused latch resume card is cleared on ghost", async () => {
+    seedRunningAssistant();
+    // Latch painted a fake「等待确认」card even though recovery has no frame.
+    usePausedTurnStore.getState().addLiveResume({
+      messageId: ASSISTANT_ID,
+      conversationId: CID,
+      checkpointId: "cp-stale",
+      kind: "ask_user",
+      userMessage: "q",
+      userMessageId: "u1",
+      steps: [],
+      pending: [],
+      workers: [],
+      tools: [],
+      primitive: "delegate",
+      motion: "",
+      form: "",
+      sides: [],
+      maxRounds: 0,
+      thorough: true,
+      offerResearchFirst: false,
+      researchFirstRecommended: false,
+      question: "where?",
+      context: "",
+      assumptions: [],
+      questions: [],
+      styleOptions: [],
+      formatOptions: [],
+      intent: "decision",
+      origin: "server",
+    });
+    expect(usePausedTurnStore.getState().pending).toHaveLength(1);
+
+    apiGet.mockResolvedValue({
+      live_running: false,
+      paused: [],
+      pending_interactions: [],
+    });
+
+    const outcome = await settleCloudRunningAssistant(CID, {
+      ...emptyRecovery,
+    });
+
+    expect(outcome).toBe("ghost");
+    expect(assistant()?.finishReason).toBe("interrupted");
+    expect(usePausedTurnStore.getState().pending).toHaveLength(0);
+  });
+
   it("non-empty initial snapshot skips refresh", async () => {
     seedRunningAssistant();
     apiGet.mockResolvedValue({

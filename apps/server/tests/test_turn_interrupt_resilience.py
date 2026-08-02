@@ -699,6 +699,22 @@ async def test_recover_salvage_failure_does_not_release(monkeypatch):
         _fake_orphan_lease,
     )
 
+    async def _fake_hb(message_id, *, owner_id=None, phase=None):
+        return True
+
+    async def _fake_hb_loop(message_id, *, owner_id, interval_seconds, stop, phase="running"):
+        await stop.wait()
+
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.service.heartbeat_turn_lease",
+        _fake_hb,
+    )
+    monkeypatch.setattr(
+        "agentcore.runtime.leases.service.lease_heartbeat_loop",
+        _fake_hb_loop,
+    )
+    lease.meta = {"trace_id": "tr", "recover_attempts": 1}
+
     await recover_expired_lease(lease, state)
     assert not released
     assert orphaned == [message_id]

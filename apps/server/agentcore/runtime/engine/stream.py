@@ -24,10 +24,11 @@ from .constants import TOOL_PROGRESS_STEP
 
 logger = get_logger(__name__)
 
-# Wall-clock cap for pre-commit stall retries: without this, a true stall costs
-# ``idle × MAX_RETRIES`` (+ backoff). Factor 2 keeps production (idle≈100s) under
-# ~200s worst case while still allowing full ``MAX_RETRIES`` when idle is short
-# (unit tests). Attempt count still aligns with provider ``MAX_RETRIES``.
+# Pre-commit stall retry budget, measured in idle *windows* (not a pristine
+# ``remaining >= idle`` wall check). Factor 2 → first attempt + one transparent
+# retry in production (idle≈100s ⇒ ~200s stall-wait ceiling) while still allowing
+# full provider ``MAX_RETRIES`` when tests raise the multiplier. Do not treat
+# first-window overshoot (TTFT / scheduling ms) as "no room for retry".
 _STALL_BUDGET_IDLE_MULTIPLIER = 2.0
 
 
@@ -130,13 +131,22 @@ async def stream_llm_round(
             on_reset("retry")
 
     loop = asyncio.get_running_loop()
+    # Once ``llm.call_retried`` is emitted we must actually open the next stream —
+    # never wall-clock-abort at the top of the next iteration (no post-retry 收口).
+    retry_committed = False
+    max_stall_windows = max(1, int(_STALL_BUDGET_IDLE_MULTIPLIER))
 
     try:
         for attempt in range(MAX_RETRIES):
-            if budget is not None and (time.monotonic() - start) >= budget:
+            if (
+                budget is not None
+                and not retry_committed
+                and (time.monotonic() - start) >= budget
+            ):
                 if last_stall_error is not None:
                     raise last_stall_error
                 break
+            retry_committed = False
             if attempt > 0:
                 _reset_attempt_state()
 
@@ -245,12 +255,14 @@ async def stream_llm_round(
                     break
 
                 last_stall_error = LLMTimeoutError("模型流式响应停滞（长时间无输出），请稍后重试")
-                can_retry = attempt < MAX_RETRIES - 1
-                if budget is not None:
-                    # Need room for another idle window; otherwise raise now.
-                    remaining = budget - (time.monotonic() - start)
-                    if remaining < idle:
-                        can_retry = False
+                # Window accounting: attempt 0 stall consumes window 1. With
+                # multiplier=2, allow one more stream attempt; do NOT use
+                # ``remaining < idle`` (first-window overshoot made retries dead).
+                windows_used = attempt + 1
+                can_retry = attempt < MAX_RETRIES - 1 and windows_used < max_stall_windows
+                if budget is not None and (time.monotonic() - start) >= budget:
+                    # Already past wall budget — don't claim a retry we won't start.
+                    can_retry = False
                 if not can_retry:
                     raise last_stall_error from None
 
@@ -265,6 +277,7 @@ async def stream_llm_round(
                 )
                 await asyncio.sleep(backoff)
                 backoff *= BACKOFF_MULTIPLIER
+                retry_committed = True
                 continue
 
             # Stream finished normally (or aborted mid-stream) — leave the retry loop.

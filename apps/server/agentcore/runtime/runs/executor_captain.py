@@ -127,8 +127,9 @@ def build_captain_resumer(
     turn; the client dedupes the captain node by id across the original + resumed
     journal segments.
 
-    ``controller_seed`` restores the five cross-suspension LoopController latches from
-    a prior ``turn_paused.controller`` snapshot (G5); omit / ``None`` keeps fresh-turn
+    ``controller_seed`` restores cross-suspension LoopController latches from
+    a prior ``turn_paused.controller`` snapshot (gates + validation path-stop /
+    thrash); omit / ``None`` keeps fresh-turn
     behaviour.
     """
 
@@ -280,13 +281,21 @@ async def _drive_captain_loop(
         duration_ms = int((time.monotonic() - start) * 1000)
         partial = inflight[0] if inflight else TokenUsage()
         logger.error("run.captain_failed", run_id=spec.run_id, error=str(e), exc_info=True)
-        sink.emit(run_failed(spec.run_id, agent_id, str(e)))
+        sink.emit(run_failed(spec.run_id, agent_id, str(e), failure_kind="call"))
+        from agentcore.runtime.runs.salvage import (
+            content_from_transcript,
+            freeze_partial_transcript,
+        )
+
+        frozen = freeze_partial_transcript(messages) if messages else []
         return _priced_failure(
             str(e),
             model=turn_model,
             usage=partial,
             rounds=0,
             duration_ms=duration_ms,
+            transcript=frozen or None,
+            content=content_from_transcript(frozen) if frozen else "",
         )
     finally:
         captain_transcript.reset(token)

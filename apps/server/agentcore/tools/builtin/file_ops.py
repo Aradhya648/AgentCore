@@ -42,6 +42,8 @@ from agentcore.workspace.limits import (
     FILE_TOO_LARGE_DETAIL,
     OFFICE_EXTRACT_MAX_BYTES,
     WORKSPACE_READ_MAX_BYTES,
+    channel_dead_error_message,
+    channel_dead_retire_metadata,
     is_file_too_large_detail,
     is_liveness_timeout_detail,
 )
@@ -860,27 +862,19 @@ def _office_extract_budget_error(path: str, size: int, start: float) -> ToolResu
 
 def _liveness_workspace_error(detail: str, start: float) -> ToolResult:
     """Liveness hang on the local workspace channel (permanent first-fail retire)."""
-    from agentcore.workspace.limits import (
-        WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
-        WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS,
+    return _error(
+        channel_dead_error_message(detail),
+        start,
+        metadata=channel_dead_retire_metadata(),
     )
 
-    return _error(
-        (
-            f"本地工作区通道活性挂起（无响应）：{detail}。"
-            "这不是文件过大或参数合同失败——"
-            f"{WORKSPACE_CHANNEL_DEAD_RETIRE_STEER}"
-        ),
-        start,
-        metadata={
-            "liveness_timeout": True,
-            "timeout_layer": "channel",
-            "error_class": "permanent",
-            "workspace_channel_dead": True,
-            "retire_tools": list(WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS),
-            "retire_message": WORKSPACE_CHANNEL_DEAD_RETIRE_STEER,
-        },
-    )
+
+def _maybe_channel_dead_error(exc: WorkspaceError, start: float) -> ToolResult | None:
+    """Stamp retire meta when a backend failure is channel liveness / sticky-dead."""
+    detail = str(exc)
+    if is_liveness_timeout_detail(detail):
+        return _liveness_workspace_error(detail, start)
+    return None
 
 
 def _map_workspace_read_error(exc: WorkspaceError, *, path: str, start: float) -> ToolResult:
@@ -888,8 +882,9 @@ def _map_workspace_read_error(exc: WorkspaceError, *, path: str, start: float) -
     detail = str(exc)
     if is_file_too_large_detail(detail):
         return _file_too_large_error(path, start)
-    if is_liveness_timeout_detail(detail):
-        return _liveness_workspace_error(detail, start)
+    dead = _maybe_channel_dead_error(exc, start)
+    if dead is not None:
+        return dead
     return _error(f"读取文件失败：{exc}", start)
 
 
@@ -1500,6 +1495,9 @@ class FileWriteTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"写入文件失败：{e}", start)
 
         anchor_note = (
@@ -1670,6 +1668,9 @@ class FileAppendTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"追加文件失败：{e}", start)
 
         try:
@@ -1860,6 +1861,9 @@ class FileListTool:
         except NotADirectory:
             return _error(f"不是目录：{directory}", start)
         except WorkspaceError as e:
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"列目录失败：{e}", start)
 
         return ToolResult(
@@ -2011,6 +2015,9 @@ class StrReplaceTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"写入文件失败：{e}", start)
 
         loc = "" if outcome.first_line is None else f"（约第 {outcome.first_line} 行）"
@@ -2162,6 +2169,9 @@ class WriteSectionTool:
             except WorkspaceError as e:
                 if coordinator is not None and release_on_fail:
                     coordinator.release(rel_path, context.run_id)
+                dead = _maybe_channel_dead_error(e, start)
+                if dead is not None:
+                    return dead
                 return _error(f"读取片段失败：{e}", start)
         else:
             body = str(content_arg if content_arg is not None else "")
@@ -2190,6 +2200,9 @@ class WriteSectionTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"读取文件失败：{e}", start)
 
         try:
@@ -2223,6 +2236,9 @@ class WriteSectionTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"写入文件失败：{e}", start)
 
         _mark_landed_files(context, rel_path)
@@ -2340,6 +2356,9 @@ class FileDeleteTool:
         except WorkspaceError as e:
             if coordinator is not None and release_on_fail:
                 coordinator.release(rel_path, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"删除失败：{e}", start)
 
         if permanent:
@@ -2462,6 +2481,9 @@ class FileMoveTool:
                     coordinator.release(source, context.run_id)
                 if release_dst:
                     coordinator.release(destination, context.run_id)
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"移动失败：{e}", start)
 
         # Successful move: drop source ownership key; destination already claimed.
@@ -2545,6 +2567,9 @@ class FileCopyTool:
                 start,
             )
         except WorkspaceError as e:
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"复制失败：{e}", start)
 
         output = f"已把 {source} 复制到 {destination}"
@@ -2611,6 +2636,9 @@ class MkdirTool:
         except AlreadyExists:
             return _error(f"路径已存在：{rel_path}", start)
         except WorkspaceError as e:
+            dead = _maybe_channel_dead_error(e, start)
+            if dead is not None:
+                return dead
             return _error(f"创建目录失败：{e}", start)
 
         return ToolResult(
@@ -2760,6 +2788,9 @@ class FileBatchTool:
                 fail_n += 1
                 lines.append(f"{i}. 失败 · {label}：{e}")
                 continue
+            if status == "fail" and is_liveness_timeout_detail(detail):
+                # Channel sticky-dead: stop the batch and stamp family retire.
+                return _liveness_workspace_error(detail, start)
             if status == "ok":
                 ok_n += 1
                 lines.append(f"{i}. 成功 · {detail}")

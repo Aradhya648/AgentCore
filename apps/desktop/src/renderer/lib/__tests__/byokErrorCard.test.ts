@@ -56,6 +56,19 @@ describe("FinishReasonChip error meta", () => {
 describe("error action by type", () => {
   it("auth / balance → 去设置; connectivity → null (retry in bubble)", () => {
     expect(errorActionForCode("LLM_KEY_INVALID")?.label).toBe("去设置");
+    expect(
+      errorActionForCode("LLM_KEY_INVALID", { credentialSource: "user" })
+        ?.label,
+    ).toBe("去设置");
+    expect(
+      errorActionForCode("LLM_KEY_INVALID", { credentialSource: "platform" })
+        ?.label,
+    ).toBe("接入自己的 Key");
+    expect(
+      errorActionForCode("LLM_KEY_INVALID", {
+        message: "平台模型暂时不可用（上游鉴权失败）。请改用自己的 API Key",
+      })?.label,
+    ).toBe("接入自己的 Key");
     expect(errorActionForCode("LLM_INSUFFICIENT_BALANCE")?.label).toBe(
       "去设置",
     );

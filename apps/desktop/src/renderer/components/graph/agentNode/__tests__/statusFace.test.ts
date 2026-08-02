@@ -30,10 +30,52 @@ describe("statusFaceLabel", () => {
   });
 
   it("shows failure, cancelled, and skipped states", () => {
-    // 无 error 时 failureFaceLabel 默认「调用失败」（非笼统「失败」）
+    // 无 error / failureKind 时 failureFaceLabel 默认「调用失败」（非笼统「失败」）
     expect(statusFaceLabel("failed", null).text).toBe("调用失败");
     expect(statusFaceLabel("cancelled", null).text).toBe("已停止");
     expect(statusFaceLabel("skipped", null).text).toBe("未执行");
+  });
+
+  it("prefers failureKind over error text for the failed face", () => {
+    expect(
+      statusFaceLabel(
+        "failed",
+        null,
+        undefined,
+        null,
+        false,
+        "未通过契约：缺少必需的引用来源",
+        null,
+        null,
+        "quality",
+      ).text,
+    ).toBe("未达标");
+    expect(
+      statusFaceLabel(
+        "failed",
+        null,
+        undefined,
+        null,
+        false,
+        "LLM 流在收尾时中断",
+        null,
+        null,
+        "model",
+      ).text,
+    ).toBe("模型中断");
+    expect(
+      statusFaceLabel(
+        "failed",
+        null,
+        undefined,
+        null,
+        false,
+        "timeout",
+        null,
+        null,
+        "call",
+      ).text,
+    ).toBe("调用失败");
   });
 
   it("shows phase-specific running labels", () => {
@@ -333,6 +375,18 @@ describe("buildAgentNodePresentation revision face", () => {
       heading: "失败原因",
       text: "模型响应中断，已保留已生成内容，可继续。",
     });
+  });
+
+  it("surfaces quality failureKind as 未达标 even when error lacks keywords", () => {
+    const p = buildAgentNodePresentation(
+      baseNode({
+        status: "failed",
+        error: "未通过契约：缺少必需的引用来源",
+        failureKind: "quality",
+        outputPreview: "",
+      }),
+    );
+    expect(p.statusFace.text).toBe("未达标");
   });
 
   it("debate via participant group without stance", () => {

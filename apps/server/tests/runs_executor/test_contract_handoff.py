@@ -291,10 +291,10 @@ async def test_leaf_without_dependents_does_not_force_handoff():
     assert provider.calls == 1
 
 
-async def test_artifacts_missing_write_pass_then_hard_fails():
-    """交付真相：artifacts 隐含 requires_files；零落盘写盘 pass 后再失败 → FAILED。
+async def test_artifacts_missing_soft_completes_without_write_pass():
+    """甲⁺：artifacts 隐含 requires_files；零落盘 soft-complete，不 write_pass / FAILED。
 
-    路径对账（声明文件名）已降为 warning；error 只保留真零盘文案。
+    路径对账（声明文件名）仍为 warning；零落盘亦 soft tip。
     """
     plan, _ = build_run_plan(
         [
@@ -319,10 +319,11 @@ async def test_artifacts_missing_write_pass_then_hard_fails():
     )
     res = await WaveScheduler().run(plan, executor)
     state = res["t_1"]
-    assert state.phase is RunPhase.FAILED
-    assert provider.calls == 2  # initial + write pass（无满轮调查 retry）
-    assert "未把产物写入工作区" in (state.error or "")
+    assert state.phase is RunPhase.COMPLETED
+    assert provider.calls == 1  # 无 write_pass
     assert state.files_touched == []
+    assert any("未把产物写入工作区" in w for w in (state.warnings or []))
+    assert any("README.md" in w for w in (state.warnings or []))
 
 
 async def test_artifacts_hit_when_file_write_covers_declared_path():
@@ -456,8 +457,11 @@ async def test_strict_degraded_handoff_completes_when_files_landed():
     )
 
 
-async def test_strict_degraded_handoff_fails_without_files():
-    """无落盘 + degraded → 仍 FAILED（硬拦保留）。"""
+async def test_strict_zero_landing_soft_completes_without_degraded_dependents():
+    """甲⁺：单节点 strict + 零落盘（无下游 degraded）→ soft-complete，不 FAILED。
+
+    strict+degraded+无落盘硬拦仍由 ``_hard_gap_blocks_completion`` 单测覆盖。
+    """
     plan, _ = build_run_plan(
         [
             {
@@ -474,15 +478,10 @@ async def test_strict_degraded_handoff_fails_without_files():
         ],
         id_prefix="t",
     )
-    # No file_write — prose only → requires_files / hard gap should fail.
     from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
 
     body_pad = "分区正文填充。" * ((MIN_UPSTREAM_BODY_CHARS // 7) + 1)
-    rounds = [
-        [LLMChunk(delta_content="只有文字没有落盘。" + body_pad)],
-        [LLMChunk(delta_content="纠正轮仍无落盘。")],
-    ]
-    provider = _ScriptedRounds(rounds)
+    provider = _ContentProvider(["只有文字没有落盘。" + body_pad])
     executor = build_agent_executor(
         plan=plan,
         llm=provider,
@@ -494,7 +493,7 @@ async def test_strict_degraded_handoff_fails_without_files():
         execution_id="e-nofile",
     )
     res = await WaveScheduler().run(plan, executor)
-    # Single-node plans may stamp run_id as t_1 / t_sec depending on builder.
     sec = res.get("t_sec") or res.get("t_1") or next(iter(res.values()))
-    assert sec.phase is RunPhase.FAILED
+    assert sec.phase is RunPhase.COMPLETED
     assert not (sec.files_touched or [])
+    assert any("未把产物写入工作区" in w for w in (sec.warnings or []))

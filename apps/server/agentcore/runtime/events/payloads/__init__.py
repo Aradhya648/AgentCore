@@ -154,6 +154,7 @@ TS_EXPORTS: tuple[TsExport, ...] = (
     TsAlias("WorkerRunPhase", run.WorkerRunPhase),
     TsInterface(run.RunPhasePayload),
     TsAlias("EscalationKind", run.EscalationKind),
+    TsAlias("RunFailureKind", run.RunFailureKind),
     TsInterface(run.RunEscalationPayload),
     TsInterface(run.RunEscalationGatePayload),
     TsInterface(interaction.EscalationRequiredPayload),

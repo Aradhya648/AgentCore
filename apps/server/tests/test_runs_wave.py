@@ -446,6 +446,55 @@ async def test_retryable_failure_still_exhausts_retries():
     assert calls["n"] == 3  # 1 initial + 2 retries
 
 
+async def test_retry_hot_continues_prior_transcript():
+    """retryable FAILED + non-empty transcript → next hop seeds completed[self] (热续),
+    not a pure cold open with an empty prior site."""
+    from agentcore.llm.provider.protocol import LLMMessage
+
+    plan = RunPlan()
+    plan.add(_spec("a", on_failure="retry", max_retries=1))
+    plan.nodes[0].policy.retry_delay_ms = 0
+    prior = [
+        LLMMessage(role="system", content="SYS"),
+        LLMMessage(role="user", content="做A"),
+        LLMMessage(role="assistant", content="半成品"),
+    ]
+    seen: list[list | None] = []
+
+    async def ex(spec: RunSpec, completed) -> RunState:
+        seeded = completed.get(spec.run_id)
+        seen.append(list(seeded.transcript) if seeded is not None else None)
+        if len(seen) == 1:
+            return RunState(
+                phase=RunPhase.FAILED,
+                error="upstream disconnect",
+                transcript=prior,
+                content="半成品",
+            )
+        return RunState(phase=RunPhase.COMPLETED, content="ok")
+
+    res = await WaveScheduler().run(plan, ex)
+    assert res["a"].phase is RunPhase.COMPLETED
+    assert seen[0] is None  # first hop: cold
+    assert seen[1] == prior  # second hop: prior transcript offered for消费
+
+
+async def test_retry_without_transcript_stays_cold():
+    """FAILED with empty transcript → retry still cold (no site to seed)."""
+    plan = RunPlan()
+    plan.add(_spec("a", on_failure="retry", max_retries=1))
+    plan.nodes[0].policy.retry_delay_ms = 0
+    seeded_self = []
+
+    async def ex(spec: RunSpec, completed) -> RunState:
+        seeded_self.append(spec.run_id in completed)
+        return RunState(phase=RunPhase.FAILED, error="boom before turns")
+
+    res = await WaveScheduler().run(plan, ex)
+    assert res["a"].phase is RunPhase.FAILED
+    assert seeded_self == [False, False]
+
+
 async def test_executor_exception_becomes_failed_state():
     plan = RunPlan()
     plan.add(_spec("a"))
@@ -1220,6 +1269,38 @@ async def test_cancel_single_run_siblings_continue():
     )
     assert res["a"].phase is RunPhase.CANCELLED
     assert res["b"].phase is RunPhase.COMPLETED
+
+
+async def test_cancel_pending_withdraws_before_dispatch():
+    """cancel_run_ids for a not-yet-launched node → SKIPPED, executor never called."""
+    plan = RunPlan()
+    plan.add(_spec("a"))
+    plan.add(_spec("b"))  # independent; width=1 so b stays queued while a runs
+    cancel_targets: set[str] = set()
+    ran: list[str] = []
+
+    async def slow_ex(spec: RunSpec, _completed) -> RunState:
+        ran.append(spec.run_id)
+        if spec.run_id == "a":
+            await asyncio.sleep(0.08)
+        return RunState(phase=RunPhase.COMPLETED, content=spec.run_id)
+
+    async def _schedule_cancel():
+        await asyncio.sleep(0.02)
+        cancel_targets.add("b")
+
+    asyncio.create_task(_schedule_cancel())
+    skipped: list[tuple[str, str, str]] = []
+    res = await WaveScheduler(max_parallel=1).run(
+        plan,
+        slow_ex,
+        cancel_run_ids=lambda: frozenset(cancel_targets),
+        on_skipped=lambda rid, aid, reason: skipped.append((rid, aid, reason)),
+    )
+    assert res["a"].phase is RunPhase.COMPLETED
+    assert res["b"].phase is RunPhase.SKIPPED
+    assert "b" not in ran
+    assert skipped == [("b", "b", "abort")]
 
 
 async def test_cancel_cascades_skip_by_default():

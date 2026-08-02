@@ -113,8 +113,8 @@ class LLMAuthError(LLMError):
         provider_name: str | None = None,
         **kwargs,
     ):
+        name = (provider_name or "").strip()
         if message is None:
-            name = (provider_name or "").strip()
             if name == "platform":
                 message = self._PLATFORM_MESSAGE
             else:
@@ -122,6 +122,11 @@ class LLMAuthError(LLMError):
                 message = (
                     f"{label} API Key 无效或无权限，请在「设置 · 模型配置」中更新后重试。"
                 )
+        # Wire CTA 分流：platform → 接入自己的 Key；user/BYOK → 去设置换 Key。
+        if "credential_source" not in kwargs:
+            kwargs["credential_source"] = "platform" if name == "platform" else "user"
+        if provider_name is not None and "provider_name" not in kwargs:
+            kwargs["provider_name"] = provider_name
         super().__init__(message, **kwargs)
 
 

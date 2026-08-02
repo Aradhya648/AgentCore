@@ -6,6 +6,7 @@ import { getRuntime, useConversationStore } from "@/stores/conversation";
 import { beginTurnPreflight } from "@/stores/conversation/turnPhaseActions";
 import { useExecutionStore } from "@/stores/execution";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
+import { usePausedTurnStore } from "@/stores/pausedTurns";
 import {
   RECONNECT_BANNER,
   finalizeGeneratingForPausedConversation,
@@ -110,6 +111,9 @@ export async function rejoinLiveTurn(conversationId: string): Promise<boolean> {
  * Mark a dead-lease ghost (``usage.status=running`` but recovery has no live run
  * and no pause) as interrupted so the bubble stops spinning. Empty body → layer 1
  * recoverability (send a new turn / composer hint); no message-level retry row.
+ *
+ * Also drops any resume card painted from a stale ``usage.paused`` latch + journal
+ * residual (ask_user fact still in journal after the user already continued).
  */
 export function markGhostInterrupted(conversationId: string): void {
   const store = useConversationStore.getState();
@@ -127,6 +131,10 @@ export function markGhostInterrupted(conversationId: string): void {
   if (last.serverMessageId && last.serverMessageId !== last.id) {
     exec.clearExecution(last.serverMessageId);
   }
+  // Stale latch may have painted ResumePrompt via toMessage → surfaceResume; clear it.
+  const resumeKey = last.serverMessageId ?? last.id;
+  usePausedTurnStore.getState().remove(resumeKey);
+  clearInteractionPrompts(conversationId);
 }
 
 /**
@@ -142,6 +150,7 @@ export function markGhostInterrupted(conversationId: string): void {
  * - live ∧ paused=0 → rejoin
  * - paused≥1 → hold + clear generating/streaming (card + isGenerating is illegal)
  * - cloudKnown ∧ !live ∧ paused=0 → real dead-lease / TTL degrade → ghost
+ *   (also covers stale ``usage.paused`` latch with no ``paused_turns`` frame)
  * - !cloudKnown → unknown (request failed); never ghost — hold
  */
 export async function settleCloudRunningAssistant(

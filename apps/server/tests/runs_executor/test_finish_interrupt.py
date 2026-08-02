@@ -145,15 +145,14 @@ async def test_interrupted_empty_pass_tells_retry_it_was_a_transport_cut():
     assert state.content.strip()
 
 
-async def test_ordinary_contract_retry_keeps_no_interrupt_note():
-    """A genuine shortfall (too short) must NOT be excused as a transport cut."""
+async def test_ordinary_min_length_soft_no_contract_retry():
+    """定案乙：字数不足 soft-complete，不走 contract.retry，也无传输中断借口。"""
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "deliverable": {"min_length": 40}}], id_prefix="t"
     )
     provider = _RecordingRounds(
         [
             [LLMChunk(delta_content="太短")],
-            [LLMChunk(delta_content="这是补齐后的完整正文，长度足够满足契约的最小篇幅要求。")],
         ]
     )
     executor = build_agent_executor(
@@ -166,12 +165,12 @@ async def test_ordinary_contract_retry_keeps_no_interrupt_note():
         user_message="req",
         execution_id="e",
     )
-    await WaveScheduler().run(plan, executor)
-
-    assert provider.calls >= 2
-    retry_prompt = "\n".join(c for _, c in provider.requests[-1])
-    assert "传输中被中断" not in retry_prompt
-    assert "少于要求的" in retry_prompt
+    res = await WaveScheduler().run(plan, executor)
+    state = res["t_1"]
+    assert provider.calls == 1
+    assert state.phase is RunPhase.COMPLETED
+    assert any("少于" in w for w in (state.warnings or []))
+    assert not any("传输中被中断" in w for w in (state.warnings or []))
 
 
 async def test_clean_success_has_no_finish_interrupt_warning():

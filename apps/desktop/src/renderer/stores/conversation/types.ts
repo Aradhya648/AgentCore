@@ -240,6 +240,7 @@ export interface Message {
       empty_diagnosis?: string;
       sub2api_diagnosis?: string;
       sub2api_account?: string;
+      credential_source?: "user" | "platform" | string | null;
     };
   };
   /** CEO→用户「下一步推荐」(下一步推荐): post-turn quick-reply suggestions, shown as

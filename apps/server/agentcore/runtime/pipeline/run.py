@@ -178,11 +178,14 @@ async def run_chat_pipeline(
     # 单一权威). The loop mutates this same list via ``citation_sink``. Reset in finally.
     citations: list[dict] = []
     citations_token = turn_citations.set(citations)
+    from agentcore.llm.turn_auth_dead import bind_turn_auth_dead, reset_turn_auth_dead
     from agentcore.runtime.memory_consult_cache import consulted_memory_cache
     from agentcore.runtime.turn_token_budget import bind_turn_token_meter, reset_turn_token_meter
 
     # Turn 级 token 累计 meter（CEO + 全树 worker）；log_llm_call 写入，触顶禁新派。
     turn_token_meter_token = bind_turn_token_meter(seed=0)
+    # Turn 级 API Key 鉴权死位（甲+乙）：首次 LLMAuthError 后短路未启动 LLM。
+    turn_auth_dead_token = bind_turn_auth_dead()
 
     memory_cache_token = consulted_memory_cache.set({})
     # 回合共享调研台账（引用即出处 P1）：与引用池同入口创建；captain / 调研 worker
@@ -379,6 +382,7 @@ async def run_chat_pipeline(
         consulted_memory_cache.reset(memory_cache_token)
         turn_evidence_ledger.reset(ledger_token)
         reset_turn_token_meter(turn_token_meter_token)
+        reset_turn_auth_dead(turn_auth_dead_token)
         if execution_id_token is not None:
             from agentcore.runtime.coordination.session import (
                 current_execution_id,

@@ -225,6 +225,10 @@ class DelegateTool:
         self._active_playbook: str | None = None
         # Per-call force flag for isomorphic re-delegation (set in execute).
         self._delegate_force: bool = False
+        # Turn user-message provenance (harvest closing stamps execution_harvest).
+        from agentcore.runtime.delegate.post_close_gate import current_user_message_origin
+
+        self._user_message_origin: str = current_user_message_origin()
 
     def spawn_lead_subteam(self, captain_run_id: str, captain_depth: int):
         """Mint a nested lead handle (阶段2); construction stays in the tools package."""
@@ -290,6 +294,10 @@ class DelegateTool:
         )
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        from agentcore.llm.turn_auth_dead import (
+            is_turn_auth_dead,
+            turn_auth_dead_reject_message,
+        )
         from agentcore.runtime.delegate.playbook_declaration import (
             declaration_reject_gate,
             resolve_playbook_declaration,
@@ -310,6 +318,18 @@ class DelegateTool:
                 spent=current_turn_tokens(),
                 ceiling=resolve_turn_token_ceiling(),
             )
+            return ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=msg,
+                contract_failure=True,
+            )
+
+        # 甲+乙：本回合 API Key 已鉴权死后禁再 delegate 烧调用。
+        if is_turn_auth_dead():
+            msg = turn_auth_dead_reject_message()
+            logger.info("delegate.turn_auth_dead_rejected")
             return ToolResult(
                 tool_call_id="",
                 success=False,

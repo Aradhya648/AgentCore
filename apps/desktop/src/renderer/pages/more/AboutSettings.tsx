@@ -7,6 +7,7 @@ import {
   clientVersion,
   formatGitSha,
 } from "@/lib/clientBuildInfo";
+import { formatDownloadProgress } from "@/lib/format";
 import { APP_PATHS } from "@/pages/toolbox/manual/paths";
 import { type VersionInfo, fetchVersion } from "@/services/system";
 import { useUIStore } from "@/stores/ui";
@@ -36,7 +37,7 @@ function Row({
   );
 }
 
-/** Human-readable line for each updater phase (前端技术与架构.md §7.6). */
+/** Human-readable line for each updater phase (发布与门禁.md §7.6). */
 function updateStatusText(status: UpdaterStatus): string {
   switch (status.phase) {
     case "idle":
@@ -48,9 +49,14 @@ function updateStatusText(status: UpdaterStatus): string {
     case "not-available":
       return "已是最新版本。";
     case "available":
-      return `发现新版本 ${status.version}，正在后台下载…`;
+      return `发现新版本 ${status.version}，确认后开始下载。`;
     case "downloading":
-      return `正在下载新版本 ${status.version}…（${status.percent}%）`;
+      return `正在下载新版本 ${status.version}…（${formatDownloadProgress({
+        percent: status.percent,
+        transferred: status.transferred,
+        total: status.total,
+        bytesPerSecond: status.bytesPerSecond,
+      })}）`;
     case "downloaded":
       return `新版本 ${status.version} 已下载，重启后生效。`;
     case "error":
@@ -58,16 +64,14 @@ function updateStatusText(status: UpdaterStatus): string {
   }
 }
 
-/** 软件更新: mirror the main-process updater status + 检查 / 重启安装 actions. */
+/** 软件更新: mirror the main-process updater status + 检查 / 查看 / 重启安装. */
 function UpdateSection() {
   const status = useUpdatesStore((s) => s.status);
   const check = useUpdatesStore((s) => s.check);
   const install = useUpdatesStore((s) => s.install);
+  const openUpdateDialog = useUpdatesStore((s) => s.openUpdateDialog);
 
-  const busy =
-    status.phase === "checking" ||
-    status.phase === "available" ||
-    status.phase === "downloading";
+  const busy = status.phase === "checking" || status.phase === "downloading";
 
   return (
     <section className="mt-8 border-t border-border pt-6">
@@ -75,10 +79,14 @@ function UpdateSection() {
       <p className="mt-1 text-xs text-muted-foreground">
         {updateStatusText(status)}
       </p>
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap gap-2">
         {status.phase === "downloaded" ? (
           <Button size="md" onClick={() => void install()}>
             重启安装
+          </Button>
+        ) : status.phase === "available" || status.phase === "downloading" ? (
+          <Button size="md" onClick={() => openUpdateDialog()}>
+            {status.phase === "downloading" ? "查看下载进度" : "查看更新"}
           </Button>
         ) : (
           <Button
@@ -97,6 +105,23 @@ function UpdateSection() {
             检查更新
           </Button>
         )}
+        {status.phase === "available" || status.phase === "downloading" ? (
+          <Button
+            variant="neutral"
+            size="md"
+            disabled={busy}
+            icon={
+              busy ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )
+            }
+            onClick={() => void check()}
+          >
+            重新检查
+          </Button>
+        ) : null}
       </div>
     </section>
   );

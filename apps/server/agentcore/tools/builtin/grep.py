@@ -21,6 +21,11 @@ from agentcore.tools.registration import (
     ToolRegistration,
     ToolSurface,
 )
+from agentcore.workspace.limits import (
+    channel_dead_error_message,
+    channel_dead_retire_metadata,
+    is_liveness_timeout_detail,
+)
 from agentcore.workspace.protocol import (
     GrepQuery,
     GrepResult,
@@ -139,6 +144,12 @@ class GrepTool:
             return _fail(f"路径不存在：{rel_dir}", start)
         except WorkspaceError as e:
             msg = str(e)
+            if is_liveness_timeout_detail(msg):
+                return _fail(
+                    channel_dead_error_message(msg),
+                    start,
+                    metadata=channel_dead_retire_metadata(),
+                )
             # Surface regex failures without the generic "搜索失败" wrapper so the
             # model sees the dialect hint immediately.
             if "正则" in msg:
@@ -188,8 +199,9 @@ def _fail(
     permission_kind: str | None = None,
     retire_tools: list[str] | None = None,
     retire_message: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> ToolResult:
-    meta: dict[str, Any] = {}
+    meta: dict[str, Any] = dict(metadata or {})
     if policy_failure:
         meta["policy_failure"] = True
     if error_class:

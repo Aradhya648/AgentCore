@@ -13,12 +13,14 @@ from agentcore.runtime.tool_deadline import (
     reset_tool_deadline,
     set_tool_deadline,
 )
-from agentcore.tools.builtin.file_ops import FileReadTool
+from agentcore.tools.builtin.file_ops import FileListTool, FileReadTool, FileWriteTool, MkdirTool
+from agentcore.tools.builtin.grep import GrepTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.limits import (
     FILE_TOO_LARGE_DETAIL,
     OFFICE_EXTRACT_MAX_BYTES,
+    WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS,
     WORKSPACE_READ_MAX_BYTES,
 )
 from agentcore.workspace.protocol import WorkspaceIOError
@@ -99,8 +101,51 @@ async def test_file_read_channel_liveness_maps_meta(tmp_path: Path):
     assert result.metadata.get("liveness_timeout") is True
     assert result.metadata.get("workspace_channel_dead") is True
     assert "file_write" in (result.metadata.get("retire_tools") or [])
+    assert "mkdir" in (result.metadata.get("retire_tools") or [])
     assert "活性挂起" in (result.error or "")
     assert "禁止再调用文件工具" in (result.error or "") or "停用全部本地文件" in (
+        result.error or ""
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "args", "method"),
+    [
+        (FileListTool(), {"directory": "."}, "list"),
+        (FileWriteTool(), {"path": "a.txt", "content": "x"}, "write"),
+        (MkdirTool(), {"path": "d"}, "mkdir"),
+        (GrepTool(), {"pattern": "x"}, "grep"),
+    ],
+)
+async def test_filesystem_tools_channel_liveness_stamps_retire(
+    tmp_path: Path, tool, args, method: str
+):
+    """B2: list / write / mkdir / grep stamp the same channel-dead retire meta as read."""
+
+    class _HangBackend(ServerWorkspace):
+        async def list(self, *a, **k):  # noqa: ANN002, ANN003
+            raise WorkspaceIOError(f"local workspace op '{method}' timed out（活性挂起）")
+
+        async def write(self, *a, **k):  # noqa: ANN002, ANN003
+            raise WorkspaceIOError(f"local workspace op '{method}' timed out（活性挂起）")
+
+        async def mkdir(self, *a, **k):  # noqa: ANN002, ANN003
+            raise WorkspaceIOError(f"local workspace op '{method}' timed out（活性挂起）")
+
+        async def grep(self, *a, **k):  # noqa: ANN002, ANN003
+            raise WorkspaceIOError(f"local workspace op '{method}' timed out（活性挂起）")
+
+    result = await tool.execute(
+        args, _ctx(_HangBackend(tmp_path, sandbox=SubprocessSandbox()))
+    )
+    assert result.success is False
+    assert result.metadata.get("liveness_timeout") is True
+    assert result.metadata.get("workspace_channel_dead") is True
+    retire = result.metadata.get("retire_tools") or []
+    for name in WORKSPACE_CHANNEL_DEAD_RETIRE_TOOLS:
+        assert name in retire
+    assert "停用全部本地文件" in (result.error or "") or "禁止再调用文件工具" in (
         result.error or ""
     )
 

@@ -206,11 +206,23 @@ class OpenAICompatibleProvider:
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._name = name
-        self._api_key = api_key
+        from agentcore.llm.credentials import require_http_header_safe_api_key
+
+        self._api_key = require_http_header_safe_api_key(api_key)
         self._base_url = base_url.rstrip("/")
         self._extra_headers = dict(extra_headers) if extra_headers else None
+        if self._extra_headers:
+            for _hk, hv in self._extra_headers.items():
+                try:
+                    str(hv).encode("ascii")
+                except UnicodeEncodeError as e:
+                    from agentcore.core.errors import ValidationError
+
+                    raise ValidationError(
+                        "自定义请求头含有非 ASCII 字符，无法发送。请检查服务商额外 Header。"
+                    ) from e
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
         if self._extra_headers:

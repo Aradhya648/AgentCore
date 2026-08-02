@@ -2,6 +2,9 @@
  * AgentCore semantic OKLCH tokens — single source for desktop (+ mobile mirrors
  * light values in mobile-light.css). Hue 255 = brand blue.
  *
+ * Dark = luminance stacking (Material / Linear): higher elevation → lighter
+ * surface; borders = white alpha; body text soft white (~0.93). Mobile: light only.
+ *
  * Brand migration (方案 3 · 分步)：
  * - Step 0 ✅ sidebar cool gray (hue 250)
  * - Step 1–2 ↩ reverted — surfaces + primary back to pre-migration
@@ -97,46 +100,47 @@
 }
 
 .dark {
-  --background: oklch(0.16 0.01 255);
-  --foreground: oklch(0.98 0.005 255);
-  --card: var(--background);
+  /* Surfaces: bg → card (+0.03) → popover (+0.06); chroma kept low. */
+  --background: oklch(0.145 0.008 255);
+  --foreground: oklch(0.93 0.005 255);
+  --card: oklch(0.175 0.008 255);
   --card-foreground: var(--foreground);
-  --popover: var(--background);
+  --popover: oklch(0.205 0.009 255);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.62 0.18 255);
+  --primary: oklch(0.70 0.155 255);
   --primary-foreground: oklch(0.985 0.01 255);
-  --muted: oklch(0.25 0.015 255);
+  --muted: oklch(0.215 0.01 255);
   --secondary: var(--muted);
   --secondary-foreground: var(--foreground);
-  --muted-foreground: oklch(0.71 0.02 255);
-  --accent: oklch(0.27 0.02 255);
-  --accent-foreground: oklch(0.98 0.005 255);
-  --destructive: oklch(0.62 0.2 27);
+  --muted-foreground: oklch(0.68 0.015 255);
+  --accent: oklch(0.24 0.012 255);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.65 0.19 27);
   --destructive-foreground: oklch(0.985 0.01 27);
-  --success: oklch(0.7 0.16 155);
+  --success: oklch(0.72 0.15 155);
   --success-foreground: oklch(0.16 0.03 155);
-  --warning: oklch(0.8 0.15 75);
+  --warning: oklch(0.8 0.14 75);
   --warning-foreground: oklch(0.2 0.04 75);
-  --border: oklch(0.27 0.015 255);
+  --border: oklch(1 0 0 / 0.09);
   --input: var(--border);
   --ring: var(--primary);
-  --overlay: oklch(0 0 0 / 0.6);
-  --scrollbar-thumb: oklch(0.42 0.015 255 / 0.75);
-  --scrollbar-thumb-hover: oklch(0.58 0.02 255 / 0.9);
+  --overlay: oklch(0 0 0 / 0.65);
+  --scrollbar-thumb: oklch(0.45 0.012 255 / 0.7);
+  --scrollbar-thumb-hover: oklch(0.58 0.016 255 / 0.85);
 
-  /* Sidebar chrome: cool gray (matches light; hue 250). */
-  --sidebar: oklch(0.17 0.004 250);
-  --sidebar-foreground: oklch(0.96 0.003 250);
+  /* Sidebar chrome: cool gray (hue 250), distinct from brand blue 255. */
+  --sidebar: oklch(0.155 0.006 250);
+  --sidebar-foreground: oklch(0.93 0.003 250);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.24 0.006 250);
+  --sidebar-accent: oklch(0.215 0.008 250);
   --sidebar-accent-foreground: oklch(0.78 0.13 255);
-  --sidebar-border: oklch(0.25 0.004 250);
+  --sidebar-border: oklch(1 0 0 / 0.09);
   --sidebar-ring: var(--primary);
   --sidebar-gradient: linear-gradient(
     180deg,
-    oklch(0.175 0.005 250),
-    oklch(0.15 0.003 255)
+    oklch(0.16 0.006 250),
+    oklch(0.14 0.005 255)
   );
 
   --syntax-keyword: oklch(0.78 0.13 300);

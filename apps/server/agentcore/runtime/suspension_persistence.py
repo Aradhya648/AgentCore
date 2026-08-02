@@ -178,6 +178,12 @@ async def restore_paused_turn(suspension: TurnSuspension) -> None:
         frame=suspension.to_json(),
         trace_id=suspension.trace_id,
     )
+    # Claim cleared the latch; put it back so cold hydrate still sees a true pause.
+    await _set_message_pause_latch(
+        message_id=suspension.message_id,
+        conversation_id=suspension.conversation_id,
+        paused=True,
+    )
 
 
 async def load_paused_turn(
@@ -272,7 +278,61 @@ async def claim_paused_turn(
             "suspension.claim_journal_degraded",
             message_id=message_id,
         )
+    # Resume claimed the frame — clear cold pause latch so reload cannot paint a
+    # fake「等待确认」from usage.paused after the user already continued.
+    await _set_message_pause_latch(
+        message_id=claimed["message_id"],
+        conversation_id=claimed["conversation_id"],
+        paused=False,
+    )
     return suspension
+
+
+async def _set_message_pause_latch(
+    *,
+    message_id: str,
+    conversation_id: str,
+    paused: bool,
+) -> None:
+    """Best-effort write of ``usage.paused`` via :func:`merge_usage_status`."""
+    from agentcore.core.message_merge import merge_usage_status
+    from agentcore.db.repositories import MessageRepository
+
+    try:
+        async with async_session_factory() as db:
+            repo = MessageRepository(db)
+            existing = await repo.get_by_id(message_id, conversation_id=conversation_id)
+            if existing is None:
+                return
+            incoming: dict = {"paused": paused}
+            usage = existing.usage if isinstance(existing.usage, dict) else None
+            status = usage.get("status") if usage else None
+            if status:
+                incoming["status"] = status
+            elif paused:
+                incoming["status"] = "running"
+            merged = merge_usage_status(
+                existing.usage if isinstance(existing.usage, dict) else None,
+                incoming,
+            )
+            await repo.upsert_assistant(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                content=existing.content or "",
+                reasoning_content=existing.reasoning_content,
+                citations=existing.citations,
+                evidence_ledger=existing.evidence_ledger,
+                trace_id=existing.trace_id,
+                metadata=merged,
+                merge=True,
+            )
+    except Exception as e:  # noqa: BLE001 — latch must not block claim/restore
+        logger.warning(
+            "suspension.pause_latch_write_failed",
+            message_id=message_id,
+            paused=paused,
+            error=str(e),
+        )
 
 
 async def list_paused_turns(conversation_id: str) -> list[TurnSuspension]:

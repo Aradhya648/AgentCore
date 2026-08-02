@@ -39,6 +39,7 @@ function makeRun(
     debrief: null,
     durationMs: null,
     error: null,
+    failureKind: null,
     parentRunId: null,
     kind: "agent",
     role: "队员",

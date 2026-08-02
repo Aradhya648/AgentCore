@@ -650,13 +650,15 @@ def test_nested_envelope_isolates_from_parent_ceiling(monkeypatch):
         try:
             should_stop, priority = resolve_wave_budget_hooks()
             assert priority is None  # nested disables parent reserve
-            assert should_stop is is_nested_envelope_hit
+            # Composed stop (= nested envelope OR turn auth-dead); identity may wrap.
+            assert should_stop() is is_nested_envelope_hit()
             assert not is_nested_envelope_hit()
             record_turn_tokens(399)
             assert not is_nested_envelope_hit()
             assert not is_turn_token_ceiling_hit()
             record_turn_tokens(1)  # nested used=400 → envelope hit
             assert is_nested_envelope_hit()
+            assert should_stop() is True
         finally:
             reset_nested_envelope(nest_tok)
             release_nested_envelope(env)
@@ -781,7 +783,8 @@ async def test_nested_wave_ignores_parent_ceiling_until_envelope(monkeypatch):
 
             should_stop, priority = resolve_wave_budget_hooks()
             # Nested hooks must NOT use parent ceiling — even if parent is "hit".
-            assert should_stop is is_nested_envelope_hit
+            assert priority is None
+            assert should_stop() is is_nested_envelope_hit()
             results = await WaveScheduler(max_parallel=1).run(
                 plan,
                 executor,

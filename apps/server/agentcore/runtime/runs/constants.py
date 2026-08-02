@@ -23,6 +23,10 @@ MAX_PARALLEL_DELEGATIONS = 12
 # so it stays the single source of the「单次≤N」copy.
 MAX_DELEGATION_TASKS = 20
 
+# 补跑（replan add 带 replaces_run_id / continue_from_run_id）单次硬顶：按缺口限流，
+# 禁止一次整团重开放大抖动。实际允许条数 = min(缺口数, 本常量)；与全局 max_parallel 无关。
+MAX_GAP_FILL_ADDS = 3
+
 # Hard ceiling on delegation nesting across one turn's Run tree. The CEO's direct
 # workers are depth 1; a worker may itself delegate (开一层子团队) ONLY while its own
 # depth < this cap, so the tree can never nest past CEO → worker → sub-worker.

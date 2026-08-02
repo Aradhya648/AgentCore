@@ -331,7 +331,9 @@ class CircuitBreak:
     no-response timeout (活性挂起) — warn steer forbids identical retry.
 
     ``validation_stop`` is a one-shot steer when the same validation fingerprint
-    failed consecutively (path stop; tool stays available).
+    first hits the path-stop streak (tool stays available). A later re-hit of an
+    already-stopped fingerprint latches thrashing / mid-loop hard stop instead of
+    another steer (see :meth:`LoopController.take_validation_hard_stop`).
     """
 
     warned: tuple[str, ...] = ()
@@ -592,9 +594,13 @@ class LoopController:
         # egress_unavailable). Consumed by :meth:`tool_circuit_breaker`.
         self._pending_retire_message: str | None = None
         # Validation same-fingerprint streak → path-stop steer (tool stays available).
+        # Re-hit of an already-stopped fp → thrash latch + one-shot mid-loop hard stop
+        # (no second steer; aligns with is_thrashing / ceiling DEGRADED).
         self._validation_fp_streak: tuple[str, str, int] | None = None  # fp, tool, n
         self._validation_stopped_fps: set[str] = set()
         self._pending_validation_stop: str | None = None
+        self._validation_thrash_latched: bool = False
+        self._pending_validation_hard_stop: bool = False
         # B2 no-output early stop: consecutive unproductive rounds (all tools failed,
         # no content). Reset by any productive round (content OR a tool success).
         self._consecutive_unproductive = 0
@@ -735,8 +741,12 @@ class LoopController:
         """Latch the one-shot turn-token wrap-up steer so it cannot fire again this run."""
         self._turn_token_budget_gate_fired = True
 
-    def export_seed(self) -> dict[str, bool | int]:
-        """JSON-safe snapshot of the cross-suspension latches (turn_paused.controller)."""
+    def export_seed(self) -> dict[str, bool | int | list[str]]:
+        """JSON-safe snapshot of the cross-suspension latches (turn_paused.controller).
+
+        Includes validation path-stop fingerprints + thrash latch so write_pass /
+        light_repair / resume restarts do not forget an already-empty-spun path.
+        """
         return {
             "post_delegate": self._post_delegate,
             "delegate_count": self._delegate_count,
@@ -749,6 +759,8 @@ class LoopController:
             "debate_gate_fired": self._debate_gate_fired,
             "debate_executed": self._debate_executed,
             "turn_token_budget_gate_fired": self._turn_token_budget_gate_fired,
+            "validation_stopped_fps": sorted(self._validation_stopped_fps),
+            "validation_thrash_latched": self._validation_thrash_latched,
         }
 
     def apply_seed(self, seed: Mapping[str, Any]) -> None:
@@ -767,6 +779,12 @@ class LoopController:
         self._debate_executed = bool(seed.get("debate_executed", False))
         self._turn_token_budget_gate_fired = bool(
             seed.get("turn_token_budget_gate_fired", False)
+        )
+        fps = seed.get("validation_stopped_fps")
+        if isinstance(fps, (list, tuple, set, frozenset)):
+            self._validation_stopped_fps = {str(x) for x in fps if str(x).strip()}
+        self._validation_thrash_latched = bool(
+            seed.get("validation_thrash_latched", False)
         )
 
     def post_delegate_check(self, tool_names: set[str]) -> str | None:
@@ -956,16 +974,17 @@ class LoopController:
             if attempt.success and self._tool_failures.get(attempt.tool_name, 0) > 0:
                 self._tool_succeeded_after_fail[attempt.tool_name] = True
             # Validation same-fingerprint streak → path stop (tool stays available).
+            # Already-stopped fp re-hit → thrash latch + mid-loop hard stop (no re-steer).
             if not attempt.success and error_class == ERROR_CLASS_VALIDATION:
                 fp = attempt.fingerprint
                 tool = attempt.tool_name
                 prev = self._validation_fp_streak
                 streak = prev[2] + 1 if prev is not None and prev[0] == fp else 1
                 self._validation_fp_streak = (fp, tool, streak)
-                if (
-                    streak >= self._validation_path_streak
-                    and fp not in self._validation_stopped_fps
-                ):
+                if fp in self._validation_stopped_fps:
+                    self._validation_thrash_latched = True
+                    self._pending_validation_hard_stop = True
+                elif streak >= self._validation_path_streak:
                     self._validation_stopped_fps.add(fp)
                     self._pending_validation_stop = (
                         f"工具 `{tool}` {_VALIDATION_PATH_STOP_STEER}"
@@ -1247,6 +1266,24 @@ class LoopController:
         """True once the consecutive-unproductive streak hits the threshold."""
         return self._consecutive_unproductive >= self._unproductive_threshold
 
+    def take_validation_hard_stop(self) -> bool:
+        """Consume a one-shot mid-loop hard stop after a stopped validation fp re-hit.
+
+        Distinct from the first-trip ``validation_stop`` steer: re-hitting an already
+        path-stopped fingerprint latches thrashing and requests Finalize this round
+        so the run does not burn out ``max_rounds``. Ceiling routing still uses
+        :meth:`is_thrashing` (sticky latch; not consumed here).
+        """
+        if not self._pending_validation_hard_stop:
+            return False
+        self._pending_validation_hard_stop = False
+        return True
+
+    @property
+    def validation_thrash_latched(self) -> bool:
+        """True after a stopped validation fingerprint was re-hit (sticky)."""
+        return self._validation_thrash_latched
+
     def has_recent_progress(self) -> bool:
         """True when this or the previous tool round succeeded a PROGRESS_TOOLS call."""
         return self._rounds_since_progress is not None and self._rounds_since_progress <= 1
@@ -1373,15 +1410,18 @@ class LoopController:
         When a hard ceiling (token backstop / max rounds) forces the run to stop —
         as opposed to the model choosing to finish — this routes the finalize: a
         *thrashing* run (sustained all-failing-no-output rounds, over-investigation
-        spinning / absolute-cap, or files-expected zero-write idle) should finish
-        DEGRADED and surface an observable signal, while an *on-track* run (made real
-        progress, just ran out of budget) should finalize normally and deliver.
+        spinning / absolute-cap, files-expected zero-write idle, or a validation
+        fingerprint re-hit after path-stop steer) should finish DEGRADED and surface
+        an observable signal, while an *on-track* run (made real progress, just ran
+        out of budget) should finalize normally and deliver.
 
         Distinct from the per-round governance triggers (which stop the loop
         mid-run): those already fired earlier if they were going to, so at a natural
         max-rounds exit this is usually ``False`` (= deliver). It matters most for the
         token backstop, which can break the loop at any round. No side effects.
         """
+        if self._validation_thrash_latched:
+            return True
         if self.unproductive_early_stop():
             return True
         return self.convergence_action() is Intervention.FINALIZE

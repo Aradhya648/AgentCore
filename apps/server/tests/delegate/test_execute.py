@@ -89,6 +89,10 @@ async def test_finalize_ignored_for_multi_worker_batch():
 
 
 async def test_finalize_falls_back_to_synthesis_when_worker_fails():
+    """Worker 硬失败（缺必备章节 + strict）→ finalize 不直出，回退 synthesis。
+
+    定案乙后 min_length 已 soft；改用仍硬拦的 required_sections。
+    """
     t = tool(Provider(["X"]))
     result = await t.execute(
         {
@@ -96,7 +100,7 @@ async def test_finalize_falls_back_to_synthesis_when_worker_fails():
                 {
                     "role": "A",
                     "task": "a",
-                    "deliverable": {"min_length": 100, "strict": True},
+                    "deliverable": {"required_sections": ["结论"], "strict": True},
                 }
             ],
             "finalize": True,
@@ -601,11 +605,14 @@ def test_task_description_matches_what_worker_actually_receives():
     task_desc = t.schema.parameters["properties"]["tasks"]["items"]["properties"]["task"][
         "description"
     ]
-    # Schema 瘦身：自包含=目标+边界+验收；细则/共识进 deliverable / team_brief。
+    # 定案甲：自包含=目标+边界+验收；细则进任务范围/章节/落盘，勿主推细清单进 must_contain。
     assert "自包含" in task_desc
     assert "看不到完整历史" in task_desc
     assert "目标" in task_desc and "边界" in task_desc and "验收" in task_desc
-    assert "deliverable" in task_desc or "must_contain" in task_desc
+    assert "required_sections" in task_desc or "artifacts" in task_desc
+    assert "must_contain" in task_desc
+    assert "软提醒" in task_desc or "短主题词" in task_desc
+    assert "细则进 deliverable.must_contain" not in task_desc
     assert "team_brief" in task_desc
 
 async def test_playbook_instantiates_whole_team_and_runs():

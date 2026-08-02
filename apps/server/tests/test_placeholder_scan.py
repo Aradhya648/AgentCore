@@ -1,4 +1,4 @@
-"""Tests for deliverable placeholder / unverified-content scan (hard fail / soft warn)."""
+"""Tests for deliverable placeholder / unverified-content scan (skeleton soft / self-note soft)."""
 
 from agentcore.runtime.runs.contract import (
     check_contract,
@@ -14,18 +14,18 @@ from agentcore.runtime.runs.placeholder_scan import (
 from agentcore.runtime.runs.types import Deliverable
 
 
-def test_hard_placeholder_phone_fails_with_location():
-    # GEO-style: marketing HTML ships a 400-XXX-XXXX placeholder phone.
+def test_skeleton_placeholder_phone_soft_warns_with_location():
+    # 定案乙：营销 HTML 含 400-XXX-XXXX → soft warning，不 fail。
     html = (
         "<html><body><h1>联系我们</h1>"
         "<p>客服热线：400-XXX-XXXX</p>"
         "</body></html>"
     )
     result = scan_placeholder_signals({"index.html": html})
-    assert result.failures
-    assert any("400-XXX-XXXX" in f or "占位电话" in f for f in result.failures)
-    assert any(h.label == "占位电话段" for h in result.hits if h.kind == "hard")
-    assert result.warnings == []
+    assert result.failures == []
+    assert result.warnings
+    assert any("400-XXX-XXXX" in w or "占位电话" in w or "骨架" in w for w in result.warnings)
+    assert any(h.label == "占位电话段" for h in result.hits if h.kind == "skeleton")
 
     v = check_contract(
         "官网已写入",
@@ -34,9 +34,9 @@ def test_hard_placeholder_phone_fails_with_location():
         workspace_paths=["index.html"],
         artifact_contents={"index.html": html},
     )
-    assert not v.ok
-    assert any("占位" in f or "400" in f for f in v.failures)
-    assert v.warnings == []
+    assert v.ok
+    assert v.failures == []
+    assert any("占位" in w or "400" in w or "骨架" in w for w in v.warnings)
 
 
 def test_soft_unverified_self_note_warns_only():
@@ -66,8 +66,8 @@ def test_soft_unverified_self_note_warns_only():
     assert "示例" in reminder or "核实" in reminder
 
 
-def test_code_file_todo_xxx_exempt_from_hard():
-    # Normal coding habits in .py / .ts must not trip the hard gate.
+def test_code_file_todo_xxx_exempt_from_skeleton():
+    # Normal coding habits in .py / .ts must not trip the skeleton soft gate either.
     py = (
         "# TODO: wire real metrics\n"
         "PHONE = '400-XXX-XXXX'  # XXX placeholder for tests\n"
@@ -116,22 +116,23 @@ def test_clean_content_passes():
     assert scan_placeholder_signals({}).failures == []
 
 
-def test_lorem_prohibition_restatement_not_hard_fail():
+def test_lorem_prohibition_restatement_not_skeleton_warn():
     """DESIGN / anti-slop rules that say『禁止 lorem ipsum』must not self-trigger."""
     md = (
         "# DESIGN\n\n"
         "- 禁止 lorem ipsum 占位文案\n"
         "- 禁假拉丁填充段\n"
     )
-    assert scan_placeholder_signals({"site/DESIGN.md": md}).failures == []
-    # Real filler still fails.
+    assert scan_placeholder_signals({"site/DESIGN.md": md}).warnings == []
+    # Real filler still soft-warns (定案乙：不再 hard-fail).
     bad = "# 正文\n\nlorem ipsum dolor sit amet\n"
     result = scan_placeholder_signals({"site/copy.md": bad})
-    assert result.failures
-    assert any(h.label == "lorem ipsum" for h in result.hits if h.kind == "hard")
+    assert result.failures == []
+    assert result.warnings
+    assert any(h.label == "lorem ipsum" for h in result.hits if h.kind == "skeleton")
 
 
-def test_html_form_placeholder_attribute_not_hard_signal():
+def test_html_form_placeholder_attribute_not_skeleton_signal():
     # Native input placeholder hints are legitimate UI copy, not PLACEHOLDER tokens.
     html = (
         '<html><body><form>'
@@ -145,24 +146,26 @@ def test_html_form_placeholder_attribute_not_hard_signal():
     assert result.hits == []
 
 
-def test_html_placeholder_value_with_hard_phone_still_fails():
+def test_html_placeholder_value_with_skeleton_phone_still_warns():
     html = (
         '<html><body><input type="tel" placeholder="400-XXX-XXXX" />'
         "</body></html>"
     )
     result = scan_placeholder_signals({"index.html": html})
-    assert result.failures
-    assert any(h.label == "占位电话段" for h in result.hits if h.kind == "hard")
+    assert result.failures == []
+    assert result.warnings
+    assert any(h.label == "占位电话段" for h in result.hits if h.kind == "skeleton")
 
 
-def test_html_placeholder_value_with_placeholder_token_still_fails():
+def test_html_placeholder_value_with_placeholder_token_still_warns():
     html = '<html><body><input placeholder="PLACEHOLDER" /></body></html>'
     result = scan_placeholder_signals({"index.html": html})
-    assert result.failures
-    assert any(h.label == "PLACEHOLDER" for h in result.hits if h.kind == "hard")
+    assert result.failures == []
+    assert result.warnings
+    assert any(h.label == "PLACEHOLDER" for h in result.hits if h.kind == "skeleton")
 
 
-def test_css_js_placeholder_syntax_not_hard_signal():
+def test_css_js_placeholder_syntax_not_skeleton_signal():
     html = (
         "<html><head><style>"
         "input::placeholder { color: #999; }"
@@ -182,8 +185,8 @@ def test_css_js_placeholder_syntax_not_hard_signal():
     assert result.hits == []
 
 
-def test_placeholder_hard_exempt_artifact_skips_fail_keeps_soft():
-    """Internal coordination docs (CONTRACT.md) may carry TODO — hard exempt only."""
+def test_placeholder_hard_exempt_artifact_skips_skeleton_keeps_soft():
+    """Internal coordination docs (CONTRACT.md) may carry TODO — skeleton exempt only."""
     contract_md = (
         "# 契约\n\n"
         "## hero\n"
@@ -195,7 +198,7 @@ def test_placeholder_hard_exempt_artifact_skips_fail_keeps_soft():
         hard_exempt_paths=["site/CONTRACT.md"],
     )
     assert result.failures == []
-    assert not any(h.kind == "hard" for h in result.hits)
+    assert not any(h.kind == "skeleton" for h in result.hits)
 
     v = check_contract(
         "契约已写入",
@@ -214,7 +217,7 @@ def test_placeholder_hard_exempt_artifact_skips_fail_keeps_soft():
 
 
 def test_placeholder_exempt_does_not_shield_user_html():
-    """Exempt CONTRACT.md only — index.html TODO still hard-fails."""
+    """Exempt CONTRACT.md only — index.html TODO still soft-warns."""
     html = "<html><body><!-- TODO: replace --></body></html>"
     contract_md = "# TODO: internal note\n"
     v = check_contract(
@@ -232,12 +235,13 @@ def test_placeholder_exempt_does_not_shield_user_html():
             "site/CONTRACT.md": contract_md,
         },
     )
-    assert not v.ok
-    assert any("TODO" in f or "占位" in f for f in v.failures)
+    assert v.ok
+    assert v.failures == []
+    assert any("TODO" in w or "占位" in w or "骨架" in w for w in v.warnings)
 
 
 def test_placeholder_hard_exempt_bool_covers_all_artifacts():
-    """QA node style: placeholder_hard_exempt=True skips hard scan on whole batch."""
+    """QA node style: placeholder_hard_exempt=True skips skeleton scan on whole batch."""
     qa_md = "# QA\n\n- [ ] TODO: verify form submit\n"
     v = check_contract(
         "QA 已写入",
@@ -253,6 +257,7 @@ def test_placeholder_hard_exempt_bool_covers_all_artifacts():
     )
     assert v.ok
     assert v.failures == []
+    assert not any("骨架" in w or "TODO" in w for w in v.warnings)
 
 
 def test_path_matches_placeholder_exempt():
@@ -261,3 +266,39 @@ def test_path_matches_placeholder_exempt():
     assert path_matches_placeholder_exempt("site/CONTRACT.md", ["site/CONTRACT.md"])
     assert path_matches_placeholder_exempt("./site/QA.md", ["site/QA.md"])
     assert not path_matches_placeholder_exempt("site/index.html", ["site/CONTRACT.md"])
+
+
+def test_tbd_substring_in_id_not_skeleton_hit():
+    """定案 A：TBD 不得无边界命中合法 id（tbDate / getElementById('tbDate')）。"""
+    html = (
+        "<html><body>"
+        '<input id="tbDate" type="date" />'
+        "<script>"
+        "document.getElementById('tbDate');"
+        "ntById('tbDate');"
+        "</script>"
+        "</body></html>"
+    )
+    result = scan_placeholder_signals({"index.html": html})
+    assert result.failures == []
+    assert result.warnings == []
+    assert result.hits == []
+    assert not any(h.label == "示例占位标记" for h in result.hits)
+
+
+def test_standalone_tbd_still_skeleton_hit():
+    """定案 A：整词 TBD / REPLACE_ME 等真占位仍命中（软警告）。"""
+    html = (
+        "<html><body>"
+        "<p>上线日期：TBD</p>"
+        "<p>联系人：REPLACE_ME</p>"
+        "</body></html>"
+    )
+    result = scan_placeholder_signals({"index.html": html})
+    assert result.failures == []
+    assert result.warnings
+    labels = {h.label for h in result.hits if h.kind == "skeleton"}
+    assert "示例占位标记" in labels
+    snippets = " ".join(h.snippet for h in result.hits if h.label == "示例占位标记")
+    assert "TBD" in snippets
+    assert "REPLACE_ME" in snippets

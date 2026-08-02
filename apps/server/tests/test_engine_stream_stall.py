@@ -148,6 +148,77 @@ async def test_uncommitted_stall_retries_then_raises(monkeypatch):
     assert resets == ["retry"] * (MAX_RETRIES - 1)
 
 
+async def test_uncommitted_stall_retries_under_production_budget(monkeypatch):
+    """Production multiplier=2 must still allow one transparent retry after a full idle window.
+
+    Pins the budget-edge bug: ``remaining < idle`` after the first window used to
+    kill the retry (overshoot of ms/TTFT). Window accounting keeps attempt 0 + 1.
+    """
+    monkeypatch.setattr(settings, "engine_llm_stream_idle_timeout_seconds", 0.05)
+    assert stream_mod._STALL_BUDGET_IDLE_MULTIPLIER == 2.0
+    monkeypatch.setattr(stream_mod, "INITIAL_BACKOFF", 0.0)
+    monkeypatch.setattr(stream_mod, "BACKOFF_MULTIPLIER", 1.0)
+    content_seen: list[str] = []
+    reasoning_seen: list[str] = []
+    resets: list[str] = []
+    provider = _RecoveringStallProvider(fail_attempts=1, stall=1.0)
+    result = await stream_llm_round(
+        provider,
+        _request(),
+        content_seen.append,
+        reasoning_seen.append,
+        on_reset=resets.append,
+    )
+    assert result.aborted is False
+    assert result.content == "recovered"
+    assert provider.calls == 2
+    assert resets == ["retry"]
+    assert content_seen == ["recovered"]
+
+
+async def test_uncommitted_stall_production_budget_caps_at_two_windows(monkeypatch):
+    """multiplier=2 exhausts after two stall windows (not full MAX_RETRIES=3)."""
+    monkeypatch.setattr(settings, "engine_llm_stream_idle_timeout_seconds", 0.05)
+    assert stream_mod._STALL_BUDGET_IDLE_MULTIPLIER == 2.0
+    monkeypatch.setattr(stream_mod, "INITIAL_BACKOFF", 0.0)
+    monkeypatch.setattr(stream_mod, "BACKOFF_MULTIPLIER", 1.0)
+    seen: list[str] = []
+    resets: list[str] = []
+    provider = _StallProvider([LLMChunk(delta_reasoning="…")], stall=1.0)
+    with pytest.raises(LLMTimeoutError):
+        await stream_llm_round(
+            provider,
+            _request(),
+            seen.append,
+            seen.append,
+            on_reset=resets.append,
+        )
+    assert provider.calls == 2
+    assert resets == ["retry"]
+
+
+async def test_call_retried_still_opens_next_stream(monkeypatch):
+    """After ``call_retried``, the next attempt must stream — no wall-clock abort at loop top."""
+    monkeypatch.setattr(settings, "engine_llm_stream_idle_timeout_seconds", 0.05)
+    # Tight wall budget that would trip mid-backoff if loop-top 收口 were reintroduced.
+    monkeypatch.setattr(stream_mod, "_STALL_BUDGET_IDLE_MULTIPLIER", 2.0)
+    monkeypatch.setattr(stream_mod, "INITIAL_BACKOFF", 0.08)
+    monkeypatch.setattr(stream_mod, "BACKOFF_MULTIPLIER", 1.0)
+    content_seen: list[str] = []
+    provider = _RecoveringStallProvider(fail_attempts=1, stall=1.0)
+    with capture_logs() as caps:
+        result = await stream_llm_round(
+            provider,
+            _request(),
+            content_seen.append,
+            lambda _d: None,
+        )
+    assert any(c.get("event") == "llm.call_retried" for c in caps)
+    assert provider.calls == 2
+    assert result.content == "recovered"
+    assert content_seen == ["recovered"]
+
+
 async def test_uncommitted_stall_recovers_on_retry(monkeypatch):
     monkeypatch.setattr(settings, "engine_llm_stream_idle_timeout_seconds", 0.05)
     monkeypatch.setattr(stream_mod, "_STALL_BUDGET_IDLE_MULTIPLIER", 100.0)

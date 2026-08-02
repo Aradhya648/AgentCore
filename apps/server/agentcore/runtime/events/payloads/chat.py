@@ -157,6 +157,9 @@ class ErrorContext(WirePayload):
     retry_after: float | None = absent(
         "上游 429 Retry-After 秒数（原始值；工程重试仍截断 ≤30s）。"
     )
+    credential_source: str | None = absent(
+        "LLM_KEY_INVALID CTA 分流：user=去设置换 Key；platform=接入自己的 Key / 联系管理员。"
+    )
 
 
 class ErrorPayload(WirePayload):

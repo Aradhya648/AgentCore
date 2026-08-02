@@ -309,6 +309,9 @@ class CoordinationSession:
     completed_run_ids: set[str] = field(default_factory=set)
     # Terminal FAILED run_ids (subset of completed) — pipeline health / idle brief.
     failed_run_ids: set[str] = field(default_factory=set)
+    # FAILED / CANCELLED / SKIPPED — seats vacated for auto replaces_run_id fill.
+    # Process-local (like failed_run_ids); seed path rehydrates from RunPhase.
+    vacated_run_ids: set[str] = field(default_factory=set)
     # CEO progress-inject cursor: completed ids already named in a prior progress
     # block. Not snapshotted — restore seeds it to current completed (no re-dump).
     progress_reported_completed: set[str] = field(default_factory=set)
@@ -667,18 +670,32 @@ class CoordinationSession:
             candidates=candidates,
         )
 
+    def _ended_run_ids(self) -> set[str]:
+        """All session-terminal worker ids (any terminal phase counts as ended).
+
+        ``completed_run_ids`` is the primary pool (host marks COMPLETED / FAILED /
+        CANCELLED / SKIPPED here). ``vacated_run_ids`` / ``failed_run_ids`` are
+        unioned defensively so vacated seats still resolve if a path only stamped
+        those sets.
+        """
+        return set(self.completed_run_ids) | set(self.vacated_run_ids) | set(
+            self.failed_run_ids
+        )
+
     def resolve_ended_worker(self, raw: str) -> CancelResolution:
-        """Resolve ``raw`` to a session worker that already finished (completed/handoff).
+        """Resolve ``raw`` to a session worker that already finished.
 
         Used by ``cancel_worker`` for idempotent success when the target is no
         longer in ``_running_workers`` but is confirmed ended for this session.
-        Matching mirrors :meth:`resolve_cancel_target` against ``completed_run_ids``
-        (+ live_plan roles). Ambiguous / unknown → ``not_found`` / ``ambiguous``.
+        Terminal phases: COMPLETED / FAILED / SKIPPED / CANCELLED (and handoff
+        ownership on complete). Matching mirrors :meth:`resolve_cancel_target`
+        against :meth:`_ended_run_ids` (+ live_plan roles). Ambiguous / unknown →
+        ``not_found`` / ``ambiguous``.
         """
         target = (raw or "").strip()
         if not target:
             return CancelResolution(run_id=None, reason="not_found")
-        done = self.completed_run_ids
+        done = self._ended_run_ids()
         if target in done:
             return CancelResolution(run_id=target, reason="exact")
         suffix = f"_{target}"
@@ -701,6 +718,110 @@ class CoordinationSession:
             reason="ambiguous" if candidates else "not_found",
             candidates=candidates,
         )
+
+    def resolve_pending_worker(self, raw: str) -> CancelResolution:
+        """Resolve ``raw`` to a live_plan node that has not started and has not ended.
+
+        Pending = on current ``live_plan``, not in ``_running_workers``, not in
+        :meth:`_ended_run_ids`. Used by ``cancel_worker`` to withdraw a queued node
+        (mark skipped / vacated) before Wave dispatches it. Matching mirrors
+        :meth:`resolve_cancel_target` (exact / unique suffix / unique role).
+        Ambiguous / unknown / no live_plan → ``not_found`` / ``ambiguous``.
+        """
+        target = (raw or "").strip()
+        if not target:
+            return CancelResolution(run_id=None, reason="not_found")
+        live = self.live_plan
+        if live is None:
+            return CancelResolution(run_id=None, reason="not_found")
+        nodes = list(getattr(live, "nodes", ()) or ())
+        if not nodes:
+            return CancelResolution(run_id=None, reason="not_found")
+        ended = self._ended_run_ids()
+        running = set(self._running_workers)
+        pending: dict[str, str] = {}
+        for node in nodes:
+            rid = (getattr(node, "run_id", "") or "").strip()
+            if not rid or rid in ended or rid in running:
+                continue
+            pending[rid] = (getattr(node, "role", None) or rid).strip() or rid
+        if not pending:
+            return CancelResolution(run_id=None, reason="not_found")
+        if target in pending:
+            return CancelResolution(run_id=target, reason="exact")
+        suffix = f"_{target}"
+        suffix_hits = sorted(rid for rid in pending if rid.endswith(suffix))
+        if len(suffix_hits) == 1:
+            return CancelResolution(run_id=suffix_hits[0], reason="suffix")
+        role_hits = sorted(rid for rid, role in pending.items() if role == target)
+        if len(role_hits) == 1:
+            return CancelResolution(run_id=role_hits[0], reason="role")
+        candidates = tuple(sorted(set(suffix_hits) | set(role_hits)))
+        return CancelResolution(
+            run_id=None,
+            reason="ambiguous" if candidates else "not_found",
+            candidates=candidates,
+        )
+
+    def vacate_pending_worker(self, run_id: str) -> None:
+        """Formally withdraw a queued (not-yet-running) plan node.
+
+        Stamps the seat as session-terminal SKIPPED (completed + vacated) and adds
+        ``run_id`` to ``cancel_ids`` so Wave will not dispatch it (and will cancel
+        if a race already launched). Does not touch other workers — never retargets.
+        """
+        rid = (run_id or "").strip()
+        if not rid:
+            return
+        self.mark_worker_completed(rid)
+        self.vacated_run_ids.add(rid)
+        self.request_cancel(rid)
+
+    def suggest_cancel_by_plan_role(self, raw: str) -> tuple[str, str] | None:
+        """Hint-only: unique running worker sharing the live_plan role of ``raw``.
+
+        Used when ``cancel_worker`` truly cannot resolve ``raw`` (not running, not
+        ended). Looks up ``raw`` on ``live_plan`` (exact / unique suffix), then if
+        that node's role has exactly one in-flight worker, returns
+        ``(run_id, role)`` so the tool can name it — never auto-cancels.
+        """
+        target = (raw or "").strip()
+        if not target:
+            return None
+        live = self.live_plan
+        if live is None:
+            return None
+        nodes = list(getattr(live, "nodes", ()) or ())
+        if not nodes:
+            return None
+        role: str | None = None
+        exact = next(
+            (
+                n
+                for n in nodes
+                if (getattr(n, "run_id", "") or "").strip() == target
+            ),
+            None,
+        )
+        if exact is not None:
+            role = (getattr(exact, "role", None) or "").strip() or None
+        else:
+            suffix = f"_{target}"
+            suffix_nodes = [
+                n
+                for n in nodes
+                if (getattr(n, "run_id", "") or "").endswith(suffix)
+            ]
+            if len(suffix_nodes) == 1:
+                role = (getattr(suffix_nodes[0], "role", None) or "").strip() or None
+        if not role:
+            return None
+        role_hits = sorted(
+            rid for rid, r in self._running_workers.items() if r == role
+        )
+        if len(role_hits) != 1:
+            return None
+        return role_hits[0], role
 
     def arm_worker_timeout(
         self,

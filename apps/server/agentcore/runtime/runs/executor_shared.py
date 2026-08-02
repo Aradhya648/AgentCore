@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal, NamedTuple
 
 from agentcore.core.logging import get_logger
 from agentcore.llm.pricing import calculate_cost
@@ -58,7 +58,10 @@ def _delivery_gaps_from_warnings(
     ``files_landed``: 刀1 / 方案 A — 已有声明路径落盘时，``degraded_handoff`` 只记
     warning 备注，不抬成硬缺口。
     """
-    from agentcore.runtime.delegate.delivery_status import REASON_PATH_HINT
+    from agentcore.runtime.delegate.delivery_status import (
+        REASON_FILES_NOT_LANDED,
+        REASON_PATH_HINT,
+    )
     from agentcore.runtime.runs.cutoff import (
         DEGRADED_HANDOFF_WARNING,
         REASON_DEGRADED_HANDOFF,
@@ -67,6 +70,8 @@ def _delivery_gaps_from_warnings(
 
     # Keep in sync with delivery_status._SOFT_PATH_HINT_MARKERS (contract warning-only).
     path_hint_markers = ("产物未写入案卷目录", "声明的交付物路径未落盘")
+    # 甲⁺：零落盘 soft tip（与 delivery_status._ZERO_LANDING_MARKERS 对齐）。
+    zero_landing_markers = ("未把产物写入工作区", "本批未见落盘")
 
     gaps: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -85,6 +90,9 @@ def _delivery_gaps_from_warnings(
             # Contract path-reconciliation (artifact_dir / artifacts) is warning-only.
             row["severity"] = "warning"
             row["reason"] = REASON_PATH_HINT
+        elif any(m in text for m in zero_landing_markers):
+            row["severity"] = "warning"
+            row["reason"] = REASON_FILES_NOT_LANDED
         gaps.append(row)
     if isinstance(debrief, dict) and debrief.get("degraded"):
         text = DEGRADED_HANDOFF_WARNING
@@ -96,19 +104,26 @@ def _delivery_gaps_from_warnings(
     return gaps
 
 
+class HardGapBlock(NamedTuple):
+    """Strict-node hard gap that blocks COMPLETED — reason + face ``failure_kind``."""
+
+    reason: str
+    failure_kind: Literal["quality", "model"]
+
+
 def _hard_gap_blocks_completion(
     delivery_gaps: list[dict[str, str]],
     debrief: dict[str, Any] | None,
     deliverable: Deliverable | None,
     *,
     files_touched: int = 0,
-) -> str | None:
+) -> HardGapBlock | None:
     """Strict nodes: hard gaps still block COMPLETE; degraded_handoff alone does not
     when declared paths already landed (刀1 / 方案 A).
 
     Soft anti-slop warnings alone do not trip this. Missing-artifact soft-accept is
     already blocked by ``strict=True`` via :func:`_is_hard_failure`. Returns a fail
-    reason (CEO may 续派) or ``None`` to allow COMPLETED.
+    block (CEO may 续派) or ``None`` to allow COMPLETED.
     """
     if deliverable is None or not deliverable.strict:
         return None
@@ -130,19 +145,28 @@ def _hard_gap_blocks_completion(
         if reason == REASON_DEGRADED_HANDOFF or DEGRADED_HANDOFF_WARNING in desc:
             if files_landed:
                 continue
-            return (
-                "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
-                "请续派或冷补派"
+            return HardGapBlock(
+                reason=(
+                    "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
+                    "请续派或冷补派"
+                ),
+                failure_kind="model",
             )
         if "未落盘" in desc or "未在工作区找到" in desc:
-            return (
-                "硬缺口：声明交付物未落盘，不得冒充完成；"
-                "请续派或冷补派"
+            return HardGapBlock(
+                reason=(
+                    "硬缺口：声明交付物未落盘，不得冒充完成；"
+                    "请续派或冷补派"
+                ),
+                failure_kind="quality",
             )
     if isinstance(debrief, dict) and debrief.get("degraded") and not files_landed:
-        return (
-            "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
-            "请续派或冷补派"
+        return HardGapBlock(
+            reason=(
+                "硬缺口：交接说明不完整且工作区无落盘文件，不得冒充完成；"
+                "请续派或冷补派"
+            ),
+            failure_kind="model",
         )
     return None
 
@@ -200,6 +224,8 @@ def _priced_failure(
     rounds: int,
     duration_ms: int,
     retryable: bool = True,
+    transcript: list[LLMMessage] | None = None,
+    content: str = "",
 ) -> RunState:
     """A FAILED RunState that still carries the tokens the run spent before it died.
 
@@ -216,17 +242,24 @@ def _priced_failure(
     skip its infra retry for a deterministic upstream failure (prompt 超长 / 鉴权 / 余额)
     that would just re-fail identically. Defaults True (transient / unknown crash → retry
     as before).
+
+    ``transcript`` / ``content`` (optional): same recoverable-site contract as contract
+    hard-fail / salvage — when the exception path already had turns, hang them on the
+    FAILED state so ``register_completed_session`` and Wave infra-retry can hot-continue.
+    Omit (empty) when the run died before any messages → still not continuable.
     """
     has_usage = bool(usage.input_tokens or usage.output_tokens)
     return RunState(
         phase=RunPhase.FAILED,
         error=error,
         error_retryable=retryable,
+        content=content,
         model=model or "",
         duration_ms=duration_ms,
         rounds=rounds,
         usage=usage.as_dict() if has_usage else {},
         cost=asdict(calculate_cost(model, usage)) if (model and has_usage) else {},
+        transcript=list(transcript) if transcript else [],
     )
 
 
@@ -239,16 +272,12 @@ def _is_hard_failure(
     """Whether a contract miss should FAIL the run vs. soft-accept with a warning.
 
     An empty product is always hard (the non-empty baseline, 决策②).
-    ``requires_files`` with zero disk writes is always hard (交付真相：不得 soft-complete).
+    甲⁺：``requires_files`` / ``form=files`` 零落盘已降为 soft tip，不再硬失败。
     Any other shortfall is hard only when the deliverable is ``strict`` (默认软提醒, 决策③).
+    ``files_touched`` retained for call-site compatibility (unused after 甲⁺).
     """
+    _ = files_touched
     if not content.strip():
-        return True
-    if (
-        deliverable is not None
-        and deliverable.requires_files
-        and int(files_touched or 0) <= 0
-    ):
         return True
     return deliverable is not None and deliverable.strict
 
@@ -312,6 +341,8 @@ async def _react_and_capture(
     finish_override_sink: list[FinishReason] | None = None,
     cutoff_reason_sink: list[str] | None = None,
     tool_failure_sink: list[dict] | None = None,
+    controller_seed: Mapping[str, Any] | None = None,
+    controller_seed_sink: list[dict[str, Any]] | None = None,
     turn_evidence_ledger: object | None = None,
     ledger_registrant: str = "",
     files_expected: bool = False,
@@ -353,6 +384,9 @@ async def _react_and_capture(
 
     ``tool_failure_sink`` receives this pass's tool-failure fact dicts (circuit-breaker
     tally) for ``RunState.tool_failures`` → CEO ``tool_failures`` section.
+
+    ``controller_seed`` / ``controller_seed_sink`` carry LoopController latches
+    (validation path-stop fps + thrash) across write_pass / light_repair restarts.
     """
     def _on_content(delta: str) -> None:
         sink.emit(run_output_delta(run_id, agent_id, delta))
@@ -403,6 +437,8 @@ async def _react_and_capture(
         finish_override_sink=finish_override_sink,
         cutoff_reason_sink=cutoff_reason_sink,
         tool_failure_sink=tool_failure_sink,
+        controller_seed=controller_seed,
+        controller_seed_sink=controller_seed_sink,
         files_expected=files_expected,
         short_write_posture=short_write_posture,
         tighten_verify_exec_thrash=tighten_verify_exec_thrash,

@@ -9,15 +9,18 @@ import { useNavigate } from "react-router-dom";
 /**
  * Soft outdated-client banner under the title bar (部署与运维.md §7.6).
  * Shown when local Electron build < policy.min_desktop_version. Dismissible for
- * the session; CTA jumps to 设置·关于 and triggers an update check. Web clients
- * never render this ({@link hasAutoUpdater} is false).
+ * the session; CTA opens the update dialog when a version is already available,
+ * otherwise jumps to 设置·关于 and triggers a check. Web clients never render
+ * this ({@link hasAutoUpdater} is false).
  */
 export function OutdatedClientBanner() {
   const navigate = useNavigate();
   const minVersion = useUpdatesStore((s) => s.outdatedMinVersion);
   const dismissed = useUpdatesStore((s) => s.outdatedDismissed);
   const dismiss = useUpdatesStore((s) => s.dismissOutdated);
+  const status = useUpdatesStore((s) => s.status);
   const check = useUpdatesStore((s) => s.check);
+  const openUpdateDialog = useUpdatesStore((s) => s.openUpdateDialog);
 
   if (!hasAutoUpdater() || !minVersion || dismissed) return null;
 
@@ -42,6 +45,14 @@ export function OutdatedClientBanner() {
         size="sm"
         className="shrink-0"
         onClick={() => {
+          if (
+            status.phase === "available" ||
+            status.phase === "downloading" ||
+            status.phase === "downloaded"
+          ) {
+            openUpdateDialog();
+            return;
+          }
           navigate("/more/about");
           void check();
         }}

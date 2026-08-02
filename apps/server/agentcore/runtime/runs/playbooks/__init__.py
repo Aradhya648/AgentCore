@@ -66,10 +66,11 @@ PLAYBOOKS: dict[str, Playbook] = {
         name="parallel_brief",
         summary=(
             "【对齐推进·默认多角协作】N 路并行摸底→方向笔记落盘→交回 CEO 对话综述；"
-            "无提纲/撰稿/审校（一起弄懂/多路摸清；成文请升 research_report）"
+            "无提纲/撰稿/审校（一起弄懂/多路摸清默认；未明示成文勿升 research_report；"
+            "angles 宜少扇出常 2）"
         ),
         slots=(
-            "topic(必填,主题) / angles(必填,≥2 个可并行摸底方向;"
+            "topic(必填,主题) / angles(必填,≥2 个可并行摸底方向;宜少扇出常 2；"
             "超过扇出上限时末尾自动折叠到最后一节点并标注、不丢弃)"
         ),
         build=parallel_brief,
@@ -77,14 +78,15 @@ PLAYBOOKS: dict[str, Playbook] = {
     "research_report": Playbook(
         name="research_report",
         summary=(
-            "【成文专线】用户明示要报告/论文/落盘成文时："
+            "【成文专线】仅用户明示要报告/论文/落盘成文时："
             "调研→提纲→写作→审校（N 路并行调研，汇拢成纲再成文；"
             "成篇验收钉死单一主文件 `.md`；要 PDF/可分享则 md→md_to_pdf→handoff，"
-            "禁 HTML 顶替/禁 reportlab 主路径）。一起弄懂/多路摸清请用 parallel_brief"
+            "禁 HTML 顶替/禁 reportlab 主路径）。一起弄懂/多路摸清/仅提论文开源当资料"
+            "请用 parallel_brief，勿一上来三路成文"
         ),
         slots=(
             "topic(必填,主题) / angles(可选,调研子方向数组,各派一名调研员;"
-            "超过扇出上限时末尾自动折叠到最后一节点并标注、不丢弃) / "
+            "明示成文后再扇出；超过扇出上限时末尾自动折叠到最后一节点并标注、不丢弃) / "
             "checkpoint(可选,成纲后写作前暂停过目,默认 true) / audience(可选,读者) / "
             "deliverable(可选,产出形态) / "
             "output_path(可选,成篇主文件路径,默认 AgentCore/文档/research/报告.md；验收只认此路径)"
@@ -119,13 +121,13 @@ PLAYBOOKS: dict[str, Playbook] = {
         name="build_app",
         summary=(
             "绿场软件/SPA：scaffold→shared→N×module→integrate→smoke"
-            "（五波串起不可减；禁单 worker 包整站；import 图须闭合）"
+            "（五阶段不可跳；默认 1 模块瘦启动；modules 超限折叠；禁单 worker 包整站）"
         ),
         slots=(
             "app(必填,要搭建的应用/SPA简述——"
             "例:app=\"面向运营的 Vue3 数据看板\") / "
             "modules(可选,功能模块名数组,各派一名实现;"
-            "默认总览页·列表页) / "
+            "默认仅总览页；超过 3 个折叠到末槽) / "
             "stack(可选,技术栈,默认 Vue3+Vite+TS) / "
             "root(可选,项目目录名,默认从 app 简述派生)"
         ),

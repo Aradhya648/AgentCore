@@ -123,8 +123,13 @@ async def test_coordination_timeout_force_cancel_via_cancel_ids():
     with patch("agentcore.config.settings") as settings:
         settings.engine_worker_timeout_warn_ratio = 0.3
         session.arm_worker_timeout("slow", role="慢工", timeout_s=0.08)
-        # Wait past TIMEOUT; grace wall is 90s by default — force via request after notify.
-        await asyncio.sleep(0.12)
+        # Under xdist load wall clock stretches — wait until TIMEOUT notify (not fixed sleep).
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while (
+            not session.was_timeout_notified("slow")
+            and asyncio.get_running_loop().time() < deadline
+        ):
+            await asyncio.sleep(0.02)
         assert session.was_timeout_notified("slow")
         events = [e for e in session._pending if e.kind is CoordinationEventKind.TIMEOUT]
         # Drain via wait if still in queue

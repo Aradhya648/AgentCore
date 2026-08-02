@@ -10,6 +10,7 @@ from agentcore.tools.sandbox.exec_languages import (
     format_interpreters_line,
     resolve_exec_languages,
 )
+from agentcore.workspace.protocol import WorkspaceIOError
 
 
 def test_format_interpreters_line_marks_missing_bash():
@@ -98,6 +99,25 @@ def test_resolve_exec_languages_desktop_channel():
     langs = asyncio.run(resolve_exec_languages(_Local()))
     assert langs == ("python", "javascript")
     assert "bash" not in langs
+
+
+def test_resolve_exec_languages_probe_timeout_fail_closed_advertise():
+    """Probe hang → empty language surface (A1); channel sticky-dead is channel.py's job."""
+
+    class _Channel:
+        async def request(self, op, args, *, timeout=None):
+            raise WorkspaceIOError(
+                "local workspace op 'probe_exec' timed out（活性挂起）"
+            )
+
+    class _Local:
+        location = "local"
+
+        def __init__(self) -> None:
+            self._channel = _Channel()
+
+    langs = asyncio.run(resolve_exec_languages(_Local()))
+    assert langs == ()
 
 
 def test_workspace_context_lists_interpreters():

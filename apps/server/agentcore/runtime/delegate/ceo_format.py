@@ -676,9 +676,10 @@ def format_for_ceo(
     ):
         output += (
             "\n---\n**有队员失败/被跳过/被接替。** 终稿须点名说明，不得写成全员成功。"
-            "如需补跑，请用 `replan(add=[...])` 在同一计划中追加替换节点"
-            "（设 `replaces_run_id`；可引用本批已完成节点的 run_id 作为 depends_on），"
-            "而非重新调用 delegate。若无需补跑，直接如实回复用户即可。"
+            "如需补跑，请在同一计划用 `replan(add=[...])` **按缺口点名**追加"
+            "（设 `replaces_run_id` 或 `continue_from_run_id` 指向失败/跳过节点；"
+            "单次条数受缺口硬闸，勿整团重开、勿另开无关大派）。"
+            "若无需补跑，直接如实回复用户即可。"
         )
     raw_chars = sum(len(s.content) for s in results.values() if s and s.content)
     output, ratio_capped = _cap_synthesis_output(output, raw_chars)

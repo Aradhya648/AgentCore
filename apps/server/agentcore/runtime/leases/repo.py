@@ -112,6 +112,30 @@ class TurnLeaseRepository:
         )
         return result.scalar_one_or_none()
 
+    async def bump_recover_attempts(self, message_id: str, *, owner_id: str) -> int:
+        """Increment ``meta.recover_attempts`` when this owner still holds the row.
+
+        Returns the new attempt count, or ``0`` when ownership was lost.
+        """
+        row = await self.get(message_id)
+        if row is None or row.owner_id != owner_id:
+            return 0
+        meta = dict(row.meta) if isinstance(row.meta, dict) else {}
+        attempts = int(meta.get("recover_attempts") or 0) + 1
+        meta["recover_attempts"] = attempts
+        result = await self._session.execute(
+            update(TurnLeaseRow)
+            .where(
+                TurnLeaseRow.message_id == message_id,
+                TurnLeaseRow.owner_id == owner_id,
+            )
+            .values(meta=meta)
+        )
+        await self._session.commit()
+        if (result.rowcount or 0) <= 0:
+            return 0
+        return attempts
+
     async def exists_fresh_for_conversation(
         self, conversation_id: str, *, after: datetime
     ) -> bool:

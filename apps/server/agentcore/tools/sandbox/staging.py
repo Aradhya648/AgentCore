@@ -1,22 +1,25 @@
 """Workspace staging for the gVisor sandbox — 产物写回 (copy-in / copy-out).
 
-gVisor never gets a writable handle on the canonical workspace. Each execution
-receives a per-run COPY of the workspace (staged under the OCI bundle dir and
-bind-mounted **rw** at ``/workspace``); after the process completes, new or
-changed regular files are copied back into the real workspace under explicit
-caps, and the written paths are reported on ``ExecutionResult.written_files``
-(auditable in logs + surfaced to the model in the tool output).
+For **non-install** writable executions, gVisor does not get a writable handle on
+the canonical workspace. Each run receives a per-run COPY (staged under the OCI
+bundle dir, seeded into a tmpfs ``/workspace``); after the process completes,
+new or changed regular files are copied back under explicit caps
+(``ExecutionResult.written_files``).
 
-Why copy-in/copy-out instead of the alternatives (安全权限与治理.md §五):
+**Install exception** (``registry_egress``) lives in ``gvisor.py``: rw-bind the
+persistent workspace and skip this module's copy-out / base64 wrap. This file
+still skips ``node_modules`` on write-back for any residual staging path.
+
+Why copy-in/copy-out for the default writable path (安全权限与治理.md §五):
 
 - **runsc overlay**: the upper layer lives in the sandbox's internal filestore,
   not an extractable directory tree — artifacts could not be recovered after
   the container exits.
 - **host overlayfs**: mounting requires privileges the non-root API container
   does not have.
-- **direct rw bind of the real workspace**: loses blast-radius control (a
-  crashed / hostile run can trash canonical files mid-write) and gives no
-  audit surface of what an execution wrote.
+- **direct rw bind of the real workspace** (general case): loses blast-radius
+  control and audit surface — rejected for ordinary writable runs. Install is
+  the only product-approved exception (see ``gvisor`` module docstring).
 
 Guards on the write-back leg: symlinks are never staged nor copied back,
 ``AgentCore/{index,trash,baselines}`` (path-aware internal zones) are excluded
@@ -31,7 +34,7 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agentcore.core.errors import SandboxError
 from agentcore.workspace._paths import is_internal_zone_relpath
@@ -219,6 +222,12 @@ def write_back(
     budget = max_bytes
     for rel in changes:
         if is_internal_zone_relpath(rel):
+            skipped.append(rel)
+            continue
+        # Packaging install on the staging path must not write node_modules back
+        # via copy-out (cloud install uses durable rw-bind instead; this skip
+        # remains for non-install staging / residual paths).
+        if "node_modules" in PurePosixPath(rel).parts:
             skipped.append(rel)
             continue
         src = staging / rel

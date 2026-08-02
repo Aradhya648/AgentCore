@@ -118,7 +118,10 @@ export function AssistantMessage({ message }: MessageBubbleProps) {
       ? syntheticErrorForEmptyFailure(finishReason)
       : null);
   const errorAction = displayError
-    ? errorActionForCode(displayError.code)
+    ? errorActionForCode(displayError.code, {
+        credentialSource: message.error?.context?.credential_source,
+        message: displayError.message,
+      })
     : null;
   const showRetry =
     !!displayError &&

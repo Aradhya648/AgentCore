@@ -67,6 +67,7 @@ export function buildAgentNodePresentation(
     d.error,
     phase,
     d.phaseTool,
+    d.failureKind,
   );
   const statusFace =
     d.debateCrossExamMark?.mode === "replace"

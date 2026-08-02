@@ -1,5 +1,6 @@
 import { fulfillClientToolOnce } from "@/services/clientToolFulfill";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
+import { useWorkspaceChannelStore } from "@/stores/workspaceChannel";
 import type { WorkspaceOpRequiredPayload } from "@/types/events";
 import type { WorkspaceOpName, WorkspaceOpResult } from "@shared/ipc-contract";
 
@@ -10,6 +11,9 @@ const PROCESS_OPS = new Set<string>([
   "process_stop",
   "process_list",
 ]);
+
+/** Language advertise probe — hang must not raise the file-channel banner (A1/A2). */
+const NON_FILE_CHANNEL_OPS = new Set<string>(["probe_exec"]);
 
 /**
  * Desktop half of the local-workspace op channel (双模式工作区 P2a).
@@ -113,6 +117,9 @@ async function runLocalOp(
       (e instanceof DOMException && e.name === "AbortError") ||
       (e instanceof Error && e.name === "AbortError")
     ) {
+      if (!NON_FILE_CHANNEL_OPS.has(payload.op)) {
+        useWorkspaceChannelStore.getState().markNotReady();
+      }
       return ioError("本地工作区 op 活性挂起（已按服务端 deadline abort）");
     }
     return ioError(e instanceof Error ? e.message : String(e));

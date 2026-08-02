@@ -1,7 +1,17 @@
 """Mid-coordination append overlap guard + C3 dispatch ownership.
 
 When the live graph still has incomplete nodes, a secondary ``delegate`` that
-overlaps an existing node in **role duty** is rejected (GEO collision class).
+claims the same **seat** (normalized role-name equality) is rejected.
+
+**Seat model**: a seat is ``_norm_role(role)`` — whitespace-stripped lowercase
+equality only. Shared job suffixes / CJK prefixes / edit distance do **not**
+merge seats (痛点调研员 ≠ 定价调研员; 前端工程师 ≠ 测试工程师).
+
+**Vacated seats**: FAILED / CANCELLED / SKIPPED terminals free their seat.
+A new node with the same seat and no incomplete same-seat peer is auto-filled
+with ``replaces_run_id`` (file lock transfer + downstream depends_on rewrite via
+the existing replaces pipeline). Successfully COMPLETED seats stay occupied
+until explicit ``replaces_run_id`` / ``force``.
 
 **C3 file side**: deliverable artifacts consult the session ownership ledger
 (including completed owners). ``has_incomplete_nodes`` no longer short-circuits
@@ -20,7 +30,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any
 
 from agentcore.runtime.coordination.isomorphic import _node_role, _node_task
@@ -32,23 +41,6 @@ from agentcore.workspace.write_claims import (
 
 if TYPE_CHECKING:
     from agentcore.runtime.runs.plan import RunPlan
-
-# Role-stem similarity after stripping generic job suffixes.
-_ROLE_SIMILARITY = 0.55
-# Shared CJK/latin prefix length that counts as the same duty family (内容…).
-_ROLE_PREFIX_MIN = 2
-
-_GENERIC_ROLE_SUFFIXES = (
-    "工程师",
-    "专员",
-    "助手",
-    "分析师",
-    "优化师",
-    "编辑",
-    "审校员",
-    "研究员",
-    "写手",
-)
 
 # Paths like site/copy.md, `site/index.html`, ./foo/bar.ts
 _PATH_RE = re.compile(
@@ -82,39 +74,69 @@ def has_incomplete_nodes(
 
 
 def _norm_role(role: str) -> str:
+    """Seat key: strip whitespace, lowercase."""
     return "".join((role or "").lower().split())
 
 
-def _role_stem(role: str) -> str:
-    """Strip generic job suffixes so 前端工程师 vs 测试工程师 do not false-match."""
-    r = _norm_role(role)
-    for suffix in _GENERIC_ROLE_SUFFIXES:
-        s = suffix.lower()
-        if r.endswith(s) and len(r) > len(s):
-            return r[: -len(s)]
-    return r
-
-
 def roles_overlap(a: str, b: str) -> bool:
-    """True when two role labels describe the same (or nested) duty family."""
+    """True when two roles claim the same seat (normalized name equality)."""
     na, nb = _norm_role(a), _norm_role(b)
     if not na or not nb:
         return False
-    if na == nb or na in nb or nb in na:
-        return True
-    sa, sb = _role_stem(a), _role_stem(b)
-    if not sa or not sb:
-        return False
-    if sa == sb or sa in sb or sb in sa:
-        return True
-    if (
-        len(sa) >= _ROLE_PREFIX_MIN
-        and len(sb) >= _ROLE_PREFIX_MIN
-        and sa[:_ROLE_PREFIX_MIN] == sb[:_ROLE_PREFIX_MIN]
-    ):
-        # Shared duty prefix (内容策略 / 内容文案) — not a bare generic suffix.
-        return True
-    return SequenceMatcher(None, sa, sb).ratio() >= _ROLE_SIMILARITY
+    return na == nb
+
+
+def apply_vacated_seat_replaces(
+    new_plan: RunPlan,
+    live_plan: RunPlan | None,
+    *,
+    completed_run_ids: set[str] | frozenset[str] | None = None,
+    vacated_run_ids: set[str] | frozenset[str] | None = None,
+) -> list[tuple[str, str]]:
+    """Auto-fill ``replaces_run_id`` when a new node reclaims a vacated seat.
+
+    Vacated = FAILED / CANCELLED / SKIPPED (caller supplies ``vacated_run_ids``).
+    Requires exact seat match and no incomplete same-seat peer on the live graph.
+    Explicit ``replaces_run_id`` / ``continue_from_run_id`` are left untouched.
+    Mutates matching new nodes in place; returns ``(new_run_id, old_run_id)`` pairs.
+    """
+    if live_plan is None or not new_plan.nodes:
+        return []
+    vacated = {str(x).strip() for x in (vacated_run_ids or ()) if str(x).strip()}
+    if not vacated:
+        return []
+    done = set(completed_run_ids or ())
+
+    incomplete_seats: set[str] = set()
+    vacated_by_seat: dict[str, list[Any]] = {}
+    for live in live_plan.nodes:
+        seat = _norm_role(_node_role(live))
+        if not seat:
+            continue
+        if live.run_id not in done:
+            incomplete_seats.add(seat)
+        elif live.run_id in vacated:
+            vacated_by_seat.setdefault(seat, []).append(live)
+
+    applied: list[tuple[str, str]] = []
+    for nn in new_plan.nodes:
+        if (getattr(nn, "replaces_run_id", None) or "").strip():
+            continue
+        if (getattr(nn, "continue_from_run_id", None) or "").strip():
+            continue
+        seat = _norm_role(_node_role(nn))
+        if not seat or seat in incomplete_seats:
+            continue
+        candidates = vacated_by_seat.get(seat) or []
+        if not candidates:
+            continue
+        # Most recent vacated holder of this seat (plan order).
+        old = candidates.pop()
+        nn.replaces_run_id = old.run_id
+        applied.append((nn.run_id, old.run_id))
+        if not candidates:
+            vacated_by_seat.pop(seat, None)
+    return applied
 
 
 def _normalize_path(path: str) -> str:
@@ -282,26 +304,57 @@ def find_append_overlaps(
         if role_hit_live is None and file_hit_id is None:
             continue
         if role_hit_live is not None and file_hit_id is not None:
-            reason = "role+deliverable"
-            live_role = _node_role(role_hit_live) or role_hit_live.run_id
-            live_run_id = role_hit_live.run_id
+            role_id = role_hit_live.run_id
+            if role_id == file_hit_id:
+                hits.append(
+                    AppendOverlap(
+                        new_role=n_role or nn.run_id,
+                        new_run_id=nn.run_id,
+                        live_role=_node_role(role_hit_live) or role_hit_live.run_id,
+                        live_run_id=role_id,
+                        reason="role+deliverable",
+                    )
+                )
+            else:
+                # Different parties: report seat collision and file owner separately.
+                hits.append(
+                    AppendOverlap(
+                        new_role=n_role or nn.run_id,
+                        new_run_id=nn.run_id,
+                        live_role=_node_role(role_hit_live) or role_hit_live.run_id,
+                        live_run_id=role_id,
+                        reason="role",
+                    )
+                )
+                hits.append(
+                    AppendOverlap(
+                        new_role=n_role or nn.run_id,
+                        new_run_id=nn.run_id,
+                        live_role=file_hit_role,
+                        live_run_id=file_hit_id or "",
+                        reason="deliverable",
+                    )
+                )
         elif role_hit_live is not None:
-            reason = "role"
-            live_role = _node_role(role_hit_live) or role_hit_live.run_id
-            live_run_id = role_hit_live.run_id
-        else:
-            reason = "deliverable"
-            live_role = file_hit_role
-            live_run_id = file_hit_id or ""
-        hits.append(
-            AppendOverlap(
-                new_role=n_role or nn.run_id,
-                new_run_id=nn.run_id,
-                live_role=live_role,
-                live_run_id=live_run_id,
-                reason=reason,
+            hits.append(
+                AppendOverlap(
+                    new_role=n_role or nn.run_id,
+                    new_run_id=nn.run_id,
+                    live_role=_node_role(role_hit_live) or role_hit_live.run_id,
+                    live_run_id=role_hit_live.run_id,
+                    reason="role",
+                )
             )
-        )
+        else:
+            hits.append(
+                AppendOverlap(
+                    new_role=n_role or nn.run_id,
+                    new_run_id=nn.run_id,
+                    live_role=file_hit_role,
+                    live_run_id=file_hit_id or "",
+                    reason="deliverable",
+                )
+            )
     return hits
 
 
@@ -314,7 +367,7 @@ def append_overlap_reject_message(
     """Structured rejection body for the delegate tool result."""
     if not overlaps:
         return (
-            "【队员追加已拒绝·职责重叠】当前协作图仍有未完成节点"
+            "【队员追加已拒绝·座位重叠】当前协作图仍有未完成节点"
             f"（已完成 {completed}/{total}），本次追加与现有计划冲突。"
             "请等待波次推进，或用 cancel_worker / replan / replaces_run_id "
             "显式调整现有计划后再派。"
@@ -323,14 +376,22 @@ def append_overlap_reject_message(
     detail_parts: list[str] = []
     for o in overlaps:
         why = {
-            "role": "角色职责重叠",
+            "role": "座位（角色名）重叠",
             "deliverable": "交付物/文件归属重叠",
-            "role+deliverable": "角色职责与文件归属均重叠",
+            "role+deliverable": "座位与文件归属均重叠",
             "sibling_artifact": f"同批交付物交叉（`{o.live_run_id}` 与 `{o.new_run_id}`）",
         }.get(o.reason, o.reason)
         if o.reason == "sibling_artifact":
             detail_parts.append(
                 f"【{o.new_role}】与【{o.live_role}】{why}"
+            )
+        elif o.reason == "role":
+            detail_parts.append(
+                f"【{o.new_role}】与在图座位【{o.live_role}】（`{o.live_run_id}`）{why}"
+            )
+        elif o.reason == "deliverable":
+            detail_parts.append(
+                f"【{o.new_role}】与文件主人【{o.live_role}】（`{o.live_run_id}`）{why}"
             )
         else:
             detail_parts.append(
@@ -338,7 +399,7 @@ def append_overlap_reject_message(
             )
     detail = "；".join(detail_parts)
     return (
-        "【队员追加已拒绝·职责/交付物重叠】"
+        "【队员追加已拒绝·座位/交付物重叠】"
         f"（已完成 {completed}/{total}）。冲突：{detail}。"
         "请等待波次推进，或显式 cancel_worker / replan / replaces_run_id 接手后再追加；"
         "已完成/已交接节点不能靠 cancel_worker 撤销，须 replaces_run_id 接手补派；"

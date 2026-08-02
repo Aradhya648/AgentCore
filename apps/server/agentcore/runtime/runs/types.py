@@ -130,8 +130,7 @@ class Deliverable:
     # Runs after web_quality hard; missing browser/vision ⇒ 未目验 (never fake pass).
     # Critical findings → up to 2 contract reworks, then partial warnings.
     visual_critic: bool = False
-    # When True, missing ``must_contain`` keywords become warnings (素材覆盖软验收)
-    # instead of hard contract failures — used for marketing copy coverage.
+    # Legacy：定案乙后 ``must_contain`` 缺词一律 soft；保留字段兼容旧派单 JSON。
     must_contain_soft: bool = False
     strict: bool = False
     # 调研类两阶段引用验收（块 2）：``two_phase`` = 广搜落盘为 draft（A，不跑成稿

@@ -22,6 +22,8 @@ import { OutdatedClientBanner } from "./OutdatedClientBanner";
 import { ProductNoticeBanner } from "./ProductNoticeBanner";
 import { ProductNoticeModal } from "./ProductNoticeModal";
 import { TitleBar } from "./TitleBar";
+import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
+import { WorkspaceChannelBanner } from "./WorkspaceChannelBanner";
 
 export function AppShell() {
   // Apply the persisted theme to the DOM and keep it in sync with the OS while
@@ -72,10 +74,9 @@ export function AppShell() {
     return startServerHealthMonitor();
   }, []);
 
-  // Auto-update lives at the shell so a downloaded build surfaces its "重启安装"
-  // notice (and the 关于 page status stays live) regardless of the current route.
-  // The main process drives the silent download + check schedule; this only mirrors
-  // status and toasts when an update is ready (前端技术与架构.md §7.6).
+  // Auto-update lives at the shell so the consent dialog / "重启安装" toast (and
+  // 关于 page status) stay live regardless of route. Main process schedules checks;
+  // download starts only after the user confirms (发布与门禁.md §7.6).
   useEffect(() => startUpdates(), []);
 
   // 跨对话完成通知 (前端UX设计.md §一 全局协作感知): ambient, read-only subscription so a team
@@ -130,6 +131,7 @@ export function AppShell() {
     <div className="flex h-screen w-screen flex-col overflow-hidden">
       {!webClient && <TitleBar />}
       <OutdatedClientBanner />
+      <WorkspaceChannelBanner />
       <ProductNoticeBanner />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -140,6 +142,7 @@ export function AppShell() {
       </div>
 
       <ProductNoticeModal />
+      <UpdateAvailableDialog />
       <CommandPalette />
       <ShareConversationDialog />
       <CreateFolderMenuHost />

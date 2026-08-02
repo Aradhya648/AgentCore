@@ -281,6 +281,36 @@ def test_register_completed_session_registers_failed_with_transcript():
     assert store.get("t_1").content == "失败草稿"
 
 
+def test_priced_failure_with_transcript_registers():
+    """异常口 ``_priced_failure(..., transcript=…)`` 与合同硬失败同契约：可登记现场。"""
+    from agentcore.llm.provider.protocol import TokenUsage
+    from agentcore.runtime.runs.executor_shared import _priced_failure
+
+    store = SessionStore()
+    tool = _tool(store, _Provider(["x"]))
+    plan = RunPlan(nodes=[RunSpec(run_id="t_1", task="写论文", role="研究员")])
+    draft = [
+        LLMMessage(role="system", content="SYS"),
+        LLMMessage(role="user", content="做A"),
+        LLMMessage(role="assistant", content="半成品草稿"),
+    ]
+    state = _priced_failure(
+        "upstream 502",
+        model="m",
+        usage=TokenUsage(),
+        rounds=1,
+        duration_ms=10,
+        transcript=draft,
+        content="半成品草稿",
+    )
+    assert state.phase is RunPhase.FAILED
+    assert state.transcript == draft
+    sess = register_completed_session(tool, plan, "t_1", state)
+    assert sess is not None
+    assert store.get("t_1") is not None
+    assert store.get("t_1").content == "半成品草稿"
+
+
 def test_register_skips_failed_without_transcript():
     """异常崩溃在任何产出前就 FAILED（无 transcript）→ 无现场可续，不登记。"""
     store = SessionStore()
@@ -290,6 +320,26 @@ def test_register_skips_failed_without_transcript():
         register_completed_session(tool, plan, "t_1", _failed_state(transcript=False))
         is None
     )
+    assert store.get("t_1") is None
+
+
+def test_priced_failure_without_transcript_does_not_register():
+    """``_priced_failure`` 未挂 transcript → 与空失败同：不可登记。"""
+    from agentcore.llm.provider.protocol import TokenUsage
+    from agentcore.runtime.runs.executor_shared import _priced_failure
+
+    store = SessionStore()
+    tool = _tool(store, _Provider(["x"]))
+    plan = RunPlan(nodes=[RunSpec(run_id="t_1", task="t")])
+    state = _priced_failure(
+        "boom before messages",
+        model=None,
+        usage=TokenUsage(),
+        rounds=0,
+        duration_ms=1,
+    )
+    assert state.transcript == []
+    assert register_completed_session(tool, plan, "t_1", state) is None
     assert store.get("t_1") is None
 
 

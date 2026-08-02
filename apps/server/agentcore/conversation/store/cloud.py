@@ -423,6 +423,10 @@ class CloudStore:
                         result,
                         status=terminal_status,
                         duration_ms=duration_ms,
+                        # Non-pause settle must clear the cold pause latch (resume
+                        # continuation / terminal) — merge_usage_status only drops it
+                        # on terminal OR explicit paused:false.
+                        extra={"paused": False},
                     ),
                     merge=True,
                 )
@@ -794,11 +798,14 @@ class CloudStore:
         }
         if is_paused:
             usage_metadata["paused"] = True
-        elif is_incomplete:
-            usage_metadata["incomplete"] = True
-            usage_metadata["finish_reason"] = FinishReason.CANCELLED.value
-        elif finish_value is not None:
-            usage_metadata["finish_reason"] = finish_value
+        else:
+            # Resume / non-pause local settle: clear cold pause latch.
+            usage_metadata["paused"] = False
+            if is_incomplete:
+                usage_metadata["incomplete"] = True
+                usage_metadata["finish_reason"] = FinishReason.CANCELLED.value
+            elif finish_value is not None:
+                usage_metadata["finish_reason"] = finish_value
         run_error = runs.get("error") if isinstance(runs, dict) else None
         if isinstance(run_error, dict):
             err_code = run_error.get("code")

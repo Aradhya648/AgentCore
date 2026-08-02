@@ -3,16 +3,18 @@
 Catches shipping placeholders that slipped past human acceptance (GEO-style accidents:
 ``400-XXX-XXXX``, self-notes like「示例数据（发布前核实）」). Pure functions — no I/O.
 
-**Hard signals** (fail the contract gate when found in content / marketing files):
+**Skeleton signals** (warn only — never fail the contract gate; 定案乙):
 phone-style ``XXX`` segments, ``PLACEHOLDER``, ``TODO`` / ``FIXME`` as body markers,
-``[占位]``, lorem ipsum, etc.
+``[占位]``, lorem ipsum, etc. Surfaced as soft ``warnings`` so they do not burn
+``contract.retry`` or hard-fail the run.
 
-**Soft signals** (warn only — never fail): self-annotations such as「示例数据」「待核实」
-「仅供参考的估算」. Worker / CEO decide whether to fix or accept.
+**Self-note soft signals** (also warn only):「示例数据」「待核实」「仅供参考的估算」.
+Worker / CEO decide whether to fix or accept.
 
-**Code files** (``.py`` / ``.ts`` / …): TODO / XXX / PLACEHOLDER-style hard patterns are
-exempt (normal coding habit). Soft signals are also skipped in code to prefer low
-false positives. Distinct content placeholders in HTML / Markdown / plain text still fail.
+**Code files** (``.py`` / ``.ts`` / …): TODO / XXX / PLACEHOLDER-style patterns are
+exempt (normal coding habit). Soft / skeleton signals are skipped in code to prefer
+low false positives. Fabricated-contact hard gates live in ``web_quality_scan``
+(建站链), not here.
 """
 
 from __future__ import annotations
@@ -86,8 +88,8 @@ _CODE_EXTS = frozenset(
     }
 )
 
-# (label, compiled pattern) — hard: placeholder tokens that must not ship as product.
-_HARD_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+# Skeleton markers — formerly hard; 定案乙: soft warnings only (never fail).
+_SKELETON_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "占位电话段",
         re.compile(
@@ -118,12 +120,16 @@ _HARD_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"\blorem\s+ipsum\b", re.IGNORECASE),
     ),
     (
+        # Whole-token only：勿无边界子串命中合法 id（如 tbDate / ntById('tbDate')）。
         "示例占位标记",
-        re.compile(r"(?:TBD|FIXME_ME|REPLACE_ME|YOUR_\w+_HERE)", re.IGNORECASE),
+        re.compile(
+            r"\b(?:TBD|FIXME_ME|REPLACE_ME|YOUR_\w+_HERE)\b",
+            re.IGNORECASE,
+        ),
     ),
 )
 
-# Soft: author self-notes that content is illustrative / unverified — warn only.
+# Author self-notes that content is illustrative / unverified — warn only.
 _SOFT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("示例数据", re.compile(r"示例数据")),
     ("示例证言", re.compile(r"示例(?:客户)?证言|客户证言为示例")),
@@ -132,20 +138,23 @@ _SOFT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("虚构/示意", re.compile(r"虚构(?:数据|指标|内容)?|示意(?:性)?(?:数据|内容)?")),
 )
 
+# Backward-compatible alias (tests / callers that still say "hard patterns").
+_HARD_PATTERNS = _SKELETON_PATTERNS
+
 
 @dataclass(frozen=True)
 class PlaceholderHit:
     """One pattern match with path + short snippet for feedback."""
 
     path: str
-    kind: str  # hard | soft
+    kind: str  # skeleton | soft
     label: str
     snippet: str
 
 
 @dataclass
 class PlaceholderScanResult:
-    """Hard failures + soft warnings from one artifact batch."""
+    """Skeleton + self-note soft warnings from one artifact batch (定案乙: no hard fail)."""
 
     failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -316,21 +325,26 @@ def scan_placeholder_signals(
     *,
     hard_exempt_paths: Iterable[str] | None = None,
 ) -> PlaceholderScanResult:
-    """Scan landed file texts for hard / soft placeholder signals.
+    """Scan landed file texts for skeleton / self-note placeholder signals.
 
     Returns empty result when contents are missing or no content-surface file is
     present. Code files are skipped entirely (防误报).
 
-    ``hard_exempt_paths`` — workspace-relative paths (or patterns) whose hard hits
-    are downgraded (skipped for failures; soft warnings still collected). Exemption
-    is declared on :class:`~agentcore.runtime.runs.types.Deliverable`, not inferred
-    from filenames inside this module.
+    定案乙：skeleton markers (PLACEHOLDER / TODO / ``[占位]`` / lorem / 占位电话段)
+    are soft ``warnings`` only — never ``failures``. Self-notes (「待核实」等) stay
+    soft as before.
+
+    ``hard_exempt_paths`` — workspace-relative paths (or patterns) whose skeleton
+    hits are skipped (coordination docs may carry TODO). Self-note soft warnings
+    are still collected. Exemption is declared on
+    :class:`~agentcore.runtime.runs.types.Deliverable`, not inferred from filenames
+    inside this module.
     """
     if not artifact_contents:
         return PlaceholderScanResult()
 
     exempt = tuple(hard_exempt_paths or ())
-    hard_hits: list[PlaceholderHit] = []
+    skeleton_hits: list[PlaceholderHit] = []
     soft_hits: list[PlaceholderHit] = []
     for path, text in artifact_contents.items():
         if not path or text is None:
@@ -340,23 +354,22 @@ def scan_placeholder_signals(
         if not is_content_deliverable_path(path):
             # Unknown / binary-ish extensions: skip (prefer pass over false fail).
             continue
-        hard = _collect_hits(path, text, _HARD_PATTERNS, kind="hard")
+        skeleton = _collect_hits(path, text, _SKELETON_PATTERNS, kind="skeleton")
         soft = _collect_hits(path, text, _SOFT_PATTERNS, kind="soft")
         if exempt and path_matches_placeholder_exempt(path, exempt):
             soft_hits.extend(soft)
         else:
-            hard_hits.extend(hard)
+            skeleton_hits.extend(skeleton)
             soft_hits.extend(soft)
 
-    failures: list[str] = []
     warnings: list[str] = []
-    if hard_hits:
-        listed = _format_hit_lines(hard_hits, budget=_MAX_HITS_LISTED)
+    if skeleton_hits:
+        listed = _format_hit_lines(skeleton_hits, budget=_MAX_HITS_LISTED)
         detail = "；".join(listed)
-        failures.append(
-            f"交付正文含未替换占位符/硬信号（{len(hard_hits)} 处）：{detail}。"
-            "请换成真实可上线内容后再交付，勿把 XXX / PLACEHOLDER / [占位] / lorem ipsum "
-            "等占位稿原样写入正式产物。"
+        warnings.append(
+            f"含未替换骨架占位（软·不阻断验收，{len(skeleton_hits)} 处）：{detail}。"
+            "建议换成真实可上线内容；XXX / PLACEHOLDER / [占位] / lorem ipsum "
+            "等勿长期留在正式产物。"
         )
     if soft_hits:
         listed = _format_hit_lines(soft_hits, budget=_MAX_HITS_LISTED)
@@ -367,21 +380,21 @@ def scan_placeholder_signals(
             f"含待核实/示例自注（{len(soft_hits)} 处）：{detail}。"
         )
     return PlaceholderScanResult(
-        failures=failures,
+        failures=[],
         warnings=warnings,
-        hits=hard_hits + soft_hits,
+        hits=skeleton_hits + soft_hits,
     )
 
 
 def check_placeholder_failures(
     artifact_contents: Mapping[str, str] | None,
 ) -> list[str]:
-    """Hard-signal failures only (empty when clean or not applicable)."""
+    """Hard-signal failures only — always empty after 定案乙 (skeleton is soft)."""
     return scan_placeholder_signals(artifact_contents).failures
 
 
 def check_placeholder_warnings(
     artifact_contents: Mapping[str, str] | None,
 ) -> list[str]:
-    """Soft-signal warnings only (never fail the gate by themselves)."""
+    """Skeleton + self-note soft warnings (never fail the gate by themselves)."""
     return scan_placeholder_signals(artifact_contents).warnings

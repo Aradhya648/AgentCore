@@ -139,6 +139,7 @@ def _multi_agent_worker_failed_debrief() -> list[SSEEvent]:
             "r1",
             "w1",
             "未通过契约：缺少必需的引用来源",
+            failure_kind="quality",
             debrief={
                 "summary": "完成初步调研，但未满足引用契约",
                 "key_points": ["覆盖了三个主流方案", "引用来源缺失，结论待核实"],

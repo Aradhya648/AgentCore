@@ -11,6 +11,31 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+/** 下载吞吐：`formatBytes(n) + "/s"`（n≤0 时返回 null，调用方自行省略）。 */
+export function formatBytesPerSecond(bytesPerSecond: number): string | null {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+/**
+ * 更新下载进度摘要（百分比 + 已传/总量 + 速度）。
+ * `total`/`bytesPerSecond` 缺失时自动省略对应片段。
+ */
+export function formatDownloadProgress(opts: {
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+}): string {
+  const parts: string[] = [`${opts.percent}%`];
+  if (opts.total > 0) {
+    parts.push(`${formatBytes(opts.transferred)} / ${formatBytes(opts.total)}`);
+  }
+  const speed = formatBytesPerSecond(opts.bytesPerSecond);
+  if (speed) parts.push(speed);
+  return parts.join(" · ");
+}
+
 const CJK_RANGE = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff00-\uffef]/;
 
 /**

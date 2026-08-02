@@ -245,14 +245,14 @@ class UpdateSynthesisTool:
 
 
 class CancelWorkerTool:
-    """Cancel one in-flight worker during coordination (reuses cancel_run_ids)."""
+    """Cancel one in-flight / queued worker during coordination (reuses cancel_run_ids)."""
 
     @property
     def schema(self) -> ToolSchema:
         return ToolSchema(
             name="cancel_worker",
             description=(
-                "【仅协调模式】终止某个仍在运行的 worker。"
+                "【仅协调模式】终止某个仍在运行的 worker，或撤出排队未开跑的计划节点。"
                 "协调进行中要追加【全新角色/任务】队员：再调 delegate（合并进同一张协作图），"
                 "不必等全队完成；禁止对在跑任务同构重派。"
                 "若刚收到『计划已让出』波边界简报，则用 replan(add=…) 接到当前暂停计划。"
@@ -265,7 +265,10 @@ class CancelWorkerTool:
                         "description": (
                             "要终止的 worker。填完整 run_id 最稳（见 timeout / escalation "
                             "事件里的 run_id=…）；也接受角色名 / 短名，系统会解析为唯一在跑 "
-                            "worker，多义或找不到时会报错并列出当前可取消的 worker。"
+                            "或唯一排队未开跑节点。排队节点命中则正式撤出队列；"
+                            "目标已终态（完成/失败/跳过/已取消）时幂等成功；"
+                            "多义或找不到时会报错并列出当前可取消的在跑 worker（同角色唯一在跑者"
+                            "仅作提示，不自动改目标）。"
                         ),
                     },
                     "reason": {
@@ -304,8 +307,9 @@ class CancelWorkerTool:
         # unresolved short name would silently never cancel (fake success).
         resolution = session.resolve_cancel_target(raw)
         if resolution.run_id is None:
-            # Already finished / handoff for this session → idempotent success
-            # (no tool red-error). Truly unknown ids still fail below.
+            # Already terminal for this session (completed / failed / skipped /
+            # cancelled / handoff) → idempotent success (no tool red-error).
+            # Truly unknown ids still fail below — never auto-retarget.
             ended = session.resolve_ended_worker(raw)
             if ended.run_id is not None:
                 ended_id = ended.run_id
@@ -316,25 +320,49 @@ class CancelWorkerTool:
                     raw=raw,
                     match=ended.reason,
                 )
-                msg = (
-                    f"worker {ended_id} 已结束（完成/交接），无需取消。"
-                )
+                msg = f"worker {ended_id} 已结束，无需取消。"
                 if ended_id != raw:
                     msg = (
-                        f"worker {ended_id}（由「{raw}」解析）已结束（完成/交接），"
-                        "无需取消。"
+                        f"worker {ended_id}（由「{raw}」解析）已结束，无需取消。"
                     )
                 return ToolResult(tool_call_id="", success=True, output=msg)
+            # Queued on live_plan but not yet running → formal withdraw (skipped /
+            # vacated + cancel_ids so Wave will not launch). Never fake-success.
+            pending = session.resolve_pending_worker(raw)
+            if pending.run_id is not None:
+                pending_id = pending.run_id
+                session.vacate_pending_worker(pending_id)
+                from agentcore.runtime.coordination.journal import (
+                    record_coordination_snapshot,
+                )
+
+                record_coordination_snapshot(session)
+                logger.info(
+                    "coordination.worker_cancel_pending_withdrawn",
+                    execution_id=session.execution_id,
+                    run_id=pending_id,
+                    raw=raw,
+                    match=pending.reason,
+                    reason=reason[:120] if reason else "",
+                )
+                msg = f"worker {pending_id} 已从队列撤出"
+                if pending_id != raw:
+                    msg += f"（由「{raw}」解析）"
+                if reason:
+                    msg += f"（原因：{reason}）"
+                msg += "。"
+                return ToolResult(tool_call_id="", success=True, output=msg)
             running = session.running_workers()
-            if ended.reason == "ambiguous":
-                listing = "；".join(ended.candidates) or "（无）"
+            if ended.reason == "ambiguous" or pending.reason == "ambiguous":
+                amb = ended if ended.reason == "ambiguous" else pending
+                listing = "；".join(amb.candidates) or "（无）"
                 hint = (
-                    f"「{raw}」同时匹配多个已结束 worker，无法确定目标。"
+                    f"「{raw}」同时匹配多个已结束或排队节点，无法确定目标。"
                     f"请改用完整 run_id。候选：{listing}。"
                 )
             elif not running:
                 hint = (
-                    f"找不到匹配「{raw}」的在跑 worker：当前没有在跑的 worker 可取消"
+                    f"找不到匹配「{raw}」的在跑或排队 worker：当前没有可取消的目标"
                     "（可能都已完成或已被取消）。"
                 )
             else:
@@ -346,8 +374,17 @@ class CancelWorkerTool:
                     )
                 else:
                     hint = (
-                        f"找不到匹配「{raw}」的在跑 worker。"
+                        f"找不到匹配「{raw}」的在跑或排队 worker。"
                         f"当前可取消（run_id｜角色）：{listing}。"
+                    )
+                # Hint-only: same live_plan role has a unique runner — CEO must
+                # re-call; do not request_cancel the suggestion.
+                suggestion = session.suggest_cancel_by_plan_role(raw)
+                if suggestion is not None:
+                    sid, srole = suggestion
+                    hint += (
+                        f" 你要取消的或许是 {sid}（{srole}）；"
+                        "请确认后用该 run_id 重试（不会自动改目标）。"
                     )
             logger.info(
                 "coordination.worker_cancel_unresolved",

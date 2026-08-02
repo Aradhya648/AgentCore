@@ -105,6 +105,20 @@ def test_d7_merge_usage_keeps_paused_while_running():
     assert merged["paused"] is True
 
 
+def test_d7_merge_usage_clears_paused_on_explicit_false_while_running():
+    """Resume continuation writes paused:false while still running → latch cleared."""
+    paused_running = {
+        "status": MESSAGE_STATUS_RUNNING,
+        "paused": True,
+        "input_tokens": 1,
+    }
+    resumed = {"status": MESSAGE_STATUS_RUNNING, "paused": False, "input_tokens": 2}
+    merged = merge_usage_status(paused_running, resumed)
+    assert merged["status"] == MESSAGE_STATUS_RUNNING
+    assert "paused" not in merged
+    assert merged["input_tokens"] == 2
+
+
 def test_d7_pick_monotonic_content_prefers_longer():
     assert pick_monotonic_content("short", "much longer text") == "much longer text"
     assert pick_monotonic_content("already long enough", "short") == "already long enough"

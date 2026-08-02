@@ -117,6 +117,30 @@ async def test_create_provider_rejects_empty_key(service):
         await service.create_provider("u1", label="X", api_key="   ")
 
 
+async def test_create_provider_rejects_fullwidth_in_key(service):
+    """Fullwidth punctuation in Key → ValidationError (not UnicodeEncodeError 500)."""
+    with (
+        patch.object(service, "_encryptor", return_value=_enc()),
+        pytest.raises(ValidationError, match="全角|中文符号"),
+    ):
+        await service.create_provider(
+            "u1", label="X", api_key="sk-test（revoked）"
+        )
+
+
+async def test_update_provider_rejects_fullwidth_in_key(service):
+    with (
+        patch.object(service, "_encryptor", return_value=_enc()),
+        pytest.raises(ValidationError, match="全角|中文符号"),
+    ):
+        await service.update_provider(
+            "u1",
+            "prov-1",
+            api_key="sk-bad（x）",
+            fields_set={"api_key"},
+        )
+
+
 async def test_create_provider_without_master_key_raises(service):
     with (
         patch.object(service, "_encryptor", return_value=None),

@@ -14,11 +14,13 @@ FileArtifactsCard）认 ``artifacts``（accepted+rejected），只走 ``file_acc
 不从 ``files_touched`` 合成验收行。
 
 刀1 / 方案 A：声明路径已落盘 → verdict 走交付成功路径；``degraded_handoff`` 仅
-notes/warning 备注，不整单硬失败、不拖文件 rejected。真无落盘 / 写盘通道挂仍硬拦。
+notes/warning 备注，不整单硬失败、不拖文件 rejected。甲⁺：真无落盘 /
+``files_written`` 批次谓词亦 soft（``files_not_landed`` → notes），不挡整批收工 /
+CEO finish；写盘通道挂仍可在备注里诚实归因。
 同图已有 continue_from / replaces 补派已跑时，收掉并排「计划收口时跳过」。
 
 用户面零落盘缺口合并为一种 ``files_not_landed``（契约层与批次 ``files_written`` 同源谓词，
-不再并列为两条）；CEO / 工具结果仍可保留分层原文。发射时写入回合
+不再并列为两条；甲⁺ 起为 warning/notes）；CEO / 工具结果仍可保留分层原文。发射时写入回合
 :data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，禁止与对账矛盾的假完成。
 
 挂在 drive 的各收尾路径旁路（正常终态 / 验收未满足 / 部分失败 stash / replan(stop)），
@@ -53,7 +55,9 @@ REASON_VERIFY_FAILED = "verify_failed"
 # Keep in sync with runtime.runs.cutoff.REASON_DEGRADED_HANDOFF (wire gap reason).
 REASON_DEGRADED_HANDOFF = "degraded_handoff"
 _WRITING_CUTOFF_REASONS = frozenset({"token_budget", "worker_timeout"})
-_SOFT_GAP_REASONS = frozenset({REASON_UNVERIFIED_NOTE, REASON_PATH_HINT})
+_SOFT_GAP_REASONS = frozenset(
+    {REASON_UNVERIFIED_NOTE, REASON_PATH_HINT, REASON_FILES_NOT_LANDED}
+)
 # 刀1：有落盘时 degraded_handoff 并入 soft（见 _soften_landed_degraded_gaps）。
 _PLAN_CUTOFF_SKIP_DESC = "未执行（计划收口时跳过）"
 
@@ -61,6 +65,7 @@ _PLAN_CUTOFF_SKIP_DESC = "未执行（计划收口时跳过）"
 _ZERO_LANDING_MARKERS = (
     "未把产物写入工作区",
     "尚无 worker 将产物写入工作区",
+    "本批未见落盘",
 )
 
 
@@ -77,11 +82,13 @@ current_delivery_verdict: ContextVar[DeliveryVerdict | None] = ContextVar(
     "current_delivery_verdict", default=None
 )
 
-# Soft reminder copy markers (placeholder soft + soft keyword coverage).
+# Soft reminder copy markers (placeholder soft + length/keyword soft · 定案乙).
 _SOFT_REMINDER_MARKERS = (
     "不阻断验收",
     "未核实/示例自注",
     "待核实/示例自注",
+    "含未替换骨架占位",
+    "篇幅提醒（软）",
     "素材覆盖提醒（软）",
     "契约软提醒",
 )
@@ -94,7 +101,7 @@ _SOFT_PATH_HINT_MARKERS = (
 
 # build_website task books embed ``站点【…】`` — reuse for verify-action prompt.
 _SITE_BRACKET_RE = re.compile(r"站点【([^】]+)】")
-# 「不阻断验收，3 处」/「自注（3 处）」/ legacy soft copy.
+# 「不阻断验收，3 处」/「自注（3 处）」/ skeleton soft / legacy soft copy.
 _SOFT_HIT_COUNT_RE = re.compile(r"(?:不阻断验收，|自注（)(\d+)\s*处")
 _SOFT_PATH_RE = re.compile(r"`([^`]+)`\s*·")
 
@@ -396,32 +403,36 @@ def _landing_failure_kind_from_results(results: dict[str, RunState]) -> str | No
 
 
 def _files_not_landed_gap(results: dict[str, RunState]) -> dict[str, Any]:
-    """Single user-facing gap for zero workspace landing (契约 + 批次验收合并投影)."""
+    """Single user-facing soft note for zero workspace landing (契约 + 批次合并投影).
+
+    甲⁺：severity=warning → state=notes，不挡整批 / CEO finish。
+    """
     failure_kind = _landing_failure_kind_from_results(results)
     if failure_kind == "channel_dead":
         text = (
-            "未交付：写盘通道不可用（工作区通道已挂起 / 活性挂起），"
+            "本批未见落盘：写盘通道不可用（工作区通道已挂起 / 活性挂起），"
             "落盘工具调用失败——请恢复通道后重试"
         )
     elif failure_kind == "write_failed":
         text = (
-            "未交付：已尝试写盘但未成功（工具失败），工作区仍无新文件"
-            "——此缺口来自写盘失败，而非粘在回复正文"
+            "本批未见落盘：已尝试写盘但未成功（工具失败），工作区仍无新文件"
+            "——此提示来自写盘失败，而非粘在回复正文"
         )
     elif _code_ran_without_writeback(results):
         text = (
-            "未交付：已执行代码但未把产物写回工作区"
+            "本批未见落盘：已执行代码但未把产物写回工作区"
             "（沙箱内文件不算交付；须用写文件工具落盘，或确保脚本执行后写回工作区）"
         )
     else:
         from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
 
         tools = format_file_landing_tools_slash()
-        text = f"未交付：工作区没有新文件（须用 {tools} 落盘）"
+        text = f"本批未见落盘（须用 {tools} 落盘）"
     return {
         "role": "验收",
         "description": text,
         "reason": REASON_FILES_NOT_LANDED,
+        "severity": "warning",
     }
 
 

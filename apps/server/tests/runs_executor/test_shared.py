@@ -20,10 +20,10 @@ def test_is_hard_failure_nonempty_depends_on_strict():
     assert _is_hard_failure("x", Deliverable(strict=True)) is True
 
 
-def test_is_hard_failure_requires_files_zero_disk_always_hard():
-    """交付真相：requires_files ∧ files_touched==0 不得 soft-complete。"""
+def test_is_hard_failure_requires_files_zero_disk_is_soft():
+    """甲⁺：requires_files ∧ files_touched==0 不再硬失败（有正文即可 soft-complete）。"""
     d = Deliverable(requires_files=True, strict=False)
-    assert _is_hard_failure("有正文但未落盘", d, files_touched=0) is True
+    assert _is_hard_failure("有正文但未落盘", d, files_touched=0) is False
     assert _is_hard_failure("有正文且已落盘", d, files_touched=1) is False
 
 
@@ -38,18 +38,19 @@ def test_hard_gap_blocks_completion_non_strict_allows():
 
 
 def test_hard_gap_blocks_completion_strict_degraded_no_files():
-    """刀1：strict + degraded_handoff + 无落盘 → 仍硬拦。"""
+    """刀1：strict + degraded_handoff + 无落盘 → 仍硬拦（failure_kind=model）。"""
     gaps = [{"description": DEGRADED_HANDOFF_WARNING, "reason": REASON_DEGRADED_HANDOFF}]
-    reason = _hard_gap_blocks_completion(
+    block = _hard_gap_blocks_completion(
         gaps,
         {"summary": "薄", "degraded": True},
         Deliverable(strict=True, form="files"),
         files_touched=0,
     )
-    assert reason is not None
-    assert "交接说明不完整" in reason or "不得冒充完成" in reason
-    assert "continue_from_run_id" not in reason
-    assert "degraded_handoff" not in reason
+    assert block is not None
+    assert "交接说明不完整" in block.reason or "不得冒充完成" in block.reason
+    assert "continue_from_run_id" not in block.reason
+    assert "degraded_handoff" not in block.reason
+    assert block.failure_kind == "model"
 
 
 def test_hard_gap_blocks_completion_strict_degraded_with_files_allows():
@@ -87,9 +88,10 @@ def test_hard_gap_blocks_completion_strict_degraded_with_files_allows():
 
 def test_hard_gap_blocks_completion_strict_missing_artifact_desc():
     gaps = [{"description": "声明的交付物路径未落盘：site/sections/s0.html"}]
-    reason = _hard_gap_blocks_completion(gaps, None, Deliverable(strict=True))
-    assert reason is not None
-    assert "未落盘" in reason or "不得冒充完成" in reason
+    block = _hard_gap_blocks_completion(gaps, None, Deliverable(strict=True))
+    assert block is not None
+    assert "未落盘" in block.reason or "不得冒充完成" in block.reason
+    assert block.failure_kind == "quality"
 
 
 def test_hard_gap_blocks_completion_soft_warning_alone_ok():

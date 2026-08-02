@@ -440,6 +440,7 @@ function runFromPlan(
     debrief: null,
     durationMs: null,
     error: null,
+    failureKind: null,
     parentRunId: s.parent_run_id ?? null,
     kind: s.kind ?? "agent",
     role: null,
@@ -872,6 +873,7 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
         if (run) {
           run.status = "failed";
           run.error = p.error;
+          run.failureKind = p.failure_kind ?? null;
           run.debrief = p.debrief ?? null;
           clearRunPhase(run);
         }

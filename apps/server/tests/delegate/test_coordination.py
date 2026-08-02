@@ -598,6 +598,150 @@ async def test_cancel_worker_already_ended_is_idempotent_success():
     clear_active_coordination()
 
 
+async def test_cancel_worker_failed_is_idempotent_success():
+    """FAILED 终态：不在跑表，但已结束 → 幂等成功、不进 cancel 集合。"""
+    clear_active_coordination()
+    from agentcore.runtime.coordination.session import set_active_coordination
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    set_active_coordination(session)
+    session.live_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="del_abc_n5", role="冒烟审计员", task="审"),
+            RunSpec(run_id="del_abc_n4", role="集成工程师", task="集"),
+        ]
+    )
+    session.arm_worker_timeout("del_abc_n5", role="冒烟审计员", timeout_s=60)
+    session.arm_worker_timeout("del_abc_n4", role="集成工程师", timeout_s=60)
+    session.mark_worker_completed("del_abc_n5")
+    session.failed_run_ids.add("del_abc_n5")
+    session.vacated_run_ids.add("del_abc_n5")
+    assert session.resolve_cancel_target("del_abc_n5").run_id is None
+    assert session.resolve_ended_worker("del_abc_n5").run_id == "del_abc_n5"
+    cancel = CancelWorkerTool()
+    result = await cancel.execute({"run_id": "del_abc_n5"}, ctx())
+    assert result.success is True
+    assert "已结束" in (result.output or "")
+    assert "无需取消" in (result.output or "")
+    assert "del_abc_n5" not in session.cancel_run_ids()
+    assert "del_abc_n4" not in session.cancel_run_ids()
+    session.close()
+    await asyncio.sleep(0)
+    clear_active_coordination()
+
+
+async def test_cancel_worker_skipped_is_idempotent_success():
+    """SKIPPED 终态：仅 vacated 亦可幂等成功（防御未进 completed 的路径）。"""
+    clear_active_coordination()
+    from agentcore.runtime.coordination.session import set_active_coordination
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    set_active_coordination(session)
+    session.arm_worker_timeout("del_skip_n1", role="写手", timeout_s=60)
+    session.disarm_worker_timeout("del_skip_n1")
+    # Mimic a path that only stamped vacated (skipped seat), not completed.
+    session.vacated_run_ids.add("del_skip_n1")
+    assert session.resolve_cancel_target("del_skip_n1").run_id is None
+    assert session.resolve_ended_worker("del_skip_n1").run_id == "del_skip_n1"
+    cancel = CancelWorkerTool()
+    result = await cancel.execute({"run_id": "del_skip_n1"}, ctx())
+    assert result.success is True
+    assert "无需取消" in (result.output or "")
+    assert len(session.cancel_run_ids()) == 0
+    session.close()
+    await asyncio.sleep(0)
+    clear_active_coordination()
+
+
+async def test_cancel_worker_pending_withdraws_from_queue():
+    """排队未开跑：命中 live_plan → 正式撤出（skipped/vacated），成功文案，不自动改在跑同角色。"""
+    clear_active_coordination()
+    from agentcore.runtime.coordination.session import set_active_coordination
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    set_active_coordination(session)
+    session.live_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="del_wave_n5", role="冒烟审计员", task="审"),
+            RunSpec(run_id="del_wave_n4b", role="冒烟审计员", task="审2"),
+        ]
+    )
+    session.arm_worker_timeout("del_wave_n4b", role="冒烟审计员", timeout_s=60)
+    assert session.resolve_pending_worker("del_wave_n5").run_id == "del_wave_n5"
+    assert session.resolve_cancel_target("del_wave_n5").run_id is None
+    cancel = CancelWorkerTool()
+    result = await cancel.execute({"run_id": "del_wave_n5", "reason": "缩 scope"}, ctx())
+    assert result.success is True
+    assert "已从队列撤出" in (result.output or "")
+    assert "del_wave_n5" in session.completed_run_ids
+    assert "del_wave_n5" in session.vacated_run_ids
+    assert "del_wave_n5" in session.cancel_run_ids()
+    # Same-role runner must not be auto-cancelled.
+    assert "del_wave_n4b" not in session.cancel_run_ids()
+    assert "del_wave_n4b" in dict(session.running_workers())
+    # Idempotent after withdraw (ended path).
+    again = await cancel.execute({"run_id": "del_wave_n5"}, ctx())
+    assert again.success is True
+    assert "无需取消" in (again.output or "")
+    session.close()
+    await asyncio.sleep(0)
+    clear_active_coordination()
+
+
+async def test_cancel_worker_unknown_rejects_without_auto_retarget():
+    """未知 id：拒绝；列出可取消在跑者，不自动 request_cancel；不误撤 pending。"""
+    clear_active_coordination()
+    from agentcore.runtime.coordination.session import set_active_coordination
+    from agentcore.runtime.runs.plan import RunPlan
+    from agentcore.runtime.runs.types import RunSpec
+
+    session = CoordinationSession(execution_id="e", total_workers=2)
+    set_active_coordination(session)
+    session.live_plan = RunPlan(
+        nodes=[
+            RunSpec(run_id="del_wave_n5", role="冒烟审计员", task="审"),
+            RunSpec(run_id="del_wave_n4b", role="冒烟审计员", task="审2"),
+        ]
+    )
+    session.arm_worker_timeout("del_wave_n4b", role="冒烟审计员", timeout_s=60)
+    cancel = CancelWorkerTool()
+    result = await cancel.execute({"run_id": "del_wave_n_unknown"}, ctx())
+    assert result.success is False
+    assert len(session.cancel_run_ids()) == 0
+    assert "del_wave_n5" not in session.completed_run_ids
+    assert "del_wave_n5" not in session.vacated_run_ids
+    err = result.error or ""
+    assert "del_wave_n4b" in err
+    assert "当前可取消" in err
+    session.close()
+    await asyncio.sleep(0)
+    clear_active_coordination()
+
+
+async def test_cancel_worker_cancelled_terminal_is_idempotent_success():
+    """CANCELLED 终态同幂等成功（与完成/失败/跳过对齐）。"""
+    clear_active_coordination()
+    from agentcore.runtime.coordination.session import set_active_coordination
+
+    session = CoordinationSession(execution_id="e", total_workers=1)
+    set_active_coordination(session)
+    session.arm_worker_timeout("del_cancelled_w", role="写手", timeout_s=60)
+    session.mark_worker_completed("del_cancelled_w")
+    session.vacated_run_ids.add("del_cancelled_w")
+    cancel = CancelWorkerTool()
+    result = await cancel.execute({"run_id": "del_cancelled_w"}, ctx())
+    assert result.success is True
+    assert "无需取消" in (result.output or "")
+    assert len(session.cancel_run_ids()) == 0
+    session.close()
+    await asyncio.sleep(0)
+    clear_active_coordination()
+
+
 def test_inject_timeout_shows_full_run_id():
     """TIMEOUT 注入文案须带全名 run_id，供 CEO 直接抄进 cancel_worker。"""
     from agentcore.runtime.coordination.inject import format_coordination_events
@@ -1564,6 +1708,9 @@ async def test_wait_shortcircuit_guard_when_terminal_missing(monkeypatch):
 async def test_criteria_unmet_posts_all_completed_without_host_backfill(monkeypatch):
     """Source fix: unmet path posts ALL_COMPLETED; host ensure must be a no-op."""
     import agentcore.runtime.coordination.host as coord_host
+    from agentcore.tools.builtin.delegate import DelegateTool
+    from agentcore.tools.registry import ToolRegistry
+    from tests.delegate.conftest import local_ctx
 
     backfill_results: list[bool] = []
     original = coord_host._ensure_terminal_all_completed
@@ -1575,18 +1722,39 @@ async def test_criteria_unmet_posts_all_completed_without_host_backfill(monkeypa
 
     monkeypatch.setattr(coord_host, "_ensure_terminal_all_completed", _spy)
     clear_active_coordination()
-    t = tool(Provider(["AOUT", "BOUT"]))
+    # 本地后端放行 code_verified；甲⁺ 后 files_written 不再 unmet。
+    t = DelegateTool(
+        llm=Provider(["AOUT", "BOUT"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=local_ctx(),
+    )
     result = await t.execute(
         {
             "tasks": [
-                {"role": "工程师", "task": "写代码"},
-                {"role": "测试", "task": "跑通验证"},
+                {
+                    "role": "工程师",
+                    "task": "修并验绿",
+                    "deliverable": {"form": "files"},
+                    "tools": ["file_write", "code_execute", "test_run"],
+                },
+                {
+                    "role": "测试",
+                    "task": "跑通验证",
+                    "deliverable": {"form": "files"},
+                    "tools": ["file_write", "code_execute", "test_run"],
+                },
             ],
             "coordinate": True,
-            # files_written: server 能力闸放行；Provider 纯文本不出文件 → drive unmet。
-            "completion_criteria": "files_written",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pytest -q",
+            },
         },
-        ctx(),
+        local_ctx(),
     )
     assert result.success is True
     assert "团队已启动" in result.output
@@ -1612,20 +1780,44 @@ async def test_criteria_unmet_wait_drains_without_shortcircuit(monkeypatch):
         set_active_coordination,
     )
     from agentcore.runtime.coordination.wait import await_coordination_injection
+    from agentcore.tools.builtin.delegate import DelegateTool
+    from agentcore.tools.registry import ToolRegistry
+    from tests.delegate.conftest import local_ctx
 
     monkeypatch.setattr(coord_wait, "_COORD_WAIT_TIMEOUT_S", 30.0)
     clear_active_coordination()
-    t = tool(Provider(["AOUT", "BOUT"]))
+    t = DelegateTool(
+        llm=Provider(["AOUT", "BOUT"]),
+        sink=EventSink(),
+        system_prompt="SYS",
+        user_message="原始请求",
+        history=[],
+        tools=ToolRegistry(),
+        base_tool_context=local_ctx(),
+    )
     await t.execute(
         {
             "tasks": [
-                {"role": "工程师", "task": "写代码"},
-                {"role": "测试", "task": "跑通验证"},
+                {
+                    "role": "工程师",
+                    "task": "修并验绿",
+                    "deliverable": {"form": "files"},
+                    "tools": ["file_write", "code_execute", "test_run"],
+                },
+                {
+                    "role": "测试",
+                    "task": "跑通验证",
+                    "deliverable": {"form": "files"},
+                    "tools": ["file_write", "code_execute", "test_run"],
+                },
             ],
             "coordinate": True,
-            "completion_criteria": "files_written",
+            "completion_criteria": {
+                "type": "code_verified",
+                "verify_command": "pytest -q",
+            },
         },
-        ctx(),
+        local_ctx(),
     )
     session = active_coordination("e")
     assert session is not None

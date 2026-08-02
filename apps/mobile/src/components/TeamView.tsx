@@ -104,6 +104,33 @@ const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
   skipped: { label: "未执行", tone: "muted" },
 };
 
+/** Prefer `failureKind`; thin error-text fallback for old journals (align desktop). */
+function failureFaceLabel(
+  error: string | null | undefined,
+  failureKind: ProjectedRun["failureKind"],
+): string {
+  if (failureKind === "quality") return "未达标";
+  if (failureKind === "model") return "模型中断";
+  if (failureKind === "call") return "调用失败";
+  const raw = (error ?? "").trim();
+  if (!raw) return "调用失败";
+  if (
+    /中断|abort|断开|停滞|stalled|收尾时中断|degraded_handoff|降级交接/i.test(
+      raw,
+    )
+  ) {
+    return "模型中断";
+  }
+  if (
+    /模型|llm|调用|timeout|超时|invalid_request|upstream|网络|provider|api\s*error/i.test(
+      raw,
+    )
+  ) {
+    return "调用失败";
+  }
+  return "失败";
+}
+
 /** 证人席位根：开赛挂席、点名才作答 — pending→待命，skipped→未传唤。
  *  running + `run.phase` → 相位文案（不再一律「进行中」/「思考中」）。 */
 function runStatusLabel(
@@ -112,6 +139,8 @@ function runStatusLabel(
     group?: string | null;
     continuesRunId?: string | null;
     phase?: ProjectedRun["phase"];
+    error?: string | null;
+    failureKind?: ProjectedRun["failureKind"];
   },
 ): { label: string; tone: string } {
   const base = RUN_STATUS[status];
@@ -121,6 +150,12 @@ function runStatusLabel(
     if (status === "pending") return { label: "待命", tone: "muted" };
     if (status === "skipped") return { label: "未传唤", tone: "muted" };
     return base;
+  }
+  if (status === "failed") {
+    return {
+      label: failureFaceLabel(run.error, run.failureKind ?? null),
+      tone: "err",
+    };
   }
   if (status === "running") {
     const phase = runPhaseLabel(run.phase);

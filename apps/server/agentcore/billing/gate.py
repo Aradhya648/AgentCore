@@ -206,7 +206,21 @@ async def run_background_llm[T](
 
     No process-local auth circuit breaker — each call re-resolves. Call sites must
     re-raise ``LLMAuthError`` from their generators so this entry can see it.
+
+    Turn-scoped exception: when the user-turn auth-dead latch is set
+    (``llm.turn_auth_dead``), skip immediately — that is per-turn short-circuit,
+    not a process TTL cache.
     """
+    from agentcore.llm.turn_auth_dead import is_turn_auth_dead
+
+    if is_turn_auth_dead():
+        logger.info(
+            "billing.background_skip_turn_auth_dead",
+            user_id=user_id,
+            purpose=purpose,
+        )
+        return None
+
     async with async_session_factory() as session:
         primary = await resolve_and_gate_background(session, user_id, purpose=purpose)
     if primary is None:

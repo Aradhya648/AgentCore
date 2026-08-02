@@ -41,6 +41,63 @@ class SupervisedRun:
     boundary_run_ids: list[str]
 
 
+def _gap_fill_add_errors(
+    adds: list,
+    completed: dict[str, RunState],
+) -> list[str]:
+    """Hard-gate 补跑 adds that carry replaces / continue_from-of-gap semantics.
+
+    - 无缺口却带 replaces / 对缺口 continue → 拒（禁止无缺口整团重开）
+    - 条数 > min(缺口数, MAX_GAP_FILL_ADDS) → 拒（按缺口限流）
+    - 无 replaces、且 continue 指向已成功节点的普通续派 / 首派补生产者 → 不走本闸
+    """
+    from agentcore.runtime.runs.constants import MAX_GAP_FILL_ADDS
+    from agentcore.runtime.runs.types import RunPhase
+
+    gap_ids = {
+        rid
+        for rid, st in completed.items()
+        if st is not None and st.phase in (RunPhase.FAILED, RunPhase.SKIPPED)
+    }
+
+    gap_fill: list[tuple[int, dict[str, Any], str]] = []
+    for i, item in enumerate(adds):
+        if not isinstance(item, dict):
+            continue
+        replaces = str(item.get("replaces_run_id") or "").strip()
+        continue_from = str(item.get("continue_from_run_id") or "").strip()
+        if replaces:
+            gap_fill.append((i, item, replaces))
+        elif continue_from and continue_from in gap_ids:
+            # 对失败/跳过节点的 continue = 补跑；对已成功节点的 continue = 正常续派，不闸。
+            gap_fill.append((i, item, continue_from))
+    if not gap_fill:
+        return []
+
+    if not gap_ids:
+        return [
+            "补跑拒绝：当前无失败/跳过缺口，禁止无缺口整团重开；"
+            "请 steers 改未跑步骤，或 stop=true 收口，勿用 replaces/continue 重开全队"
+        ]
+
+    max_allowed = min(len(gap_ids), MAX_GAP_FILL_ADDS)
+    if len(gap_fill) > max_allowed:
+        return [
+            f"补跑一次最多追加 {max_allowed} 个缺口点名节点"
+            f"（缺口 {len(gap_ids)}，上限 {MAX_GAP_FILL_ADDS}，收到 {len(gap_fill)}）；"
+            "请只点名最关键失败/跳过节点，分批 replan，勿整团重开"
+        ]
+
+    errors: list[str] = []
+    for i, _item, target in gap_fill:
+        if target not in gap_ids:
+            errors.append(
+                f"add[{i}]: replaces/continue_from `{target}` 不是当前失败/跳过缺口；"
+                f"请点名缺口 run_id（{', '.join(sorted(gap_ids)[:8])}）"
+            )
+    return errors
+
+
 def apply_replan(
     tool: DelegateTool,
     plan: RunPlan,
@@ -69,10 +126,15 @@ def apply_replan(
             "当前为工作流拓扑锁：禁止新增步骤；可用 steers 改未跑步骤说明，或 stop=true 收口"
         ]
 
+    adds_list = list(adds or [])
+    gap_errors = _gap_fill_add_errors(adds_list, completed)
+    if gap_errors:
+        return gap_errors
+
     valid_tools = {s.name for s in tool._tools.list_all()}
     errors: list[str] = []
     new_specs, add_errors = build_added_nodes(
-        adds or [],
+        adds_list,
         plan,
         valid_tools=valid_tools,
         parent_run_id=tool._captain_run_id,

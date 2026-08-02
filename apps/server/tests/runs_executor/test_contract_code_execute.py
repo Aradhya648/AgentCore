@@ -5,8 +5,8 @@ forcing it to regenerate the whole product via ``file_write``.
 Reproduces the collab-graph waste: the product really landed (staging write-back), a
 downstream worker read it, but ``requires_files`` counted only ``file_write`` intents
 and failed — burning a multi-thousand-token regeneration. The structured write-back
-channel makes the landing a fact the gate honours (and the CEO manifest inherits it);
-a pure-prose finish that lands nothing still fails, so the gate is not loosened.
+channel makes the landing a fact the gate honours (and the CEO manifest inherits it).
+甲⁺：纯正文零落盘改为 soft-complete（warning），不再硬 FAILED。
 """
 
 import json
@@ -142,9 +142,8 @@ async def test_requires_files_satisfied_by_code_execute_landing(tmp_path):
     assert collect_delivered_files(res) == ["report.md"]
 
 
-async def test_requires_files_still_fails_on_pure_prose_no_landing():
-    # No code_execute, no file_write — the product is only prose. A strict requires_files
-    # deliverable still hard-fails, proving the gate was not loosened.
+async def test_requires_files_soft_completes_on_pure_prose_no_landing():
+    """甲⁺：无 code_execute / file_write，仅散文；strict+requires_files 仍 soft-complete。"""
     plan, _ = build_run_plan(
         [
             {
@@ -168,5 +167,6 @@ async def test_requires_files_still_fails_on_pure_prose_no_landing():
     )
     res = await WaveScheduler().run(plan, executor)
     state = res["t_1"]
-    assert state.phase is RunPhase.FAILED
-    assert "工作区" in state.error
+    assert state.phase is RunPhase.COMPLETED
+    assert not (state.files_touched or [])
+    assert any("工作区" in w for w in (state.warnings or []))

@@ -108,3 +108,73 @@ async def test_rewrite_times_out_raises(monkeypatch):
     monkeypatch.setattr(rewrite_mod, "_REWRITE_TIMEOUT_SECONDS", 0.01)
     with pytest.raises(LLMTimeoutError):
         await rewrite_selection(_StallProvider(), RewriteInput(selection="原文", instruction="改"))
+
+
+# --- credential resolve (platform None → platform_llm_credentials) ---
+
+
+async def test_resolve_assist_credentials_platform_fills_key(monkeypatch):
+    """Platform preflight returns None; assist must resolve platform creds (甲)."""
+    from agentcore.llm.credentials import LLMCredentials
+    from agentcore.llm.resolve import ModelSelection
+
+    async def _fake_selection(session, user_id):
+        return ModelSelection(model="deepseek-v4-flash", origin="platform")
+
+    async def _fake_preflight(**kwargs):
+        assert kwargs["model_origin"] == "platform"
+        return None
+
+    platform_creds = LLMCredentials(
+        api_key="sk-platform",
+        base_url="https://example.test",
+        default_model="deepseek-v4-flash",
+        source="platform",
+    )
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.resolve_account_default_model", _fake_selection
+    )
+    monkeypatch.setattr(rewrite_mod, "preflight_llm_credentials", _fake_preflight)
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.platform_llm_credentials",
+        lambda model=None: platform_creds,
+    )
+
+    class _User:
+        user_id = "u1"
+
+    creds = await rewrite_mod._resolve_assist_credentials(
+        session=object(),  # unused by fakes
+        user=_User(),  # type: ignore[arg-type]
+        cost_repo=object(),  # type: ignore[arg-type]
+    )
+    assert creds is platform_creds
+
+
+async def test_resolve_assist_credentials_platform_missing_key_raises(monkeypatch):
+    from agentcore.core.errors import PlatformBillingUnavailableError
+    from agentcore.llm.resolve import ModelSelection
+
+    async def _fake_selection(session, user_id):
+        return ModelSelection(model="deepseek-v4-flash", origin="platform")
+
+    async def _fake_preflight(**kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.resolve_account_default_model", _fake_selection
+    )
+    monkeypatch.setattr(rewrite_mod, "preflight_llm_credentials", _fake_preflight)
+    monkeypatch.setattr(
+        "agentcore.llm.resolve.platform_llm_credentials", lambda model=None: None
+    )
+
+    class _User:
+        user_id = "u1"
+
+    with pytest.raises(PlatformBillingUnavailableError):
+        await rewrite_mod._resolve_assist_credentials(
+            session=object(),  # type: ignore[arg-type]
+            user=_User(),  # type: ignore[arg-type]
+            cost_repo=object(),  # type: ignore[arg-type]
+        )

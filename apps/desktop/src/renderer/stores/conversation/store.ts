@@ -204,6 +204,7 @@ export interface ConversationState {
         upstream_body_preview?: string | null;
         retry_attempts?: number;
         empty_diagnosis?: string;
+        credential_source?: "user" | "platform" | string | null;
       };
     },
     conversationId?: string | null,
