@@ -46,6 +46,13 @@ export function isFileOpTool(name: string): boolean {
   return FILE_OP_TOOLS.has(name);
 }
 
+/** Structured ``git push`` — never auto-swept by file-class / turn grants. */
+export function isGitPushApproval(view: ApprovalView): boolean {
+  if (view.toolName !== "git") return false;
+  const sub = view.arguments?.subcommand;
+  return typeof sub === "string" && sub.trim().toLowerCase() === "push";
+}
+
 export const PER_CALL_TOOLS: ReadonlySet<string> = new Set();
 
 /** Align with backend ``execution_class_tool_names()`` (code / test / terminal + browser_*). */
@@ -85,7 +92,9 @@ export function autoApproveSiblings(
       p.approvalId !== approval.approvalId &&
       p.conversationId === approval.conversationId &&
       !p.resolving &&
-      inScope(p),
+      inScope(p) &&
+      // Remote publish always needs its own confirm (align backend `_is_git_push`).
+      !isGitPushApproval(p),
   );
 }
 

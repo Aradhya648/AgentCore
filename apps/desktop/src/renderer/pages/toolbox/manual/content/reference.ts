@@ -311,14 +311,14 @@ export const referenceChapter: ManualChapterContent = {
                     {
                       can: "读文件；git status / diff / log",
                       approve:
-                        "改文件；git add / commit / 建分支 / 切分支；跑代码",
-                      wont: "push（含 force push）；reset / rebase；在 main / master 上直接提交",
+                        "改文件；git add / commit / push / 建分支 / 切分支；跑代码",
+                      wont: "force push；reset / rebase；在 main / master 上直接提交或 push",
                     },
                   ],
                 },
                 {
                   type: "text",
-                  text: "推送远端请你在本地终端手动完成——团队只帮你改到可提交的状态。",
+                  text: "普通 push 会先弹确认；force / 推保护分支仍禁止。",
                 },
               ],
             },

@@ -34,7 +34,7 @@
 | 读仓定位（list/read/grep/code_search） | S2 | P3 故意埋可搜符号 |
 | 写盘与最小 diff | S1 S2 S4 S7 | S4：D=`turnFilesDiff`；U=产物卡按钮（可选） |
 | 跑命令 / 测 | S1 S2 S5 S7 | sidecar 本地盘；S6 云沙箱语义可能不同——对照记差异；S7 含启服+HTTP 探测 |
-| git 子命令 | S1 可选 | 非硬门槛；硬禁 push 等保持产品现状 |
+| git 子命令 | S1 可选 | 非硬门槛；普通 push 可审批确认，force / 保护分支仍拒 |
 | checkpoint / Resume / AskUser | S3 S4 | S3 待人手 / CDP（U runbook）；S4 D 已通 |
 | delegate 多 Agent | S5 | 简单任务也可能不组队——若未组队记 Gap；契约拒绝须标 `contract_failure`（勿烧熔断）；CEO **无**写盘为设计（已定案不加 `file_write`） |
 | Desktop sidecar 路由 | S1–S5 S7 | 须绑本地根 +「本地引擎」有效开（默认开）；**同构 JSON-RPC 探针算 D** |

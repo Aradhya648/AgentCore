@@ -89,10 +89,51 @@ function batchOpLine(item: Record<string, unknown>): string {
   return JSON.stringify(item);
 }
 
+function truncateSnippet(text: string, max = 48): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
+/** Readable headline for structured `git` tool (subcommand + key args). */
+function gitPrimaryArg(args: Record<string, unknown>): string | null {
+  const sub =
+    typeof args.subcommand === "string" ? args.subcommand.trim() : "";
+  if (!sub) return null;
+  if (sub === "push") {
+    const remote =
+      typeof args.remote === "string" && args.remote.trim()
+        ? args.remote.trim()
+        : "origin";
+    return `push → ${remote}`;
+  }
+  if (sub === "commit") {
+    const message =
+      typeof args.message === "string" ? args.message.trim() : "";
+    return message ? `commit ${truncateSnippet(message)}` : "commit";
+  }
+  if (sub === "branch" || sub === "checkout") {
+    const branch =
+      typeof args.branch === "string" ? args.branch.trim() : "";
+    return branch ? `${sub} ${branch}` : sub;
+  }
+  if (sub === "add") {
+    const path =
+      typeof args.path === "string"
+        ? args.path.trim()
+        : typeof args.file_path === "string"
+          ? args.file_path.trim()
+          : "";
+    return path ? `add ${path}` : "add";
+  }
+  return sub;
+}
+
 function primaryArg(
   toolName: string,
   args: Record<string, unknown>,
 ): string | null {
+  if (toolName === "git") return gitPrimaryArg(args);
   if (toolName === "file_batch") {
     const ops = args.operations;
     if (Array.isArray(ops)) return `本次共 ${ops.length} 项`;

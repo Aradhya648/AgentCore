@@ -2,9 +2,11 @@
 
 Thin shell over subprocess git in the workspace root (``ServerWorkspace.root``).
 Read subcommands (status / diff / log) run without approval; write subcommands
-(add / commit / branch / checkout) are refused on the CEO path and executed on
-delegated workers. Dangerous operations (push / reset / rebase / …) are hard-
-rejected at the tool boundary.
+(add / commit / branch / checkout / push) are refused on the CEO path and
+executed on delegated workers (push requires user authorization). Dangerous
+operations (reset / rebase / merge / …) are hard-rejected at the tool boundary.
+Push itself is allowlisted but never force; main/master current branch is hard-
+rejected; missing remote / credentials fail honestly (``GIT_TERMINAL_PROMPT=0``).
 
 Timeout contract (aligned with ``terminal``): each subprocess has
 ``_GIT_TIMEOUT``; the engine wall-clock ceiling is
@@ -39,9 +41,9 @@ from agentcore.tools.registration import (
 )
 
 _ALLOWED_SUBCOMMANDS = frozenset(
-    {"status", "diff", "log", "add", "commit", "branch", "checkout"}
+    {"status", "diff", "log", "add", "commit", "branch", "checkout", "push"}
 )
-_WRITE_SUBCOMMANDS = frozenset({"add", "commit", "branch", "checkout"})
+_WRITE_SUBCOMMANDS = frozenset({"add", "commit", "branch", "checkout", "push"})
 _NO_REPO_CODE = "no_repo"
 
 
@@ -63,10 +65,18 @@ _GIT_KILL_SLACK = 5.0
 def git_tool_timeout_seconds(arguments: dict[str, Any] | None = None) -> float:
     """Engine wall-clock ceiling for one ``git`` tool call (must outlive inner ops).
 
-    ``ensure_repo`` + primary command = 2; ``commit`` also probes branch and short SHA.
+    ``ensure_repo`` + primary command = 2; ``commit`` also probes branch and short SHA;
+    ``push``: ensure_repo + remotes + network push (inner push up to 60s) — outer must
+    stay above the sum of bounded subprocesses.
     """
     sub = str((arguments or {}).get("subcommand", "")).strip().lower()
-    serial = 4 if sub == "commit" else 2
+    if sub == "push":
+        # ensure_repo (~2×20) + remote list (20) + push (60) + slack
+        return 2 * _GIT_TIMEOUT + _GIT_TIMEOUT + 60.0 + _GIT_KILL_SLACK
+    if sub == "commit":
+        serial = 4
+    else:
+        serial = 2
     return serial * _GIT_TIMEOUT + _GIT_KILL_SLACK
 
 
@@ -75,13 +85,23 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
     "properties": {
         "subcommand": {
             "type": "string",
-            "enum": ["status", "diff", "log", "add", "commit", "branch", "checkout"],
+            "enum": [
+                "status",
+                "diff",
+                "log",
+                "add",
+                "commit",
+                "branch",
+                "checkout",
+                "push",
+            ],
             "description": (
                 "要执行的 git 子命令。前置条件：仅当工作区【根】存在 `.git` 时可用"
                 "（不扫嵌套子仓、不上溯父仓、不自动 init）。"
                 "探路/摸底优先 file_list / grep；本工具用于分支、diff、log 等 VCS 事实。"
                 "只读 status/diff/log：无仓 → success + metadata.code=no_repo；"
-                "写入 add/commit/branch/checkout：无仓仍硬错。"
+                "写入 add/commit/branch/checkout/push：无仓仍硬错。"
+                "push 需用户授权；force / 保护分支仍拒；无凭据会失败。"
             ),
         },
         "paths": {
@@ -126,6 +146,18 @@ GIT_TOOL_PARAMETERS: dict[str, Any] = {
         "create": {
             "type": "boolean",
             "description": "checkout 时创建新分支（-b）。默认 false。",
+            "default": False,
+        },
+        "remote": {
+            "type": "string",
+            "description": (
+                "push 的远程名（默认 origin）。仅远程名，禁止 refspec / 选项形态。"
+            ),
+            "default": "origin",
+        },
+        "set_upstream": {
+            "type": "boolean",
+            "description": "push 时设置上游跟踪（--set-upstream）。默认 false。",
             "default": False,
         },
     },
@@ -367,8 +399,9 @@ class GitTool:
                 "探路摸底优先 file_list/grep；本工具补 VCS 事实（分支/diff/log）。"
                 "只读：status / diff / log（无仓 → success + metadata.code=no_repo，"
                 "禁止当成干净仓；status 默认不含未跟踪文件）。"
-                "写入（需用户授权）：add / commit / branch / checkout"
-                "（无仓仍硬错）。禁止 push / reset / rebase 等危险操作——推送由用户手动完成。"
+                "写入（需用户授权）：add / commit / branch / checkout / push"
+                "（无仓仍硬错）。push 需授权；force / 保护分支仍拒；无凭据会失败。"
+                "reset / rebase / merge 等危险操作仍硬禁。"
             ),
             parameters=GIT_TOOL_PARAMETERS,
             category=ToolCategory.FILESYSTEM,
@@ -442,6 +475,13 @@ class GitTool:
             create = bool(arguments.get("create", False))
             return await self._cmd_checkout(
                 cwd, branch, create=create, start=start, meta=base_meta
+            )
+        if subcommand == "push":
+            return await self._cmd_push(
+                cwd,
+                arguments,
+                start=start,
+                meta=base_meta,
             )
 
         return _error(f"子命令 '{subcommand}' 不在允许列表中", start)
@@ -605,3 +645,89 @@ class GitTool:
         if detail:
             output += f"\n{detail}"
         return _ok(output, start, metadata=meta)
+
+    async def _cmd_push(
+        self,
+        cwd: str,
+        arguments: dict[str, Any],
+        *,
+        start: float,
+        meta: dict[str, Any],
+    ) -> ToolResult:
+        """Push current branch to a named remote — never force, never arbitrary refspec."""
+        # Reject smuggled force / refspec keys before any network I/O.
+        if any(
+            k in arguments
+            for k in ("force", "force_with_lease", "forceWithLease", "refspec")
+        ):
+            return _error(
+                "禁止 force push 与自定义 refspec（含 --force / -f / --force-with-lease）；"
+                "仅允许将当前功能分支推送到指定 remote",
+                start,
+            )
+        if "branch" in arguments and str(arguments.get("branch") or "").strip():
+            # Branch is derived from HEAD; accepting an explicit target would reopen
+            # feature:main-style bypasses.
+            return _error(
+                "push 不接受 branch/refspec 参数：只推送当前分支同名到 remote",
+                start,
+            )
+
+        remote = str(arguments.get("remote") or "origin").strip() or "origin"
+        if remote.startswith("-"):
+            return _error("remote 名不能以 '-' 开头（防止被 git 解析为选项）", start)
+        if ":" in remote or any(ch.isspace() for ch in remote):
+            return _error(
+                "remote 仅允许远程名（默认 origin），禁止 refspec 或空白",
+                start,
+            )
+        if remote in {"-f", "--force", "--force-with-lease"}:
+            return _error("禁止 force push", start)
+
+        set_upstream = bool(arguments.get("set_upstream", False))
+
+        branch = await _current_branch(cwd)
+        if not branch:
+            return _error("无法确定当前分支，拒绝 push", start)
+        if branch in _PROTECTED_BRANCHES:
+            return _error(
+                "禁止从 main/master 推送，请先 checkout 到功能分支后再 push",
+                start,
+            )
+
+        remotes_out, remotes_err, remotes_code = await _run_git(["remote"], cwd=cwd)
+        if remotes_code != 0:
+            detail = (remotes_err or remotes_out or "无法列出 remote").strip()
+            return _error(detail, start)
+        remotes = [line.strip() for line in remotes_out.splitlines() if line.strip()]
+        if not remotes:
+            return _error(
+                "当前仓库未配置 remote。请先配置 remote"
+                "（如 git remote add origin <url>），"
+                "或打开已配置凭据的本地仓库后再 push。",
+                start,
+            )
+        if remote not in remotes:
+            listed = ", ".join(remotes)
+            return _error(
+                f"remote '{remote}' 不存在（已配置：{listed}）。"
+                "请先配置 remote，或打开已配置凭据的本地仓库后再 push。",
+                start,
+            )
+
+        args = ["push"]
+        if set_upstream:
+            args.append("--set-upstream")
+        # Remote name + current branch only — never a src:dst refspec.
+        args.extend([remote, branch])
+        # Network-bound; keep under engine outer (push serial=4 × 20s).
+        stdout, stderr, code = await _run_git(args, cwd=cwd, timeout=60.0)
+        if code != 0:
+            # Auth / network failures surface honestly (GIT_TERMINAL_PROMPT=0).
+            return await _git_failure(stdout, stderr, code, start, metadata=meta)
+        detail = (stdout or stderr).strip()
+        action = f"已推送 {branch} → {remote}"
+        if set_upstream:
+            action += "（已设置上游）"
+        output = action if not detail else f"{action}\n{detail}"
+        return _ok(output, start, metadata={**meta, "remote": remote, "branch": branch})

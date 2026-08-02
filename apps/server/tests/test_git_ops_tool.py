@@ -82,9 +82,12 @@ def _worker_ctx(workspace: Path) -> ToolContext:
 
 def test_forbidden_patterns_disjoint_from_allowlist():
     # Defense-in-depth: every hard-banned verb must stay outside the allowlist so a
-    # future allowlist expansion cannot silently re-enable push/reset/….
+    # future allowlist expansion cannot silently re-enable reset/rebase/….
     assert _FORBIDDEN_PATTERNS.isdisjoint(_ALLOWED_SUBCOMMANDS)
-    assert {"push", "reset", "rebase", "merge", "clean", "stash"} <= _FORBIDDEN_PATTERNS
+    assert {"reset", "rebase", "merge", "clean", "stash"} <= _FORBIDDEN_PATTERNS
+    assert "push" not in _FORBIDDEN_PATTERNS
+    assert "push" in _ALLOWED_SUBCOMMANDS
+    assert "push" in git_write_subcommands()
 
 
 @pytest.mark.parametrize("subcommand", sorted(_FORBIDDEN_PATTERNS))
@@ -382,6 +385,70 @@ async def test_commit_requires_message(tmp_path: Path):
     result = await GitTool().execute({"subcommand": "commit"}, _worker_ctx(repo))
     assert result.success is False
     assert "message" in (result.error or "")
+
+
+# --- push ---
+
+
+async def test_push_ceo_rejected_like_other_writes(tmp_path: Path):
+    repo = _init_repo(tmp_path / "repo")
+    result = await GitTool().execute({"subcommand": "push"}, _ceo_ctx(repo))
+    assert result.success is False
+    assert "delegate" in (result.error or "").lower() or "Worker" in (result.error or "")
+
+
+@pytest.mark.parametrize("branch", sorted(_PROTECTED_BRANCHES))
+async def test_push_on_protected_branch_rejected(tmp_path: Path, branch: str):
+    repo = _init_repo(tmp_path / "repo", branch=branch)
+    result = await GitTool().execute({"subcommand": "push"}, _worker_ctx(repo))
+    assert result.success is False
+    assert "main/master" in (result.error or "")
+
+
+async def test_push_without_remote_clear_error(tmp_path: Path):
+    repo = _init_repo(tmp_path / "repo")
+    result = await GitTool().execute({"subcommand": "push"}, _worker_ctx(repo))
+    assert result.success is False
+    err = result.error or ""
+    assert "remote" in err.lower()
+    assert "配置" in err or "凭据" in err
+
+
+async def test_push_rejects_force_and_refspec_args(tmp_path: Path):
+    repo = _init_repo(tmp_path / "repo")
+    for args in (
+        {"subcommand": "push", "force": True},
+        {"subcommand": "push", "force_with_lease": True},
+        {"subcommand": "push", "refspec": "feature:main"},
+        {"subcommand": "push", "branch": "main"},
+        {"subcommand": "push", "remote": "--force"},
+        {"subcommand": "push", "remote": "origin feature:main"},
+    ):
+        result = await GitTool().execute(args, _worker_ctx(repo))
+        assert result.success is False
+        assert result.error
+
+
+async def test_push_to_local_bare_remote(tmp_path: Path):
+    repo = _init_repo(tmp_path / "repo", branch="feature/ship")
+    bare = tmp_path / "remote.git"
+    _run_git(tmp_path, "init", "--bare", str(bare))
+    _run_git(repo, "remote", "add", "origin", str(bare))
+    result = await GitTool().execute(
+        {"subcommand": "push", "set_upstream": True},
+        _worker_ctx(repo),
+    )
+    assert result.success is True
+    assert "已推送 feature/ship → origin" in result.output
+    # Remote received the branch.
+    listed = subprocess.run(
+        ["git", "--git-dir", str(bare), "branch", "--list", "feature/ship"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_GIT_ENV,
+    )
+    assert "feature/ship" in listed.stdout
 
 
 # --- timeout contract / status narrowing ---

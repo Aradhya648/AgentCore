@@ -959,6 +959,85 @@ async def test_session_file_trust_still_prompts_permanent_delete():
     assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
 
 
+async def test_session_file_trust_still_prompts_git_push():
+    """Structured git push is remote publish — not covered by file_write=session."""
+    from agentcore.core.types import AutonomyPolicy, recipe_to_axes
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        permission_axes=recipe_to_axes(AutonomyPolicy.LESS_INTERRUPT),
+    )
+
+    assert gate.will_prompt(
+        tool_name="git", arguments={"subcommand": "push", "remote": "origin"}
+    )
+    # Local writes still session-trusted under LESS_INTERRUPT.
+    assert not gate.will_prompt(
+        tool_name="git", arguments={"subcommand": "commit", "message": "x"}
+    )
+
+    resolver = asyncio.create_task(
+        _resolve_when_ready(reg, "push-1", ApprovalDecision.APPROVE, "conv-1")
+    )
+    decision = await gate.authorize(
+        tool_name="git",
+        tool_call_id="push-1",
+        arguments={"subcommand": "push", "remote": "origin"},
+    )
+    await resolver
+    assert decision is ApprovalDecision.APPROVE
+    assert any(e.type is EventType.APPROVAL_REQUIRED for e in _drain(sink))
+
+
+async def test_delegation_grant_does_not_cover_git_push():
+    """Kickoff/delegation grant covers git writes except push."""
+    from agentcore.core.types import (
+        CommandAxis,
+        FileWriteAxis,
+        HostAxis,
+        PermissionAxes,
+        TeamKickoffAxis,
+    )
+    from agentcore.tools.builtin import approval_class_tool_names
+
+    reg = InteractionRegistry()
+    sink = EventSink()
+    gate = ApprovalGate(
+        sink=sink,
+        conversation_id="conv-1",
+        registry=reg,
+        timeout_seconds=5.0,
+        file_op_tools=approval_class_tool_names(),
+        delegation_grantable_tools=delegation_grantable_tool_names(),
+        # ASK file writes so only kickoff/delegation (not session trust) can cover git.
+        permission_axes=PermissionAxes(
+            file_write=FileWriteAxis.ASK,
+            command=CommandAxis.KICKOFF,
+            team_kickoff=TeamKickoffAxis.RULES,
+            host=HostAxis.ASK,
+        ),
+    )
+    gate.grant_delegation("exec-1")
+    assert not gate.will_prompt(
+        tool_name="git",
+        arguments={"subcommand": "add", "paths": ["a"]},
+        execution_id="exec-1",
+    )
+    assert gate.will_prompt(
+        tool_name="git",
+        arguments={"subcommand": "push"},
+        execution_id="exec-1",
+    )
+
+
 async def test_session_file_trust_does_not_cover_code_execute():
     """执行类仍需开工卡 / 逐次审批，不被文件会话信任短路。"""
     from agentcore.core.types import AutonomyPolicy, recipe_to_axes

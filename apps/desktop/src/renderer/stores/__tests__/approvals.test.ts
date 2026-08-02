@@ -176,6 +176,56 @@ describe("autoApproveSiblings (本轮内都允许 batch放行)", () => {
     expect(siblings.map((s) => s.approvalId)).toEqual(["a2"]);
   });
 
+  it("approve_always_files skips git push siblings", () => {
+    const siblings = autoApproveSiblings(
+      [
+        card(),
+        card({
+          approvalId: "a2",
+          toolCallId: "a2",
+          toolName: "git",
+          arguments: { subcommand: "add", paths: ["a.txt"] },
+        }),
+        card({
+          approvalId: "a3",
+          toolCallId: "a3",
+          toolName: "git",
+          arguments: { subcommand: "push", remote: "origin" },
+        }),
+      ],
+      card(),
+      "approve_always_files",
+    );
+    expect(siblings.map((s) => s.approvalId)).toEqual(["a2"]);
+  });
+
+  it("approve_always on git skips push siblings", () => {
+    const siblings = autoApproveSiblings(
+      [
+        card({
+          approvalId: "a1",
+          toolCallId: "a1",
+          toolName: "git",
+          arguments: { subcommand: "commit", message: "x" },
+        }),
+        card({
+          approvalId: "a2",
+          toolCallId: "a2",
+          toolName: "git",
+          arguments: { subcommand: "push" },
+        }),
+      ],
+      card({
+        approvalId: "a1",
+        toolCallId: "a1",
+        toolName: "git",
+        arguments: { subcommand: "commit", message: "x" },
+      }),
+      "approve_always",
+    );
+    expect(siblings).toEqual([]);
+  });
+
   it("skips cards already submitting", () => {
     const siblings = autoApproveSiblings(
       [card(), card({ approvalId: "a2", toolCallId: "a2", resolving: true })],

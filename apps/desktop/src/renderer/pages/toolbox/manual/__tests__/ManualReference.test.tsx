@@ -36,7 +36,14 @@ describe("ManualReference", () => {
     expect(screen.getByText("需你放行")).toBeTruthy();
     expect(screen.getByText("不会做")).toBeTruthy();
     expect(screen.getByText("读文件；git status / diff / log")).toBeTruthy();
+    expect(
+      screen.getByText(/git add \/ commit \/ push \/ 建分支 \/ 切分支/),
+    ).toBeTruthy();
     expect(screen.getByText(/force push/)).toBeTruthy();
+    expect(
+      screen.getByText(/普通 push 会先弹确认；force \/ 推保护分支仍禁止/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/推送远端请你在本地终端手动完成/)).toBeNull();
   });
 
   it("renders feedback FAQ and privacy context", () => {

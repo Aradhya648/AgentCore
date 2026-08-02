@@ -138,6 +138,17 @@ def _is_permanent_delete(tool_name: str, arguments: dict[str, Any]) -> bool:
     return False
 
 
+def _is_git_push(tool_name: str, arguments: dict[str, Any]) -> bool:
+    """True for structured ``git push`` — remote publish always needs a confirm card.
+
+    Session file trust, kickoff/delegation grants, and turn-wide file-class /
+    per-tool grants must not silently cover push (product: 普通 push 先弹确认).
+    """
+    if tool_name != "git":
+        return False
+    return str(arguments.get("subcommand") or "").strip().lower() == "push"
+
+
 def _preview_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Bound large string values so the approval SSE event stays small."""
     preview: dict[str, Any] = {}
@@ -221,14 +232,19 @@ class ApprovalGate:
     def _session_file_trust_covers(self, tool_name: str, arguments: dict[str, Any]) -> bool:
         """file_write=session: trust reversible file-mutation class without per-call cards.
 
-        Permanent deletes still prompt. Execution-class tools are not in
-        ``file_op_tools`` and still need kickoff / turn grant / per-call / auto.
+        Permanent deletes and structured ``git push`` still prompt. Execution-class
+        tools are not in ``file_op_tools`` and still need kickoff / turn grant /
+        per-call / auto.
         """
         if not self.permission_axes.trusts_file_writes:
             return False
         if tool_name not in self.file_op_tools:
             return False
-        return not _is_permanent_delete(tool_name, arguments)
+        if _is_permanent_delete(tool_name, arguments):
+            return False
+        if _is_git_push(tool_name, arguments):
+            return False
+        return True
 
     def _session_host_trust_covers(self, tool_name: str) -> bool:
         """host=session: trust Host GRANTABLE tools without per-call cards."""
@@ -268,6 +284,9 @@ class ApprovalGate:
         """
         if force:
             return True
+        # Remote publish: never short-circuit via session / kickoff / turn grants.
+        if _is_git_push(tool_name, arguments):
+            return tool_name not in self._denied
         if self._delegation_covers(execution_id, tool_name):
             return False
         if self._session_file_trust_covers(tool_name, arguments):
@@ -301,8 +320,12 @@ class ApprovalGate:
         grants so catastrophic shapes still require a human click even under
         ``command=auto``. Turn-wide grants from a forced card are refused (one-shot
         only) so a single click cannot silently clear sibling destructive prompts.
+        Structured ``git push`` likewise always prompts (session / kickoff / turn
+        grants do not cover remote publish).
         """
-        if not force and self._delegation_covers(execution_id, tool_name):
+        publish = _is_git_push(tool_name, arguments)
+
+        if not force and not publish and self._delegation_covers(execution_id, tool_name):
             logger.debug(
                 "approval.delegation_grant",
                 tool=tool_name,
@@ -310,15 +333,15 @@ class ApprovalGate:
             )
             return ApprovalDecision.APPROVE
 
-        if not force and self._session_file_trust_covers(tool_name, arguments):
+        if not force and not publish and self._session_file_trust_covers(tool_name, arguments):
             logger.debug("approval.session_file_trust", tool=tool_name)
             return ApprovalDecision.APPROVE
 
-        if not force and self._session_host_trust_covers(tool_name):
+        if not force and not publish and self._session_host_trust_covers(tool_name):
             logger.debug("approval.session_host_trust", tool=tool_name)
             return ApprovalDecision.APPROVE
 
-        if not force and tool_name in self._granted:
+        if not force and not publish and tool_name in self._granted:
             return ApprovalDecision.APPROVE
 
         # Prior deny (user click or timeout) for this tool this turn: do not re-prompt.
@@ -360,34 +383,41 @@ class ApprovalGate:
         if decision is ApprovalDecision.DENY:
             self._denied.add(tool_name)
         elif decision is ApprovalDecision.APPROVE_ALWAYS:
-            refuse_turn_grant = force or (
-                tool_name in self.per_call_tools
-                and not self._delegation_covers(execution_id, tool_name)
+            refuse_turn_grant = (
+                force
+                or publish
+                or (
+                    tool_name in self.per_call_tools
+                    and not self._delegation_covers(execution_id, tool_name)
+                )
             )
             if refuse_turn_grant:
-                # force / per_call_tools: authorize THIS call only (defense in depth).
+                # force / push / per_call_tools: authorize THIS call only.
                 logger.info(
                     "approval.turn_grant_refused",
                     tool=tool_name,
                     approval_id=approval_id,
                     force=force,
+                    publish=publish,
                 )
                 decision = ApprovalDecision.APPROVE
             else:
                 self._granted.add(tool_name)
                 self._sweep_pending_tools(frozenset({tool_name}))
         elif decision is ApprovalDecision.APPROVE_ALWAYS_FILES:
-            if force:
+            if force or publish:
                 logger.info(
                     "approval.file_grant_refused",
                     tool=tool_name,
                     approval_id=approval_id,
+                    publish=publish,
                 )
                 decision = ApprovalDecision.APPROVE
             else:
                 # Grant the whole file-mutation class for the turn, and sweep every
                 # already-suspended file-op call — so one click clears writes, edits,
-                # deletes and moves together (code_execute is not in the class).
+                # deletes and moves together (code_execute is not in the class;
+                # pending git push cards are skipped in ``_sweep_pending_tools``).
                 self._granted.update(self.file_op_tools)
                 self._sweep_pending_tools(self.file_op_tools)
         self.sink.emit(
@@ -430,6 +460,12 @@ class ApprovalGate:
             if req.kind is not InteractionKind.APPROVAL:
                 continue
             if req.payload.get("tool_name") not in tool_names:
+                continue
+            # Never sweep structured git push — remote publish always needs its own card.
+            pending_args = req.payload.get("arguments")
+            if isinstance(pending_args, dict) and _is_git_push(
+                str(req.payload.get("tool_name") or ""), pending_args
+            ):
                 continue
             swept.append(
                 {

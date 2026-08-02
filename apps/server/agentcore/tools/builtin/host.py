@@ -390,7 +390,9 @@ class HostShellTool:
                 "用 $env:NAME、`;`、if；路径空格加引号）；Unix=$SHELL -lc（可用 ||/&&）。"
                 "参数：command（必填）；可选 timeout_seconds（默认 60，上限 120）。"
                 "P3 首版不支持 cwd——固定用户 home / 默认 shell cwd。"
-                "结构化 host_* 仍可作快捷路径；毁灭性命令有启发式熔断（非完整边界）。"
+                "结构化 host_* 仍可作快捷路径；毁灭性命令有启发式熔断（非完整边界）；"
+                "git push --force 到 main/master 与 terminal 同级强制审批"
+                "（普通 push 仍走 Host 授权轴）。"
             ),
             parameters={
                 "type": "object",

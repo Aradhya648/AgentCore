@@ -23,10 +23,12 @@ from enum import StrEnum
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
-# ── Git hard-ban (unchanged behavior; single source) ─────────────────────────
+# ── Git hard-ban (single source for git_ops + breaker) ───────────────────────
 
+# Ordinary ``push`` is allowlisted (approval + CEO-delegate); force / protected
+# targets stay hard-denied below. reset/rebase/merge/clean/stash remain banned.
 GIT_FORBIDDEN_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"push", "reset", "rebase", "merge", "clean", "stash"}
+    {"reset", "rebase", "merge", "clean", "stash"}
 )
 GIT_PROTECTED_BRANCHES: frozenset[str] = frozenset({"main", "master"})
 
@@ -239,6 +241,10 @@ def scan_destructive_text(text: str) -> BreakerHit | None:
 def _command_text_for_tool(tool_name: str, arguments: dict[str, Any]) -> str:
     if tool_name == "terminal":
         return str(arguments.get("command") or "")
+    if tool_name == "host_shell":
+        # Same command field as terminal; scanned for force→main etc. (Host axis
+        # still covers ordinary push). Fuse hard-denies stay in host.py / desktop.
+        return str(arguments.get("command") or "")
     if tool_name == "code_execute":
         return str(arguments.get("code") or "")
     if tool_name == "test_run":
@@ -272,6 +278,55 @@ def _path_args_for_tool(tool_name: str, arguments: dict[str, Any]) -> list[str]:
     return []
 
 
+def _truthy_flag(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, (int, float)) and value != 0:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return False
+
+
+def _git_push_breaker_hit(args: dict[str, Any]) -> BreakerHit | None:
+    """DENY structured git push when force-like or protected-branch target is requested.
+
+    Ordinary feature-branch push returns ``None`` so approval / execute can proceed.
+    Current-branch main/master is also hard-rejected inside ``git_ops._cmd_push``.
+    """
+    force_tokens = {"-f", "--force", "--force-with-lease"}
+    remote = str(args.get("remote") or "").strip()
+    branch = str(args.get("branch") or "").strip()
+    refspec = str(args.get("refspec") or "").strip()
+    force_like = (
+        _truthy_flag(args.get("force"))
+        or _truthy_flag(args.get("force_with_lease"))
+        or _truthy_flag(args.get("forceWithLease"))
+        or remote in force_tokens
+        or branch in force_tokens
+    )
+    protected_target = branch.lower() in GIT_PROTECTED_BRANCHES
+    if refspec:
+        # Custom refspec is never an ordinary push (blocks ``feature:main`` bypass).
+        force_like = True
+        rhs = refspec.rsplit(":", 1)[-1].strip().lower()
+        # Strip common heads/ prefix noise.
+        rhs_name = rhs.rsplit("/", 1)[-1]
+        if rhs_name in GIT_PROTECTED_BRANCHES:
+            protected_target = True
+    if force_like or protected_target:
+        return BreakerHit(
+            verdict=BreakerVerdict.DENY,
+            rule_id="git.push_force_or_protected",
+            reason=(
+                "Git push 禁止 force（含 --force-with-lease），且禁止以 main/master"
+                " 为推送目标（硬拒，不可由权限模式或本轮放行放开）。"
+                "普通功能分支 push 需用户授权；无凭据/无 remote 时会失败。"
+            ),
+        )
+    return None
+
+
 def evaluate_tool_call(tool_name: str, arguments: dict[str, Any] | None) -> BreakerHit | None:
     """Evaluate a tool call; return a hit when the circuit breaker should intervene.
 
@@ -300,13 +355,20 @@ def evaluate_tool_call(tool_name: str, arguments: dict[str, Any] | None) -> Brea
                 verdict=BreakerVerdict.DENY,
                 rule_id="git.forbidden_subcommand",
                 reason=(
-                    f"Git 子命令 '{sub}' 被硬禁清单拒绝（push/reset/rebase 等不可由"
+                    f"Git 子命令 '{sub}' 被硬禁清单拒绝（reset/rebase/merge 等不可由"
                     "权限模式或本轮放行放开）。请改由用户在本机终端手动完成。"
                 ),
             )
+        # Ordinary push may proceed to approval; force / protected-branch target DENY.
+        if sub == "push":
+            push_hit = _git_push_breaker_hit(args)
+            if push_hit is not None:
+                return push_hit
 
-    # Destructive text on execution / terminal surfaces.
-    if name in {"terminal", "code_execute", "test_run"}:
+    # Destructive text on execution / terminal / host_shell surfaces.
+    # host_shell: align force→main|master with terminal (FORCE_APPROVAL); ordinary
+    # git push stays on the Host GRANTABLE axis (not fuse hard-deny).
+    if name in {"terminal", "code_execute", "test_run", "host_shell"}:
         if name == "terminal":
             sub = str(args.get("subcommand") or "").strip().lower()
             if sub and sub != "start":

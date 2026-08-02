@@ -181,16 +181,65 @@ def test_evaluate_code_execute_benign_passes():
     )
 
 
+def test_evaluate_host_shell_force_push_protected_forces():
+    """host_shell must share terminal's force→main|master FORCE_APPROVAL scan."""
+    hit = evaluate_tool_call(
+        "host_shell", {"command": "git push --force origin main"}
+    )
+    assert hit is not None
+    assert hit.verdict is BreakerVerdict.FORCE_APPROVAL
+    assert hit.rule_id == "destructive.git_force_push_protected"
+
+
+def test_evaluate_host_shell_ordinary_push_passes():
+    """Ordinary push is not fuse/breaker-denied — Host GRANTABLE axis still applies."""
+    assert (
+        evaluate_tool_call("host_shell", {"command": "git push origin feature/foo"})
+        is None
+    )
+    assert (
+        evaluate_tool_call(
+            "host_shell", {"command": "git push --force origin feature/foo"}
+        )
+        is None
+    )
+
+
 def test_git_forbidden_list_shared_with_git_ops():
     assert git_forbidden_subcommands() == _FORBIDDEN_PATTERNS
-    assert "push" in git_forbidden_subcommands()
+    assert "push" not in git_forbidden_subcommands()
+    assert {"reset", "rebase", "merge", "clean", "stash"} <= git_forbidden_subcommands()
 
 
 def test_evaluate_git_forbidden_denies():
-    hit = evaluate_tool_call("git", {"subcommand": "push"})
+    hit = evaluate_tool_call("git", {"subcommand": "reset"})
     assert hit is not None
     assert hit.verdict is BreakerVerdict.DENY
     assert hit.rule_id == "git.forbidden_subcommand"
+
+
+def test_evaluate_git_ordinary_push_passes():
+    """Ordinary push is allowlisted — breaker must not DENY (approval path)."""
+    assert evaluate_tool_call("git", {"subcommand": "push"}) is None
+    assert evaluate_tool_call("git", {"subcommand": "push", "remote": "origin"}) is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"subcommand": "push", "force": True},
+        {"subcommand": "push", "force_with_lease": True},
+        {"subcommand": "push", "branch": "main"},
+        {"subcommand": "push", "branch": "master"},
+        {"subcommand": "push", "refspec": "feature:main"},
+        {"subcommand": "push", "remote": "--force"},
+    ],
+)
+def test_evaluate_git_push_force_or_protected_denies(args: dict[str, Any]):
+    hit = evaluate_tool_call("git", args)
+    assert hit is not None
+    assert hit.verdict is BreakerVerdict.DENY
+    assert hit.rule_id == "git.push_force_or_protected"
 
 
 # ── Gate + full_trust: force still prompts ───────────────────────────────────

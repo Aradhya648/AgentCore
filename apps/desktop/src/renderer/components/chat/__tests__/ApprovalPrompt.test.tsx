@@ -100,6 +100,53 @@ function seedSameToolApprovals(n: number, toolName = "terminal") {
   useInteractionStore.setState({ byId });
 }
 
+describe("ApprovalCard git headline", () => {
+  it("shows push → remote for git push approvals", () => {
+    renderCard(
+      card({
+        toolName: "git",
+        arguments: { subcommand: "push", remote: "origin" },
+      }),
+    );
+    expect(screen.getByText("push → origin")).toBeTruthy();
+  });
+
+  it("defaults push remote to origin when omitted", () => {
+    renderCard(
+      card({
+        toolName: "git",
+        arguments: { subcommand: "push" },
+      }),
+    );
+    expect(screen.getByText("push → origin")).toBeTruthy();
+  });
+
+  it("shows commit + message snippet", () => {
+    renderCard(
+      card({
+        toolName: "git",
+        arguments: {
+          subcommand: "commit",
+          message: "fix approval headline for push",
+        },
+      }),
+    );
+    expect(
+      screen.getByText("commit fix approval headline for push"),
+    ).toBeTruthy();
+  });
+
+  it("falls back to subcommand when no extra args", () => {
+    renderCard(
+      card({
+        toolName: "git",
+        arguments: { subcommand: "status" },
+      }),
+    );
+    expect(screen.getByText("status")).toBeTruthy();
+  });
+});
+
 describe("ApprovalCard CTA (工具审批 A+B)", () => {
   it("execution tools put 本轮内都允许 as the primary button", () => {
     renderCard(card());
