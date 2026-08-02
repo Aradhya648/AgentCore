@@ -20,6 +20,9 @@ import { registerNotificationIpc } from "./notification-service";
 import { registerOutboxIpc } from "./outbox-writeback";
 import { registerPreviewIpc } from "./preview/ipc";
 import { PREVIEW_SCHEME } from "./preview/paths";
+// 主进程安全网须最先加载：拦截 updater/net 层未捕获的网络瞬态，避免 Electron 默认错误框。
+// （模块加载时已自注册；此处再调一次幂等，保证入口显式依赖。）
+import { installProcessSafetyNet } from "./process-safety-net";
 import { registerProcessIpc } from "./process-service";
 import { registerPtyIpc } from "./pty-service";
 import { registerSidecarIpc } from "./sidecar-service";
@@ -27,6 +30,8 @@ import { registerTerminalIpc } from "./terminal-service";
 import { initUpdater } from "./updater";
 import { registerWindowFrameIpc } from "./window-frame";
 import { loadWindowState, manageWindowState } from "./window-state";
+
+installProcessSafetyNet();
 
 // Production renderer is served from a custom app:// scheme instead of file://,
 // so it gets a real, stable origin (app://agentcore). That origin is what makes

@@ -1,13 +1,13 @@
+import {
+  REMEMBERED_USERNAME_KEY,
+  saveRememberedUsername,
+} from "@/lib/rememberedUsername";
 // @vitest-environment jsdom
 import {
   __clearMemoryUiStorageForTests,
   __setUiStorageBackendForTests,
   uiGet,
 } from "@/lib/uiStorage";
-import {
-  REMEMBERED_USERNAME_KEY,
-  saveRememberedUsername,
-} from "@/lib/rememberedUsername";
 import {
   cleanup,
   fireEvent,

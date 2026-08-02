@@ -52,6 +52,14 @@ def test_has_inflight_work_and_progress_summary():
     assert "写手" in summary
     s.clear_worker_busy("w1")
     assert s.has_inflight_work() is False
+    # Minute-level verify must NOT block idle patrol / wall+0 CEO wake.
+    s.mark_worker_busy("w1", "verify")
+    assert s.has_inflight_work() is False
+    assert s.has_verify_busy() is True
+    assert "有界验证中" in s.worker_progress_summary()
+    assert "cancel_worker" in s.worker_progress_summary()
+    s.clear_worker_busy("w1")
+    assert s.has_verify_busy() is False
 
 
 async def test_idle_timeout_defers_when_workers_busy(monkeypatch):
@@ -94,6 +102,35 @@ async def test_idle_timeout_defers_when_workers_busy(monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await session.drive_task
         clear_active_coordination()
+
+
+async def test_idle_patrols_when_only_verify_busy(monkeypatch):
+    """Long verify must not defer patrol — CEO can cancel_worker mid typecheck."""
+    monkeypatch.setattr(coord_wait, "_COORD_WAIT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(coord_wait, "_COORD_WAIT_TIMEOUT_MAX_S", 1.0)
+    clear_active_coordination()
+    session = CoordinationSession(
+        execution_id="e-verify-patrol",
+        total_workers=1,
+        coordination="wall",
+    )
+    session._running_workers["w1"] = "渲染链路审查员"
+    session._worker_started_at["w1"] = __import__("time").monotonic()
+    session.mark_worker_busy("w1", "verify")
+    session.drive_task = asyncio.create_task(asyncio.sleep(30))
+    set_active_coordination(session)
+    try:
+        msgs = await asyncio.wait_for(await_coordination_injection([]), timeout=2.0)
+        text = msgs[0].content or ""
+        assert "等待团队事件超时" in text
+        assert "有界验证中" in text
+        assert "cancel_worker" in text
+        assert session.idle_streak == 1
+    finally:
+        session.drive_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await session.drive_task
+        clear_active_coordination("e-verify-patrol")
 
 
 async def test_idle_timeout_patrols_when_truly_stalled(monkeypatch):
@@ -491,7 +528,7 @@ def test_vacated_seat_auto_replaces_pain_point_case():
     declare_plan_artifacts(redispatch, ownership)
     assert ownership.owner_of("research/pain.md") == "pain2"
 
-    # 成功完成的座位不自动空出。
+    # 成功完成的同座位再派 → 同样自动 replaces（同岗位续做 / 预算触顶补派）。
     live_ok = _plan(
         RunSpec(
             run_id="pain_ok",
@@ -516,20 +553,21 @@ def test_vacated_seat_auto_replaces_pain_point_case():
             deliverable=Deliverable(artifacts=["research/pain.md"]),
         )
     )
+    assert apply_vacated_seat_replaces(
+        again,
+        live_ok,
+        completed_run_ids={"pain_ok"},
+        vacated_run_ids=set(),
+    ) == [("pain3", "pain_ok")]
+    assert again.nodes[0].replaces_run_id == "pain_ok"
     assert (
-        apply_vacated_seat_replaces(
-            again,
-            live_ok,
-            completed_run_ids={"pain_ok"},
-            vacated_run_ids=set(),
+        find_append_overlaps(
+            again, live_ok, completed_run_ids={"pain_ok"}, ownership=own2
         )
         == []
     )
-    hits = find_append_overlaps(
-        again, live_ok, completed_run_ids={"pain_ok"}, ownership=own2
-    )
-    assert hits
-    assert hits[0].reason == "deliverable"
+    declare_plan_artifacts(again, own2)
+    assert own2.owner_of("research/pain.md") == "pain3"
 
 
 def test_same_seat_incomplete_still_rejects():
@@ -1161,7 +1199,8 @@ def test_ancestor_artifact_overlap_not_sibling_cross():
     assert find_sibling_artifact_crosses(plan) == []
 
 
-def test_completed_owner_blocks_append_file_overlap():
+def test_completed_owner_allows_append_for_dispatch_handoff():
+    """已完成锁主 + 新节点声明同 artifact → 入闸不拒（declare 会 handoff）。"""
     from agentcore.runtime.coordination.append_guard import (
         declare_plan_artifacts,
         find_append_overlaps,
@@ -1179,7 +1218,6 @@ def test_completed_owner_blocks_append_file_overlap():
     )
     ownership = WriteCoordinator()
     declare_plan_artifacts(live, ownership)
-    # integration finished — still owns App.tsx
     new = _plan(
         RunSpec(
             run_id="fe2",
@@ -1190,6 +1228,87 @@ def test_completed_owner_blocks_append_file_overlap():
     )
     hits = find_append_overlaps(
         new, live, completed_run_ids={"integration"}, ownership=ownership
+    )
+    assert hits == []
+    declare_plan_artifacts(new, ownership, completed_run_ids={"integration"})
+    assert ownership.owner_of("App.tsx") == "fe2"
+
+
+def test_same_seat_completed_cold_redispatch_inherits_locks():
+    """本样本形态：同岗位预算触顶未落盘后再派 → auto replaces，无需声明 artifact 也能写。"""
+    from agentcore.runtime.coordination.append_guard import (
+        apply_vacated_seat_replaces,
+        declare_plan_artifacts,
+        find_append_overlaps,
+    )
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    live = _plan(
+        RunSpec(
+            run_id="fe1",
+            role="前端改造",
+            task="令牌化",
+            deliverable=Deliverable(
+                artifacts=["src/ui/ReasoningGraph.tsx", "src/game/GameScene.ts"]
+            ),
+        ),
+    )
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(live, ownership)
+    assert ownership.owner_of("src/ui/ReasoningGraph.tsx") == "fe1"
+
+    cold = _plan(
+        RunSpec(
+            run_id="fe2",
+            role="前端改造",
+            task="完成 ReasoningGraph.tsx 与 GameScene.ts 落盘",
+        )
+    )
+    assert apply_vacated_seat_replaces(
+        cold, live, completed_run_ids={"fe1"}, vacated_run_ids=set()
+    ) == [("fe2", "fe1")]
+    assert (
+        find_append_overlaps(
+            cold, live, completed_run_ids={"fe1"}, ownership=ownership
+        )
+        == []
+    )
+    declare_plan_artifacts(cold, ownership)
+    assert ownership.owner_of("src/ui/ReasoningGraph.tsx") == "fe2"
+    assert ownership.owner_of("src/game/GameScene.ts") == "fe2"
+    assert ownership.claim("src/ui/ReasoningGraph.tsx", "fe2", frozenset()) is None
+
+
+def test_running_owner_still_blocks_append_file_overlap():
+    """锁主仍在跑时，声明同 artifact 的无关节点仍拒。"""
+    from agentcore.runtime.coordination.append_guard import (
+        declare_plan_artifacts,
+        find_append_overlaps,
+    )
+    from agentcore.runtime.runs.types import Deliverable
+    from agentcore.workspace.write_claims import WriteCoordinator
+
+    live = _plan(
+        RunSpec(
+            run_id="integration",
+            role="整合",
+            task="写 App.tsx",
+            deliverable=Deliverable(artifacts=["App.tsx"]),
+        ),
+    )
+    ownership = WriteCoordinator()
+    declare_plan_artifacts(live, ownership)
+    new = _plan(
+        RunSpec(
+            run_id="fe2",
+            role="前端 App",
+            task="重写 App",
+            deliverable=Deliverable(artifacts=["App.tsx"]),
+        )
+    )
+    hits = find_append_overlaps(
+        new, live, completed_run_ids=set(), ownership=ownership
     )
     assert hits
     assert hits[0].reason == "deliverable"
@@ -1235,8 +1354,8 @@ def test_replaces_skips_overlap_and_transfers():
     assert ownership.owner_of("App.tsx") == "new"
 
 
-async def test_merge_rejects_after_completed_owner():
-    """图全完成后抢终稿仍拒（C3 完成后仍占）。"""
+async def test_merge_admits_after_completed_owner_and_handoffs():
+    """图全完成后声明同终稿 → 放行并 dispatch_handoff（跨波次修订）。"""
     from agentcore.runtime.coordination.host import _merge_into_active_coordination
     from agentcore.runtime.runs.types import Deliverable
     from agentcore.workspace.write_claims import WriteCoordinator
@@ -1280,9 +1399,9 @@ async def test_merge_rejects_after_completed_owner():
             completion_criteria=None,
             coordination="none",
         )
-        assert result.success is False
-        assert "重叠" in (result.error or "") or "归属" in (result.error or "")
-        assert session.total_workers == 1
+        assert result.success is True
+        assert session.ensure_file_ownership().owner_of("App.tsx") == "fe_dup"
+        assert session.total_workers >= 2
     finally:
         session.drive_task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -1599,3 +1718,150 @@ def test_nested_declare_skipped_at_depth_zero():
     assert conflicts == []
     # Depth 0 skipped — ownership unchanged.
     assert ownership.owner_of("a.md") == "lead"
+
+
+# --- replan.adds shares append seat/artifact admit + lock transfer ------------
+
+
+class _FakeReplanTools:
+    def list_all(self):
+        return []
+
+
+def _fake_replan_tool(*, execution_id: str, plan, completed: dict | None = None):
+    """Minimal DelegateTool stand-in for apply_replan under active coordination."""
+    from agentcore.runtime.delegate.supervised import SupervisedRun
+    from agentcore.runtime.runs import BoundaryReason
+    from agentcore.runtime.runs.types import RunPhase, RunState
+
+    tool = MagicMock()
+    tool._tools = _FakeReplanTools()
+    tool._captain_run_id = "cap"
+    tool._depth = 0
+    tool._delegate_force = False
+    tool._topology_lock = False
+    tool._supervised = SupervisedRun(
+        plan=plan,
+        completed=completed
+        or {
+            rid: RunState(phase=RunPhase.COMPLETED)
+            for rid in ()  # filled by caller via session; seed empty here
+        },
+        execution_id=execution_id,
+        finalize=False,
+        reason=BoundaryReason.SCOPE,
+        boundary_run_ids=[],
+    )
+    return tool
+
+
+def test_replan_adds_same_seat_takeover_transfers_write_locks():
+    """活跃协调下 replan.adds 同座位接手 → auto replaces + 写锁归新主。"""
+    from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
+    from agentcore.runtime.delegate.supervised import apply_replan
+    from agentcore.runtime.runs.types import Deliverable, RunPhase, RunState
+
+    clear_active_coordination()
+    live = _plan(
+        RunSpec(
+            run_id="fe1",
+            role="前端改造",
+            task="令牌化",
+            deliverable=Deliverable(
+                artifacts=["src/ui/ReasoningGraph.tsx", "src/game/GameScene.ts"]
+            ),
+        ),
+        RunSpec(
+            run_id="qa",
+            role="页面 QA",
+            task="仍在跑",
+            deliverable=Deliverable(artifacts=["qa/notes.md"]),
+        ),
+    )
+    session = CoordinationSession(execution_id="e-replan-xfer", total_workers=2)
+    session.live_plan = live
+    session.completed_run_ids.add("fe1")
+    declare_plan_artifacts(live, session.ensure_file_ownership())
+    assert session.ensure_file_ownership().owner_of("src/ui/ReasoningGraph.tsx") == "fe1"
+    set_active_coordination(session)
+    try:
+        completed = {"fe1": RunState(phase=RunPhase.COMPLETED)}
+        tool = _fake_replan_tool(
+            execution_id="e-replan-xfer", plan=live, completed=completed
+        )
+        errors = apply_replan(
+            tool,
+            live,
+            completed,
+            binds=[],
+            steers=[],
+            adds=[
+                {
+                    "role": "前端改造",
+                    "task": "完成 ReasoningGraph.tsx 与 GameScene.ts 落盘",
+                    "deliverable": {
+                        "artifacts": [
+                            "src/ui/ReasoningGraph.tsx",
+                            "src/game/GameScene.ts",
+                        ]
+                    },
+                }
+            ],
+        )
+        assert errors == []
+        new = next(n for n in live.nodes if n.run_id != "fe1" and n.run_id != "qa")
+        assert new.replaces_run_id == "fe1"
+        ownership = session.ensure_file_ownership()
+        assert ownership.owner_of("src/ui/ReasoningGraph.tsx") == new.run_id
+        assert ownership.owner_of("src/game/GameScene.ts") == new.run_id
+        assert session.total_workers == 3
+    finally:
+        clear_active_coordination("e-replan-xfer")
+
+
+def test_replan_adds_rejects_incomplete_seat_with_append_family_message():
+    """活跃协调下 replan.adds 撞未完成同座位 → 拒，文案与 append 同族。"""
+    from agentcore.runtime.delegate.supervised import apply_replan
+    from agentcore.runtime.runs.types import Deliverable
+
+    clear_active_coordination()
+    live = _plan(
+        RunSpec(
+            run_id="price",
+            role="定价调研员",
+            task="调研定价",
+            deliverable=Deliverable(artifacts=["research/pricing.md"]),
+        ),
+        RunSpec(
+            run_id="channel",
+            role="渠道调研员",
+            task="调研渠道",
+            deliverable=Deliverable(artifacts=["research/channel.md"]),
+        ),
+    )
+    session = CoordinationSession(execution_id="e-replan-rej", total_workers=2)
+    session.live_plan = live
+    set_active_coordination(session)
+    try:
+        tool = _fake_replan_tool(execution_id="e-replan-rej", plan=live, completed={})
+        before_ids = {n.run_id for n in live.nodes}
+        errors = apply_replan(
+            tool,
+            live,
+            {},
+            binds=[],
+            steers=[],
+            adds=[
+                {
+                    "role": "定价调研员",
+                    "task": "再派定价",
+                    "deliverable": {"artifacts": ["research/pricing.md"]},
+                }
+            ],
+        )
+        assert errors
+        assert any("【队员追加已拒绝" in e for e in errors)
+        assert any("座位" in e or "重叠" in e for e in errors)
+        assert {n.run_id for n in live.nodes} == before_ids
+    finally:
+        clear_active_coordination("e-replan-rej")

@@ -11,6 +11,10 @@ import {
   toolDetail,
   toolLabel,
 } from "@/components/assistantLabels";
+import {
+  codeDiagnosticsSummary,
+  extractCodeDiagnostics,
+} from "@/lib/codeDiagnostics";
 import { isFileReadCeilingGuidance } from "@/lib/fileReadCeiling";
 import {
   type MessageCopyMode,
@@ -789,12 +793,15 @@ function ToolStep({
     step.status === "error" &&
     (isFileReadCeilingGuidance(step.tool_name, step.result) ||
       isVerifyBudgetExceeded(step.display));
+  const diagnostics = extractCodeDiagnostics(step.display);
   const elapsed = useRunningElapsed(running);
   const doneStatus = ceilingGuidance
     ? isVerifyBudgetExceeded(step.display)
       ? "验证未完成"
       : "Notice"
-    : TOOL_STATUS[step.status];
+    : diagnostics
+      ? codeDiagnosticsSummary(diagnostics)
+      : TOOL_STATUS[step.status];
   const runningStatus = running
     ? [
         toolPhaseText(phase) ?? TOOL_STATUS.running,
@@ -819,10 +826,34 @@ function ToolStep({
         </span>
         <span className="tool-status">{runningStatus}</span>
       </button>
-      {open && (args || step.result != null) && (
+      {open && (args || step.result != null || diagnostics) && (
         <div className="tool-body">
           {isVerifyBudgetExceeded(step.display) && (
             <div className="tool-incomplete">验证未完成（预算耗尽）</div>
+          )}
+          {diagnostics && (
+            <div className="tool-diagnostics">
+              <div className="tool-diagnostics-title">类型诊断</div>
+              <div>{codeDiagnosticsSummary(diagnostics)}</div>
+              {diagnostics.status === "ok" &&
+                diagnostics.diagnostics
+                  .filter((d) => d.severity === "error")
+                  .slice(0, 8)
+                  .map((d, i) => (
+                    <div
+                      key={`${d.path}:${d.line}:${i}`}
+                      className="tool-diagnostics-row"
+                    >
+                      {d.path}:{d.line} · {d.message}
+                      {d.code ? (
+                        <span className="tool-diagnostics-code">
+                          {" "}
+                          ({d.code})
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+            </div>
           )}
           {args && (
             <pre className="tool-pre">{JSON.stringify(args, null, 2)}</pre>

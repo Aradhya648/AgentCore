@@ -121,6 +121,8 @@ export type FsWriteResult =
  * 根打包成单个归档（套用忽略规则）交服务端暂存并快照，由 handoff 编排直接下发。
  * ``probe_exec`` 同样不是 backend 方法——回合准备时探测本机 code_execute 可用解释器，
  * 供服务端裁剪工具 schema（坏 WSL bash 等不进 enum）。
+ * ``diagnostics`` 同样不是 backend 方法——本地 TypeScript LanguageService 诊断（写码验证内环）；
+ * 云端无 LS 时诚实 ``status=unavailable``，不把通道打挂。
  */
 export type WorkspaceOpName =
   | "read"
@@ -144,7 +146,8 @@ export type WorkspaceOpName =
   | "process_start"
   | "process_read"
   | "process_stop"
-  | "process_list";
+  | "process_list"
+  | "diagnostics";
 
 /**
  * 一次本地 op 的执行结果信封 —— 形状与服务端回填端点 `ResolveClientToolInteraction.result`

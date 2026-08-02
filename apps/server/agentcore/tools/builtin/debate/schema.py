@@ -11,7 +11,6 @@ from agentcore.runtime.debate.constants import (
     CX_LENGTH_HINT,
     DEBATE_FORM_VALUES,
     DEBATE_OUTPUT_LIMIT,
-    DEBATER_TOOLS,
     FORM_LABELS,
     LENGTH_HINT,
     QUICK_DEBATER_HINT,
@@ -20,7 +19,6 @@ from agentcore.tools.protocol import ToolResult
 
 __all__ = [
     "DEBATE_OUTPUT_LIMIT",
-    "DEBATER_TOOLS",
     "LENGTH_HINT",
     "CLOSING_LENGTH_HINT",
     "CX_LENGTH_HINT",

@@ -9,12 +9,19 @@ import { AgentNodePeek } from "./agentNode/AgentNodePeek";
 import { buildAgentNodePresentation } from "./agentNode/presentation";
 import type { AgentNodeData } from "./agentNode/shared";
 import { graphNodeDimClass, useGraphNodeDimmed } from "./graphHover";
+import {
+  type AgentNodeShell,
+  useAgentNodeLive,
+  useGraphDocumentMode,
+} from "./graphLive";
 import { useTerminalFlash } from "./useTerminalFlash";
 
 export type { AgentNodeData } from "./agentNode/shared";
 
 export function AgentNode({ data }: NodeProps) {
-  const d = data as AgentNodeData;
+  const documentMode = useGraphDocumentMode();
+  const live = useAgentNodeLive(data as AgentNodeShell);
+  const d = documentMode ? live : (data as AgentNodeData);
   const p = buildAgentNodePresentation(d);
   const horizontal = d.handleDirection === "horizontal";
   const flashing = useTerminalFlash(d.status);

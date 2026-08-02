@@ -411,6 +411,59 @@ def test_sidecar_binds_local_backend_with_approvals(tmp_path, monkeypatch):
     assert captured["approvals_enabled"] is True
 
 
+def test_sidecar_start_turn_passes_desktop_client_platform(tmp_path, monkeypatch):
+    """Local engine turns must advertise desktop so MCP/Host ClientTool channel mounts.
+
+    Sidecar omits X-Client-Platform historically → fail-closed desktop_online=False →
+    mcp/host 未装配 (定案 P0). Passing ``x_client_platform=\"desktop\"`` is the single seam.
+    """
+    captured: dict[str, Any] = {}
+
+    async def fake_pipeline(**kwargs: Any) -> dict[str, Any]:
+        captured["x_client_platform"] = kwargs.get("x_client_platform")
+        kwargs["sink"].close()
+        return {"finish_reason": "end_turn", "content": "ok", "rounds": 1}
+
+    monkeypatch.setattr("agentcore.sidecar.server.run_chat_pipeline", fake_pipeline)
+
+    sent, write_line = _recorder()
+    server = SidecarServer(write_line)
+
+    async def drive() -> None:
+        await server.handle_line(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "userId": "u",
+                        "workspaceRoot": str(tmp_path),
+                        "approvalsEnabled": True,
+                    },
+                }
+            )
+        )
+        await server.handle_line(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "startTurn",
+                    "params": {
+                        "turnId": "t1",
+                        "conversationId": "c1",
+                        "userMessage": "能用本地 MCP 吗",
+                    },
+                }
+            )
+        )
+        await asyncio.gather(*list(server._turns.values()))
+
+    asyncio.run(drive())
+    assert captured["x_client_platform"] == "desktop"
+
+
 def test_sidecar_threads_permission_axes_per_turn(tmp_path, monkeypatch):
     """Conversation permission axes reach the local engine: initialize seeds them,
     a per-turn ``permissionAxes`` refreshes them, and an absent param keeps the

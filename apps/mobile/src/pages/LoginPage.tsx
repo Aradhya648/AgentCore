@@ -17,9 +17,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("login");
   // Prefill last successful login username; shared across login/register tabs.
-  const [username, setUsername] = useState(
-    () => getRememberedUsername() ?? "",
-  );
+  const [username, setUsername] = useState(() => getRememberedUsername() ?? "");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [agreed, setAgreed] = useState(false);

@@ -3,7 +3,7 @@
 正轨 token 撞顶 / 墙钟超时 / 降级交接 必须产生结构化原因码，贯通
 ``RunState.warnings`` → ``delivery_status.gaps.reason``（用户可见缺口唯一可信源）；
 CEO 综述仅轻纪律禁完成度断言，缺口披露由呈现层对账卡承担。
-收尾窗口在硬顶前把工具面收窄到落盘 + handoff，降低 ``degraded_synth``。
+收尾窗口在硬顶前把工具面收窄到落盘 + 内环诊断 + handoff，降低 ``degraded_synth``。
 """
 
 from __future__ import annotations
@@ -43,10 +43,11 @@ DEFAULT_TOKEN_WIND_DOWN_RESERVE = 30_000
 # 超时先警告再通知：在 threshold × ratio 处注入「限一轮内交接」（默认 75%）
 DEFAULT_TIMEOUT_WARN_RATIO = 0.75
 
-# 收尾窗口允许的工具（落盘 + handoff；调查/执行类一律剔除）
+# 收尾窗口允许的工具（落盘 + 内环诊断 + handoff；调查/执行类一律剔除）
 # file_read 不在此基础集：仅交付类（form=files / requires_files，工具面仍含
 # file_write）经 :func:`wind_down_allowed_tools` 叠加——回读自己产物属于写作，
 # 不是继续调查；web_search / read_url / grep 等检索类不放回。
+# code_diagnostics：修码自检（内环），收尾/delivery_idle 收窄后仍可用。
 WIND_DOWN_ALLOWED_TOOLS = frozenset(
     {
         "handoff",
@@ -59,6 +60,7 @@ WIND_DOWN_ALLOWED_TOOLS = frozenset(
         "mkdir",
         "file_batch",
         "file_list",
+        "code_diagnostics",
     }
 )
 
@@ -66,28 +68,28 @@ WIND_DOWN_FILE_READ = "file_read"
 
 WIND_DOWN_INSTRUCTION_TOKEN = (
     "[系统提示] 累计 token 已接近预算硬顶。本轮起进入收尾窗口：仅允许落盘"
-    "（file_write / str_replace / file_append 等）与 handoff；交付类可 file_read "
-    "回读已写文件核对契约。"
+    "（file_write / str_replace / file_append 等）、内环 code_diagnostics 与 handoff；"
+    "交付类可 file_read 回读已写文件核对契约。"
     "长文/成篇：若正在按章写作，请停在完整章边界落盘并 handoff——"
     "标明已完成章节与待续章节；禁止章中部硬截、禁止删稿重写。"
     "请立即把已有产出落盘并调用 handoff 提交交接简报；禁止继续调查或开新战线。"
 )
 
 WIND_DOWN_INSTRUCTION_TIMEOUT = (
-    "[系统提示] 墙钟已触及超时阈值。本轮为宽限交卷轮：仅允许落盘与 handoff"
+    "[系统提示] 墙钟已触及超时阈值。本轮为宽限交卷轮：仅允许落盘、内环诊断与 handoff"
     "（交付类可 file_read 回读已写文件）；请立即提交合格 handoff。"
     "宽限结束后将强制取消本队员，禁止继续调查或开新战线。"
 )
 
 WIND_DOWN_BREACH_NUDGE = (
-    "[系统提示] 收尾窗口违约：你调用了非落盘/handoff 工具。"
+    "[系统提示] 收尾窗口违约：你调用了非落盘/诊断/handoff 工具。"
     "工具面已收缩为仅 handoff。请立刻用已有产出调用 handoff 提交交接简报；"
     "禁止再调查、读文件或开新战线。再次违约将本地合成交付并强制收口。"
 )
 
 WIND_DOWN_BREACH_NUDGE_KEEP_LANDING = (
     "[系统提示] 收尾窗口违约：你调用了检索/外网类工具。"
-    "工具面已禁止继续调查，但仍保留落盘与 handoff（本 run 仍负有落盘义务）。"
+    "工具面已禁止继续调查，但仍保留落盘、内环诊断与 handoff（本 run 仍负有落盘义务）。"
     "请立刻把已有产出落盘并调用 handoff；禁止再检索或开新战线。"
     "再次违约将本地合成交付并强制收口。"
 )

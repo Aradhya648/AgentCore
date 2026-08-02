@@ -181,6 +181,34 @@ def test_write_args_stub_keeps_path():
     assert data["path"] == "docs/spec.md"
     assert data["content"] == "[已清理]"
     assert "_cleared" in data
+    assert "禁止把本 stub" in data["_cleared"]
+
+
+def test_write_args_stub_str_replace_keeps_old_string_schema_keys():
+    """str_replace 清参：保留完整 old_string、只 stub new_string，且键名对齐 schema。"""
+    anchor = (
+        "- 本轮检索未获得阿里 AI 板块单独营收数据（阿里整体财报口径以集团为主），"
+        "标注为待核实。\n\n---\n"
+    )
+    body = "## 百度\n" + ("段落内容。" * 80)
+    args = json.dumps(
+        {
+            "path": "research/ai_cn_notes.md",
+            "old_string": anchor,
+            "new_string": anchor + body,
+        },
+        ensure_ascii=False,
+    )
+    stub = write_args_stub("str_replace", args, len(anchor + body))
+    data = json.loads(stub)
+    assert data["path"] == "research/ai_cn_notes.md"
+    assert data["old_string"] == anchor
+    assert data["new_string"] == "[已清理·须重填]"
+    assert "old_str" not in data
+    assert "new_str" not in data
+    assert body not in stub
+    assert "禁止把本 stub" in data["_cleared"]
+    assert "old_string" in data["_cleared"] and "new_string" in data["_cleared"]
 
 
 def test_write_args_stub_keeps_html_structure_summary():
@@ -248,6 +276,42 @@ def test_project_cleared_write_args_collapses_completed_writes():
     assert out2 is out or out2[1].tool_calls[0].function.arguments == (
         out[1].tool_calls[0].function.arguments
     )
+
+
+def test_project_cleared_write_args_str_replace_keeps_anchor():
+    """完成后清 new_string，但 old_string 锚点完整保留在模型可见窗口。"""
+    anchor = "END_MARK\n---\n"
+    big = "章节正文" * 200
+    call_id = "s1"
+    msgs = [
+        LLMMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id=call_id,
+                    function=ToolCallFunction(
+                        name="str_replace",
+                        arguments=json.dumps(
+                            {
+                                "path": "notes.md",
+                                "old_string": anchor,
+                                "new_string": anchor + big,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
+            ],
+        ),
+        LLMMessage(role="tool", content="已替换 notes.md", tool_call_id=call_id),
+    ]
+    out = project_cleared_write_args(msgs, min_chars=100)
+    assert out is not msgs
+    args = json.loads(out[0].tool_calls[0].function.arguments)
+    assert args["old_string"] == anchor
+    assert args["new_string"] == "[已清理·须重填]"
+    assert big not in args["new_string"]
+    assert big not in out[0].tool_calls[0].function.arguments
 
 
 def test_project_cleared_write_args_skips_pending_write():

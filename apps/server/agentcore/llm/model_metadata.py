@@ -98,6 +98,13 @@ _METADATA: dict[str, ModelMeta] = {
         capabilities=frozenset({CAPABILITY_TOOLS}),
         context_length=128_000,
     ),
+    # Platform vision default (VISION_MODEL); curated priced but keep off PLATFORM_MODELS.
+    "kimi-k2.5": ModelMeta(
+        display_name="Kimi K2.5",
+        vendor="Moonshot",
+        capabilities=frozenset({CAPABILITY_VISION, CAPABILITY_TOOLS, CAPABILITY_REASONING}),
+        context_length=256_000,
+    ),
     "moonshot-v1-128k": ModelMeta(
         display_name="Moonshot v1 128K",
         vendor="Moonshot",
@@ -120,6 +127,14 @@ _METADATA: dict[str, ModelMeta] = {
     # the operator's中转 upstream; curated as 智谱 AI for catalog display.
     "glm-5.2": ModelMeta(
         display_name="GLM-5.2",
+        vendor="智谱 AI",
+        capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
+        context_length=128_000,
+    ),
+    # Second platform relay (jiurelay); exact entry so family-prefix does not
+    # collapse display to plain「GLM-5.2」.
+    "glm-5.2-jiu": ModelMeta(
+        display_name="GLM-5.2 · JiuRelay",
         vendor="智谱 AI",
         capabilities=frozenset({CAPABILITY_TOOLS, CAPABILITY_REASONING}),
         context_length=128_000,

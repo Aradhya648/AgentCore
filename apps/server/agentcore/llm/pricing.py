@@ -59,7 +59,13 @@ PLATFORM_GPT_4O = "gpt-4o"
 
 # Platform relay catalog models (billing_mode=platform 内测中转目录, 成本配额与计费 §〇·六 F4).
 PLATFORM_RELAY_GLM_52 = "glm-5.2"  # 平台默认；bigmodel.cn 人民币列表价直写
+# Second operator relay catalog id (jiurelay); same list price as glm-5.2, distinct
+# PLATFORM_MODELS entry so it can carry its own PLATFORM_MODEL_CREDENTIALS + upstream_model.
+PLATFORM_RELAY_GLM_52_JIU = "glm-5.2-jiu"
 PLATFORM_RELAY_GROK_45 = "grok-4.5"  # id 常量保留；本步无 curated CNY 卡
+# Vision-only on the operator relay (VISION_MODEL); curated so role=vision does not
+# fall back to glm-5.2. Keep OFF PLATFORM_MODELS — not a user-selectable chat model.
+PLATFORM_RELAY_KIMI_K25 = "kimi-k2.5"
 
 # CNY per 1M tokens (F4 curated). 国内官价直写 ¥。
 # DeepSeek：api-docs.deepseek.com/zh-cn/quick_start/pricing（人民币表）。
@@ -94,6 +100,19 @@ _PRICING: dict[str, dict[str, Decimal]] = {
         "cache_hit": Decimal("2"),
         "cache_miss": Decimal("8"),
         "output": Decimal("28"),
+    },
+    # Same nominal CNY card as glm-5.2 (second relay; catalog id differs).
+    PLATFORM_RELAY_GLM_52_JIU: {
+        "cache_hit": Decimal("2"),
+        "cache_miss": Decimal("8"),
+        "output": Decimal("28"),
+    },
+    # Platform vision (VISION_MODEL=kimi-k2.5 on tokenrhythm-class relay).
+    # Effective CNY/1M from relay /models: in ¥4 / out ¥21 / cache_read ¥0.8.
+    PLATFORM_RELAY_KIMI_K25: {
+        "cache_hit": Decimal("0.8"),
+        "cache_miss": Decimal("4"),
+        "output": Decimal("21"),
     },
 }
 

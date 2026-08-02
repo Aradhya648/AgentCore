@@ -23,10 +23,12 @@ class PlatformSettings(BaseModel):
     # members — fail-fast at settings load (no silent drift).
     platform_models: str = ""
     # Per-model platform credential overrides (运营中转「一 key 一模型」, 成本配额与计费
-    # §〇·六 F3): a JSON object mapping model id → {"api_key"?, "base_url"?}. When a model
-    # in the catalog has an entry, its api_key / base_url win for that model; each missing
-    # field falls back to platform_api_key / platform_base_url. Empty = every platform
-    # model shares the default key/base_url.
+    # §〇·六 F3): a JSON object mapping model id → {"api_key"?, "base_url"?, "upstream_model"?}.
+    # When a model in the catalog has an entry, its api_key / base_url win for that model;
+    # each missing field falls back to platform_api_key / platform_base_url.
+    # Optional upstream_model: catalog id may differ from the id sent to the upstream
+    # (e.g. glm-5.2-jiu → glm-5.2 on a second relay). Empty = every platform model shares
+    # the default key/base_url; omitted upstream_model = send catalog id as-is.
     platform_model_credentials: str = ""
 
     # --- 多厂商 provider（OpenAI 兼容，经 ProviderRouter 按 provider/model 前缀路由） ---
@@ -37,10 +39,13 @@ class PlatformSettings(BaseModel):
     doubao_api_key: str = ""
     doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
 
-    # --- AI 协作白板 读图 ---
+    # --- AI 协作白板 读图（仅 billing_mode=platform；BYOK 不启用）---
+    # OpenAI-compatible multimodal. Default model = kimi-k2.5 (operator relay vision).
+    # VISION_BASE_URL must be set (typically = PLATFORM_BASE_URL); empty → reader off.
+    # Keep VISION_MODEL off PLATFORM_MODELS — not user-selectable.
     vision_api_key: str = ""
-    vision_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    vision_model: str = "qwen-vl-max"
+    vision_base_url: str = ""
+    vision_model: str = "kimi-k2.5"
     vision_timeout_seconds: float = 60.0
 
     # --- 计费模式 ---
@@ -83,11 +88,14 @@ class PlatformSettings(BaseModel):
 
 
 def parse_platform_model_credentials(raw: str) -> dict[str, dict[str, str]]:
-    """Parse ``PLATFORM_MODEL_CREDENTIALS`` JSON into ``{model_id: {api_key?, base_url?}}``.
+    """Parse ``PLATFORM_MODEL_CREDENTIALS`` JSON into model credential maps.
+
+    Shape: ``{model_id: {api_key?, base_url?, upstream_model?}}``.
 
     Malformed JSON / wrong shape degrades to ``{}`` (logged) so an operator typo never
     crashes a turn — the platform then serves every model on the shared default key.
-    Only non-blank ``api_key`` / ``base_url`` fields are kept, so an empty entry drops out.
+    Only non-blank ``api_key`` / ``base_url`` / ``upstream_model`` fields are kept; an
+    empty object drops out.
     """
     text = (raw or "").strip()
     if not text:
@@ -112,10 +120,13 @@ def parse_platform_model_credentials(raw: str) -> dict[str, dict[str, str]]:
         creds: dict[str, str] = {}
         api_key = str(entry.get("api_key", "") or "").strip()
         base_url = str(entry.get("base_url", "") or "").strip()
+        upstream_model = str(entry.get("upstream_model", "") or "").strip()
         if api_key:
             creds["api_key"] = api_key
         if base_url:
             creds["base_url"] = base_url
+        if upstream_model:
+            creds["upstream_model"] = upstream_model
         if creds:
             result[mid] = creds
     return result

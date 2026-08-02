@@ -65,12 +65,22 @@ CEO 唯一裁决；置信度低才 `ask_user`。资源冲突靠 DAG。
 
 | 阶段 | 行为 |
 |---|---|
-| **派发 declare** | 无主路径由首个声明 artifact 的节点成为写主；**下游不因祖先关系在派发瞬间抢锁**（只登记计划意图）。嵌套 lead→child 显式允许派发交接。**跨波次**：新节点声明的路径若锁主已在 `completed_run_ids`，派发时自动移交（审校→修订无需用户点卡）。 |
+| **派发 declare** | 无主路径由首个声明 artifact 的节点成为写主；**下游不因祖先关系在派发瞬间抢锁**（只登记计划意图）。嵌套 lead→child 显式允许派发交接。**跨波次**：新节点声明的路径若锁主已在 `completed_run_ids`，派发时自动移交（审校→修订无需用户点卡；入闸不再因「已完成占位」拒单）。 |
+| **同岗位续派** | 座位（规范化角色名）上前任已完成或已 vacated，再派同座且无在跑同座 → 自动填 `replaces_run_id`，继承其写锁（预算触顶未落盘后再派同一岗位可直接写）。 |
 | **写入 claim** | 真写时：本人 / 无主可写；祖先持有则可交接覆写；无关队友拒写。 |
 | **完成交接** | worker 完成后，若其持有路径恰好被**唯一**未完成依赖方列入 artifacts，则自动移交。 |
-| **显式移交** | `resolve_escalation(transfer_ownership=true)`；或用户写权卡「移交写权 / 保持原主」。仍在跑的锁主冲突仍直达用户。 |
+| **显式移交** | `resolve_escalation(transfer_ownership=true)`；或用户写权卡「移交写权 / 保持原主」。**仅锁主仍在跑**时写权冲突直达用户；已完成占位不走用户移交卡（走同座续派 / declare）。 |
 
-写权冲突 escalate：**直达用户**（与 `browser_login` 同属用户直达例外），卡上结构化动作真正转锁——自然语言「移交」 alone 不会改账本。
+写权冲突 escalate：**锁主进行中**才直达用户（与 `browser_login` 同属用户直达例外），卡上结构化动作真正转锁——自然语言「移交」 alone 不会改账本。锁主已完成却仍撞账本 → 协调活跃时改走主管裁决，提示同座续派，不弹「移交写权」。
+
+### 验收与座位（质量两档）
+
+| 档 | 信号（例） | 座位 / 修路 |
+|---|---|---|
+| **Hard** | 空 handoff 且有下游、strict 未落盘等 | `FAILED` → 进 `vacated_run_ids`；同座可 auto-`replaces` |
+| **Soft** | 薄交接但已落盘、引用可剥、批次 `files_written` soft note | 仍 `COMPLETED`；**不** vacated；修路 = **同座位** replan/append（系统 auto-`replaces` + declare 转锁） |
+
+**不做**：把 soft 质量塞进 vacated（污染失败语义）。**禁止**：另起 `-v2` 角色名假装新座位抢同一路径；队员对已完成锁主 escalate 要用户移交。
 
 → 见代码: `workspace/write_claims.py` · `coordination/append_guard.py` · `EscalationCard`
 

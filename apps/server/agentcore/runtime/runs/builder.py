@@ -264,11 +264,11 @@ def build_run_plan(
 ) -> tuple[RunPlan, list[str]]:
     """Build a RunPlan from raw delegate-tool task args.
 
-    ``valid_tools`` (when given) is the allow-list each task's ``tools`` is
-    intersected against — an unknown tool name is dropped silently, mirroring the
-    old planner. Returns the plan plus a list of validation errors; a non-empty
-    error list means the batch is rejected and the plan must not be run
-    (reject-on-error for both flat and DAG batches).
+    ``valid_tools`` is retained for call-site compat; 真纯丙下不再用它与
+    ``tasks[].tools`` 做白名单交集（声明的 tools 一律忽略）。Returns the plan
+    plus a list of validation errors; a non-empty error list means the batch is
+    rejected and the plan must not be run (reject-on-error for both flat and DAG
+    batches).
 
     ``parent_run_id`` / ``depth`` stamp every node with its place in the turn's Run
     tree (阶段2 嵌套子任务): the CEO's direct workers are ``depth=1`` parented to the
@@ -324,11 +324,13 @@ def build_run_plan(
         from agentcore.runtime.runs.retrieval_budget import apply_retrieval_budgets
         from agentcore.runtime.runs.worker_budget import (
             apply_directed_search_tools,
+            apply_verify_policies,
             apply_worker_budgets,
         )
 
         apply_retrieval_budgets(plan, valid_tools=valid_tools, complexity_hint=complexity_hint)
         apply_directed_search_tools(plan, valid_tools=valid_tools)
+        apply_verify_policies(plan)
         apply_worker_budgets(plan)
         from agentcore.runtime.runs.worker_budget import apply_light_round_budgets
 
@@ -496,11 +498,13 @@ def build_added_nodes(
     from agentcore.runtime.runs.retrieval_budget import apply_retrieval_budgets_to_specs
     from agentcore.runtime.runs.worker_budget import (
         apply_directed_search_tools_to_specs,
+        apply_verify_policies_to_specs,
         apply_worker_budgets_to_specs,
     )
 
     apply_retrieval_budgets_to_specs(specs, valid_tools=valid_tools, complexity_hint="standard")
     apply_directed_search_tools_to_specs(specs, valid_tools=valid_tools)
+    apply_verify_policies_to_specs(specs)
     # replan add：token/超时走统一 backstop；检索额度走统一默认 + 硬例外。
     apply_worker_budgets_to_specs(specs)
     from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
@@ -802,6 +806,7 @@ def _inline_spec(
         # 辩手有案卷等内部窄例外在 build 后补写 RunSpec.retrieval_budget。
         retrieval_budget=None,
         search_policy=_parse_search_policy(item.get("search_policy")),
+        verify_policy=_parse_verify_policy(item.get("verify_policy")),
         max_rounds=_parse_max_rounds(item.get("max_rounds")),
         policy=policy,
     )
@@ -839,23 +844,24 @@ def _parse_search_policy(raw: Any) -> str:
     return ""
 
 
-def _tools(declared: Any, valid_tools: set[str] | None) -> list[str] | None:
-    """Normalise a task's declared tool names → an allowed-tools restriction, or
-    ``None`` for *no restriction* (the worker is offered all team tools).
+def _parse_verify_policy(raw: Any) -> str:
+    """Normalise optional ``verify_policy``; ``inner`` / ``outer`` recognised."""
+    if not isinstance(raw, str):
+        return ""
+    cleaned = raw.strip().lower()
+    if cleaned in ("inner", "outer"):
+        return cleaned
+    return ""
 
-    ``None`` is the fail-safe default and is returned whenever a task omits ``tools``
-    or names only unknown tools. We never return ``[]``: the engine reads an empty
-    allow-list as "offer no tools", which strands a worker that has a file/exec
-    deliverable as a text-only agent (it dumps the file content into chat and the
-    workspace stays empty). A non-empty list still restricts to the named
-    (allow-list-intersected) tools so the CEO can opt into least-privilege.
+
+def _tools(declared: Any, valid_tools: set[str] | None) -> list[str] | None:
+    """真纯丙：忽略 ``tasks[].tools`` 收窄；始终 ``None``（全开相关工具面）。
+
+    入参仍可带 ``tools``（旧客户端 / 剧本遗留 / 辩论装配），但不再写入 RunSpec
+    白名单，也不再与 ``valid_tools`` 做交集。执行层以 ``allowed_tools=None`` 为准。
     """
-    if not isinstance(declared, list):
-        return None
-    names = [t for t in declared if isinstance(t, str) and t]
-    if valid_tools is not None:
-        names = [t for t in names if t in valid_tools]
-    return names or None
+    del declared, valid_tools
+    return None
 
 
 def _apply_sibling_summaries(plan: RunPlan) -> None:

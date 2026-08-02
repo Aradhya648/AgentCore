@@ -5,11 +5,16 @@
 ``OpenAICompatibleProvider`` 无法表达这一点；本 leaf 在每次调用时经
 ``platform_llm_credentials(model=…)`` 取对 key，并按 (api_key, base_url) 缓存
 底层 HTTP 客户端。
+
+可选 ``upstream_model``：目录 id 可与上游 id 不同（如第二中转上的
+``glm-5.2-jiu`` → 上游仍发 ``glm-5.2``）。凭据 lookup 用目录 id；出站前改写
+``request.model``，调用方持有的 request 不变（计费仍按目录 id）。
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 from agentcore.core.errors import LLMError
 from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
@@ -61,8 +66,18 @@ class PlatformProvider:
             self._leaves[key] = leaf
         return leaf
 
+    def _wire_request(self, request: LLMRequest) -> LLMRequest:
+        from agentcore.llm.resolve import platform_wire_model
+
+        wire = platform_wire_model(request.model)
+        if wire == request.model:
+            return request
+        return replace(request, model=wire)
+
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        return await self._leaf_for(request.model).complete(request)
+        leaf = self._leaf_for(request.model)
+        return await leaf.complete(self._wire_request(request))
 
     def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
-        return self._leaf_for(request.model).stream(request)
+        leaf = self._leaf_for(request.model)
+        return leaf.stream(self._wire_request(request))

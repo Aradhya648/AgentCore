@@ -398,10 +398,8 @@ def _merge_into_active_coordination(
 ) -> ToolResult:
     """Append ``plan`` workers onto the live session (budget / cancel / arbitration kept)."""
     from agentcore.runtime.coordination.append_guard import (
-        append_overlap_reject_message,
-        apply_vacated_seat_replaces,
+        admit_added_nodes,
         declare_plan_artifacts,
-        find_append_overlaps,
     )
     from agentcore.runtime.coordination.isomorphic import (
         merge_all_skipped_reject_message,
@@ -420,56 +418,40 @@ def _merge_into_active_coordination(
     live = session.live_plan
     drive_running = session.drive_task is not None and not session.drive_task.done()
 
-    # Seat reclaim: failed/cancelled/skipped seats auto-fill replaces_run_id before
-    # overlap / declare (same pipeline as explicit replaces).
-    apply_vacated_seat_replaces(
+    # Seat reclaim + overlap: same admit as replan.adds (vacated/completed
+    # auto-replaces, then reject incomplete seat / still-running file holders).
+    force = getattr(tool, "_delegate_force", False) is True
+    ownership = session.ensure_file_ownership() if file_ownership_v2_enabled() else None
+    reject = admit_added_nodes(
         plan,
         live,
         completed_run_ids=session.completed_run_ids,
         vacated_run_ids=session.vacated_run_ids,
+        ownership=ownership,
+        force=force,
+        total_workers=session.total_workers,
     )
-
-    # Playbook/DAG still in flight: reject appends that overlap incomplete seats
-    # or file deliverable targets. C3: file side also consults session ownership
-    # (completed owners still hold). force=true bypasses — same escape hatch as
-    # isomorphic re-delegation.
-    force = getattr(tool, "_delegate_force", False) is True
-    ownership = session.ensure_file_ownership() if file_ownership_v2_enabled() else None
-    if not force:
-        overlaps = find_append_overlaps(
-            plan,
-            live,
-            completed_run_ids=session.completed_run_ids,
-            ownership=ownership,
+    if reject is not None:
+        completed_k = len(session.completed_run_ids)
+        logger.info(
+            "coordination.append_overlap_rejected",
+            execution_id=execution_id,
+            completed=completed_k,
+            total=session.total_workers,
+            call=call_idx,
         )
-        if overlaps:
-            completed_k = len(session.completed_run_ids)
-            msg = append_overlap_reject_message(
-                overlaps,
-                completed=completed_k,
-                total=session.total_workers,
-            )
-            logger.info(
-                "coordination.append_overlap_rejected",
-                execution_id=execution_id,
-                overlaps=len(overlaps),
-                reasons=[o.reason for o in overlaps],
-                completed=completed_k,
-                total=session.total_workers,
-                call=call_idx,
-            )
-            return annotate_batch_meta(
-                ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=msg,
-                    effect=ToolEffect.CONTINUE,
-                    contract_failure=True,
-                ),
-                node_count=len(plan.nodes),
-                has_deps=any(n.depends_on for n in plan.nodes),
-            )
+        return annotate_batch_meta(
+            ToolResult(
+                tool_call_id="",
+                success=False,
+                output="",
+                error=reject,
+                effect=ToolEffect.CONTINUE,
+                contract_failure=True,
+            ),
+            node_count=len(plan.nodes),
+            has_deps=any(n.depends_on for n in plan.nodes),
+        )
 
     if live is None and drive_running:
         # Infeasible: background drive owns an unknown plan — do not dual-drive.

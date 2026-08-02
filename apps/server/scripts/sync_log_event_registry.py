@@ -96,6 +96,7 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
         "reason": "str",
     },
     "tool.args_parse_failed": {"pos": "int", "msg": "str", "args_preview": "str"},
+    "tool.args_salvaged": {"args_preview": "str"},
     "tool.web_search": {"query": "str", "hosts": "list"},
     "worker.handoff": {
         "run_id": "str",
@@ -221,6 +222,7 @@ KEY_DESC: dict[str, str] = {
     "delegate.run_redirect_hot": "redirect 热修续派（revise 重算桶，与 continuation_ok 同义）",
     "worker.escalate": "worker 升级求决策",
     "tool.execute_end": "工具执行结束（status/duration_ms；error 时带 reason）",
+    "tool.args_salvaged": "handoff 参数 JSON 窄 salvage 成功（裸字符串字段 / 截断闭合）",
     "worker.handoff": "worker 交接（chars=summary 长；body_chars=交付正文长）",
     "react.round_end": "ReAct 轮结束（reasoning_tokens/tools）",
     "engine.loop_nudge": "收敛治理：循环提醒",

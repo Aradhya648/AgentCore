@@ -702,19 +702,16 @@ function TeamPreviewResumeCard({ turn }: { turn: PendingResume }) {
               <Users size={16} />
             </DecisionCardIcon>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-primary">
-                  {family.activeCaption}
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-sm text-foreground">
+                  {family.resumeLead}
                 </p>
                 {debateBudget && (
-                  <Badge tone="muted" className="font-normal">
+                  <Badge tone="muted" className="shrink-0 font-normal">
                     {debateBudget}
                   </Badge>
                 )}
               </div>
-              <p className="mt-1 text-sm text-foreground">
-                {family.resumeLead}
-              </p>
               {isDebate ? (
                 <TeamPreviewDebateBody turn={turn} />
               ) : (

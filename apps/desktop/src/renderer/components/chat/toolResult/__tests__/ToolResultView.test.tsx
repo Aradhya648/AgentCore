@@ -241,3 +241,107 @@ describe("ToolResultView · test_run budget exceeded", () => {
     expect(stderr?.className).not.toContain("text-destructive");
   });
 });
+
+describe("ToolResultView · code_diagnostics", () => {
+  it("renders ok errors as 类型诊断 list (not budget / not fault red)", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "code_diagnostics",
+          status: "success",
+          display: {
+            kind: "code_diagnostics",
+            status: "ok",
+            diagnostics: [
+              {
+                path: "a.ts",
+                line: 12,
+                column: 5,
+                severity: "error",
+                message: "Property 'foo' does not exist",
+                code: "TS2339",
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("类型诊断");
+    expect(container.textContent).toContain("a.ts:12");
+    expect(container.textContent).toContain("Property 'foo' does not exist");
+    expect(container.textContent).not.toContain("验证未完成");
+    expect(container.textContent).not.toContain("预算耗尽");
+    expect(container.innerHTML).not.toContain("text-destructive");
+  });
+
+  it("appends diagnostics below str_replace diff", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "str_replace",
+          status: "success",
+          args: {
+            path: "a.ts",
+            old_string: "x",
+            new_string: "y",
+          },
+          display: {
+            kind: "code_diagnostics",
+            status: "ok",
+            diagnostics: [
+              {
+                path: "a.ts",
+                line: 12,
+                column: 5,
+                severity: "error",
+                message: "Property 'foo' does not exist",
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("a.ts");
+    expect(container.textContent).toContain("类型诊断");
+    expect(container.textContent).toContain("Property 'foo' does not exist");
+    expect(container.textContent).not.toContain("验证未完成");
+  });
+
+  it("renders unavailable with reason (neutral)", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "file_write",
+          status: "success",
+          args: { path: "a.ts", content: " const x = 1" },
+          display: {
+            kind: "code_diagnostics",
+            status: "unavailable",
+            reason: "LSP 未就绪",
+            diagnostics: [],
+          },
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("类型诊断");
+    expect(container.textContent).toContain("LSP 未就绪");
+    expect(container.textContent).not.toContain("验证未完成");
+  });
+
+  it("renders clean ok as 未发现类型错误", () => {
+    const { container } = render(
+      <ToolResultView
+        data={data({
+          toolName: "code_diagnostics",
+          status: "success",
+          display: {
+            kind: "code_diagnostics",
+            status: "ok",
+            diagnostics: [],
+          },
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("未发现类型错误");
+  });
+});

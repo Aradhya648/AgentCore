@@ -103,19 +103,7 @@ DELEGATE_PARAMETERS = {
                         "type": "string",
                         "description": (
                             "同人带现场续派（调查后确认修 / 同人改稿）；"
-                            "填已完成 run_id。可另声明超集 tools（只增不减）。"
-                        ),
-                    },
-                    "tools": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            "可选工具白名单。乙续派：声明超集只增不减 merge 进原现场；"
-                            "省略=沿用现场；不得减面。code_verified 批须至少一人含 "
-                            "test_run/code_execute/terminal。"
-                            "落盘交付（form=files / requires_files / artifacts）与 "
-                            "files_written / code_verified / graph_consistent 验收"
-                            "不得用不含写盘工具的检索白名单。"
+                            "填已完成 run_id。"
                         ),
                     },
                     "checkpoint_after": {"type": "boolean"},

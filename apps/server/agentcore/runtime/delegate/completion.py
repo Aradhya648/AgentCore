@@ -37,23 +37,6 @@ _CRITERIA_KINDS = frozenset(
 # no longer produces it (检索与交付约束前置提案 B1).
 CriteriaSource = Literal["explicit", "structured", "text_inferred"]
 
-# Execution-class tool names (structural allow-list signal for B2 injection scope).
-# Must stay aligned with ``code_execution_enabled_for`` / worker registry execution class.
-_EXECUTION_TOOL_NAMES = frozenset({"code_execute", "test_run", "terminal"})
-
-# Write/landing tool names (structural allow-list for files deliverable / files_written).
-# Keep aligned with serialize ``_FILE_PRODUCT_ARG`` keys; local frozenset avoids import cycles.
-_WRITE_TOOL_NAMES = frozenset(
-    {
-        "file_write",
-        "file_append",
-        "str_replace",
-        "write_section",
-        "file_move",
-        "file_copy",
-    }
-)
-
 # Soft overlay: TypeScript landings may remind about verify (not task-text inference).
 # Soft only — never blocks the batch / criteria_unmet; explicit code_verified still binds.
 _TYPESCRIPT_SUFFIXES = frozenset({".ts", ".tsx"})
@@ -556,118 +539,31 @@ def validate_execution_capability(
 
 
 def validate_code_verified_worker_tools(raw: Any, plan: RunPlan) -> str | None:
-    """Hard gate: ``code_verified`` requires ≥1 worker with execution-class tools.
+    """真纯丙：退役「白名单无执行类工具」入闸硬拒（与 :func:`validate_files_worker_tools` 同向）。
 
-    Uses the same execution-class set as :func:`node_holds_execution_tools`
-    (``code_execute`` / ``test_run`` / ``terminal``). Orthogonal to the environment
-    capability gate — both may fire independently. Call after
-    ``apply_continuation_tool_merges`` so continue_from effective tools are visible.
+    环境是否装配执行类工具仍由 :func:`validate_execution_capability` 等回答。
     """
-    if not _resolved_code_verified(raw, plan):
-        return None
-    if any(node_holds_execution_tools(node) for node in plan.nodes):
-        return None
-    return (
-        "无法按 code_verified 验收：本批无人持有执行类工具（code_execute / test_run / "
-        "terminal），验证无法落地。出路："
-        "① 给至少一名 worker 的 tools 补上 test_run（或 code_execute / terminal）；"
-        "乙续派可在原调查面声明超集 tools（只增不减 merge）；"
-        "② 省略 completion_criteria，或改用不需执行验证的 files_written；"
-        "③ 无先验调查批的修码 → playbook=repair_code（内含持 test_run 的验证员）；"
-        "④ 真换职能验证 → 冷开验证员（不设 continue_from_run_id），tools 含 test_run。"
-    )
-
-
-def _deliverable_promises_landing(spec: Any) -> bool:
-    """True when this worker's deliverable commits to landing files on disk.
-
-    ``form=files`` / ``requires_files`` / non-empty ``artifacts`` count.
-    ``form=prose`` never counts (even if other flags were set — those are rejected
-    elsewhere).
-    """
-    deliverable = getattr(spec, "deliverable", None)
-    if deliverable is None:
-        return False
-    if getattr(deliverable, "form", None) == "prose":
-        return False
-    if getattr(deliverable, "form", None) == "files":
-        return True
-    if getattr(deliverable, "requires_files", False):
-        return True
-    artifacts = getattr(deliverable, "artifacts", None) or []
-    return bool(artifacts)
-
-
-def _node_is_non_prose(spec: Any) -> bool:
-    """True when the worker can land files (not explicit ``form=prose``)."""
-    deliverable = getattr(spec, "deliverable", None)
-    return deliverable is None or getattr(deliverable, "form", None) != "prose"
+    del raw, plan
+    return None
 
 
 def node_holds_write_tools(spec: Any) -> bool:
-    """True when the node is offered the write/landing tool set (structural).
+    """真纯丙：不再用 ``spec.tools`` 白名单判断写盘能力；默认视为具备。
 
-    ``tools is None`` = unrestricted fail-safe default (all team tools, including
-    write class). A non-empty allow-list must intersect ``file_write`` /
-    ``file_append`` / ``str_replace`` / ``write_section`` / ``file_move`` /
-    ``file_copy``. Never uses role text.
+    H2 已取消 ``form=prose`` 硬卸写盘；本函数恒 True（写盘仍过用户授权 / write_scope）。
     """
-    tools = getattr(spec, "tools", None)
-    if tools is None:
-        return True
-    return bool(_WRITE_TOOL_NAMES.intersection(tools))
+    del spec
+    return True
 
 
 def validate_files_worker_tools(raw: Any, plan: RunPlan) -> str | None:
-    """Hard gate: landing promise / file-landing criteria require write tools.
+    """真纯丙·M1：退役「白名单无写 → no_write_tools」入闸硬拒。
 
-    1. Per worker: deliverable commits to disk (``form=files`` / ``requires_files`` /
-       non-empty ``artifacts``; never ``form=prose``) **and** explicit ``tools``
-       allow-list has no write-tool intersection → reject, naming the role.
-    2. Batch: resolved acceptance is ``files_written`` / ``code_verified`` /
-       ``graph_consistent`` (same resolve as other gates; ``code_verified`` still
-       needs landing) → ≥1 non-prose worker must :func:`node_holds_write_tools`.
-
-    Orthogonal to :func:`validate_code_verified_worker_tools` (execution class).
-    Call after ``apply_continuation_tool_merges``.
+    落盘仍靠 deliverable / completion_criteria 与用户写盘授权；不再因窄 tools
+    名单拒派。保留函数与调用点以免契约漂移，恒返回 ``None``。
     """
-    write_list = " / ".join(sorted(_WRITE_TOOL_NAMES))
-    offenders: list[str] = []
-    for node in plan.nodes:
-        if not _deliverable_promises_landing(node):
-            continue
-        tools = getattr(node, "tools", None)
-        if tools is None:
-            continue
-        if _WRITE_TOOL_NAMES.intersection(tools):
-            continue
-        offenders.append(str(getattr(node, "role", None) or getattr(node, "run_id", "?")))
-    if offenders:
-        named = "、".join(f"「{r}」" for r in offenders)
-        return (
-            f"契约矛盾：队员{named}承诺落盘（form=files / requires_files / artifacts）"
-            f"但 tools 白名单不含写盘工具（{write_list}）。出路："
-            "① 白名单补上 file_write（或 str_replace / file_append 等）；"
-            "② 纯检索 / 纯文字改 form=prose；"
-            "③ 省略 tools 使用全量工具面。"
-        )
-
-    criteria = resolve_completion_criteria(raw, plan)
-    if criteria is None or criteria.kind not in _FILE_LANDING_CRITERIA_KINDS:
-        return None
-    if any(
-        _node_is_non_prose(node) and node_holds_write_tools(node) for node in plan.nodes
-    ):
-        return None
-    kind = criteria.kind
-    return (
-        f"无法按 {kind} 验收：本批无人持有写盘工具（{write_list}），落盘无法落地。"
-        "出路："
-        "① 给至少一名非 prose worker 的 tools 补上 file_write（或 str_replace 等）；"
-        "乙续派可在原调查面声明超集 tools（只增不减 merge）；"
-        "② 纯文字交付改 form=prose 并省略该类验收，或改用 runtime_ready；"
-        "③ 省略 tools 使用全量工具面。"
-    )
+    del raw, plan
+    return None
 
 
 def execution_capability_warning(
@@ -775,25 +671,22 @@ def format_resolved_acceptance_echo(resolved: ResolvedCompletion) -> str:
 
 
 def node_holds_execution_tools(spec: Any) -> bool:
-    """True when the node is offered the execution-class tool set (structural).
+    """真纯丙：不再用 ``spec.tools`` 白名单判断执行类工具；默认视为具备。
 
-    ``tools is None`` = unrestricted fail-safe default (all team tools, including
-    execution class when the registry has them). A non-empty allow-list must
-    intersect ``code_execute`` / ``test_run`` / ``terminal``. Never uses role text.
+    环境是否真装配 ``code_execute`` / ``test_run`` / ``terminal`` 仍由 registry /
+    ``validate_execution_capability`` 等能力闸回答，与名单无关。
     """
-    tools = getattr(spec, "tools", None)
-    if tools is None:
-        return True
-    return bool(_EXECUTION_TOOL_NAMES.intersection(tools))
+    del spec
+    return True
 
 
 def should_inject_batch_acceptance(spec: Any, criteria: CompletionCriteria | None) -> bool:
     """Whether this worker should see batch ``completion_criteria`` in 交付物规格.
 
-    - ``runtime_ready`` / ``code_verified``: any worker holding execution-class tools
-      (verify / start often use ``form=prose``; must still see the batch bar).
-    - ``files_written`` (提案 B2): ``form=files`` ∧ execution tools — research/prose
-      peers are not nudged into redundant file landing.
+    真纯丙下执行类工具不再按 ``spec.tools`` 白名单判定（恒视为具备）。
+    - ``runtime_ready`` / ``code_verified``: 凡有批次验收即注入。
+    - ``files_written`` (提案 B2): 仍要求 ``form=files`` — research/prose
+      peers 不因冗余落盘提示被打扰。
     """
     if criteria is None:
         return False
@@ -824,10 +717,11 @@ def format_batch_acceptance_for_worker(criteria: CompletionCriteria) -> str:
                 "check=command + 约定命令）且 exit 0"
             )
         return (
-            "- 本批验收：code_verified（须至少一次成功落盘 + 验绿：默认走有界项目验证 "
+            "- 本批验收：code_verified（须至少一次成功落盘 + 外环验绿：默认走有界项目验证 "
             "test_run：tsc|typecheck|test|build 等；【不要】把慢 build/全量 tsc 塞进 "
-            "code_execute；全量 typecheck/build/`tsc -b` 仅验收员执行，修码 worker "
-            "默认窄范围（scope=file / 包内 / 改动相关），禁止三路并行全仓 tsc；"
+            "code_execute；内环 code_diagnostics / 写盘诊断不能代替外环验绿；"
+            "全量 typecheck/build/`tsc -b` 仅验收员执行，修码 worker "
+            "用内环诊断自检，禁止三路并行全仓 tsc / 禁止修码批持 test_run；"
             "terminal 仅长驻。普通脚本/打印/启动开发服务器不算；"
             "纯 prose / 零写预存绿测不算过门；落盘用 file_write / str_replace"
             f"{how_line}；你持有执行工具时请在收尾前完成落盘与验证）"

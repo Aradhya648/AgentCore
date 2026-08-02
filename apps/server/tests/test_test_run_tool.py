@@ -16,13 +16,16 @@ from agentcore.core.types import ToolApproval, ToolCategory
 from agentcore.runtime.context.workspace_profile import WorkspaceProfile
 from agentcore.tools.builtin.test_run import (
     _ALLOWED_PREFIXES,
+    _VERIFY_BUDGET_HEAVY_SECONDS,
     _VERIFY_BUDGET_SECONDS,
+    _VERIFY_BUDGET_STANDARD_SECONDS,
     TestRunTool,
     _base_command,
     _detect_framework,
     _is_allowed_command,
     _is_allowed_verify_argv,
     _python_argv_runner,
+    resolve_verify_budget_seconds,
 )
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
@@ -92,9 +95,30 @@ def test_test_run_schema_stays_grantable_execution():
     assert schema.category is ToolCategory.EXECUTION
     assert "有界项目验证" in schema.description
     assert "code_execute" in schema.description
-    # Engine ceiling must outlive sandbox budget so Timeout returns as contract_failure.
+    # Engine ceiling must outlive heavy sandbox budget so Timeout returns as contract_failure.
     assert schema.timeout_seconds is not None
-    assert schema.timeout_seconds > _VERIFY_BUDGET_SECONDS
+    assert schema.timeout_seconds > _VERIFY_BUDGET_HEAVY_SECONDS
+
+
+def test_verify_budget_tiers_by_check_and_command_shape():
+    """Outer-loop 分档：typecheck/build(+heavy command)=600；install/test/其它=300。"""
+    assert resolve_verify_budget_seconds("typecheck") == _VERIFY_BUDGET_HEAVY_SECONDS
+    assert resolve_verify_budget_seconds("build") == _VERIFY_BUDGET_HEAVY_SECONDS
+    assert resolve_verify_budget_seconds("install") == _VERIFY_BUDGET_STANDARD_SECONDS
+    assert resolve_verify_budget_seconds("test") == _VERIFY_BUDGET_STANDARD_SECONDS
+    assert (
+        resolve_verify_budget_seconds("command", ["npx", "tsc", "--noEmit"])
+        == _VERIFY_BUDGET_HEAVY_SECONDS
+    )
+    assert (
+        resolve_verify_budget_seconds("command", ["npm", "run", "build"])
+        == _VERIFY_BUDGET_HEAVY_SECONDS
+    )
+    assert (
+        resolve_verify_budget_seconds("command", ["pytest", "-q"])
+        == _VERIFY_BUDGET_STANDARD_SECONDS
+    )
+    assert _VERIFY_BUDGET_SECONDS == _VERIFY_BUDGET_STANDARD_SECONDS
 
 
 # --- command whitelist ---
@@ -326,7 +350,7 @@ async def test_check_command_runs_via_python_launcher(
     assert len(backend.requests) == 1
     req = backend.requests[0]
     assert req.language == "python"
-    assert req.timeout_seconds == _VERIFY_BUDGET_SECONDS
+    assert req.timeout_seconds == _VERIFY_BUDGET_HEAVY_SECONDS
     assert "npx" in req.code and "tsc" in req.code
     assert "bash" not in req.code
     assert "## 验证结果：通过" in result.output
@@ -357,6 +381,7 @@ async def test_check_build_uses_profile_build_command(
     assert result.success is True
     assert "npm" in backend.requests[0].code
     assert "build" in backend.requests[0].code
+    assert backend.requests[0].timeout_seconds == _VERIFY_BUDGET_HEAVY_SECONDS
     assert result.metadata is not None
     assert result.metadata.get("check") == "build"
 
@@ -703,6 +728,65 @@ async def test_working_directory_injects_npm_prefix(monkeypatch: pytest.MonkeyPa
     assert "apps/web" in backend.requests[0].code
 
 
+async def test_verify_policy_inner_refuses_typecheck(monkeypatch: pytest.MonkeyPatch):
+    """Investigate/review posture must not burn minute-level full-repo tsc."""
+    backend = _FakeBackend(exists={"tsconfig.json"})
+
+    async def _fake_profile(_backend):
+        return _make_profile(
+            languages=["typescript"],
+            typecheck_commands=["npx tsc --noEmit"],
+        )
+
+    monkeypatch.setattr(
+        "agentcore.tools.builtin.test_run.detect_workspace_profile",
+        _fake_profile,
+    )
+    ctx = ToolContext(
+        execution_id="e",
+        run_id="s",
+        agent_id="a",
+        backend=backend,  # type: ignore[arg-type]
+        user_id="u",
+        verify_policy="inner",
+    )
+    result = await TestRunTool().execute({"check": "typecheck"}, ctx)
+    assert result.success is False
+    assert result.contract_failure is True
+    assert (result.metadata or {}).get("code") == "verify_policy_inner"
+    assert "code_diagnostics" in (result.error or "")
+    assert backend.requests == []
+
+
+def test_apply_verify_policies_stamps_review_roles():
+    from agentcore.runtime.runs.types import RunSpec
+    from agentcore.runtime.runs.worker_budget import (
+        apply_verify_policies_to_specs,
+        is_outer_verify_role,
+    )
+
+    review = RunSpec(run_id="r1", role="渲染链路审查员", task="查 blank page")
+    accept = RunSpec(run_id="r2", role="验收员", task="外环 typecheck")
+    explicit = RunSpec(
+        run_id="r3", role="审查员", task="x", verify_policy="outer"
+    )
+    apply_verify_policies_to_specs([review, accept, explicit])
+    assert review.verify_policy == "inner"
+    assert accept.verify_policy == ""
+    assert is_outer_verify_role("验收员")
+    assert explicit.verify_policy == "outer"
+
+
+def test_project_verify_redirect_respects_inner_policy():
+    from agentcore.tools.builtin.project_verify import project_verify_redirect_message
+
+    outer = project_verify_redirect_message("npx tsc")
+    assert "test_run" in outer
+    inner = project_verify_redirect_message("npx tsc", verify_policy="inner")
+    assert "code_diagnostics" in inner
+    assert "verify_policy=inner" in inner
+
+
 async def test_build_whitelist_unaffected_by_install_rules(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -727,3 +811,147 @@ async def test_build_whitelist_unaffected_by_install_rules(
     result = await TestRunTool().execute({"check": "build"}, _ctx(backend))
     assert result.success is True
     assert backend.requests[0].network_mode == "none"
+
+
+def test_verify_coalesce_fingerprint_stable_on_resolved_argv():
+    from agentcore.tools.builtin.test_run import verify_coalesce_fingerprint
+
+    a = verify_coalesce_fingerprint("typecheck", ["npx", "tsc", "--noEmit"], None)
+    b = verify_coalesce_fingerprint("typecheck", ["npx", "tsc", "--noEmit"], "")
+    c = verify_coalesce_fingerprint("typecheck", ["npx", "tsc", "--noEmit"], "apps/web")
+    assert a == b
+    assert a != c
+
+
+async def test_sibling_verify_inflight_coalesce(monkeypatch: pytest.MonkeyPatch):
+    """Two workers sharing one execution join one sandbox execute (no double burn)."""
+    import asyncio
+
+    from agentcore.runtime.coordination.session import (
+        CoordinationSession,
+        clear_active_coordination,
+        set_active_coordination,
+    )
+
+    class _GateBackend(_FakeBackend):
+        def __init__(self) -> None:
+            super().__init__(
+                exists={"tsconfig.json"},
+                result=ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr="Timeout: execution exceeded 300s",
+                    exit_code=-1,
+                    duration_ms=300_000,
+                ),
+            )
+            self.calls = 0
+            self.entered = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def execute(self, request: ExecutionRequest) -> ExecutionResult:
+            self.calls += 1
+            self.requests.append(request)
+            self.entered.set()
+            await self.release.wait()
+            return self._result
+
+    backend = _GateBackend()
+
+    async def _fake_profile(_backend):
+        return _make_profile(
+            languages=["typescript"],
+            typecheck_commands=["npx tsc --noEmit"],
+        )
+
+    monkeypatch.setattr(
+        "agentcore.tools.builtin.test_run.detect_workspace_profile",
+        _fake_profile,
+    )
+
+    clear_active_coordination()
+    session = CoordinationSession(execution_id="e-coalesce", total_workers=2)
+    session._running_workers["w1"] = "渲染"
+    session._running_workers["w2"] = "存储"
+    set_active_coordination(session)
+    tool = TestRunTool()
+    try:
+        t1 = asyncio.create_task(
+            tool.execute(
+                {"check": "typecheck"},
+                ToolContext(
+                    execution_id="e-coalesce",
+                    run_id="w1",
+                    agent_id="w1",
+                    backend=backend,  # type: ignore[arg-type]
+                    user_id="u",
+                ),
+            )
+        )
+        await asyncio.wait_for(backend.entered.wait(), timeout=2.0)
+        t2 = asyncio.create_task(
+            tool.execute(
+                {"check": "typecheck"},
+                ToolContext(
+                    execution_id="e-coalesce",
+                    run_id="w2",
+                    agent_id="w2",
+                    backend=backend,  # type: ignore[arg-type]
+                    user_id="u",
+                ),
+            )
+        )
+        # Second caller should be waiting on inflight before we release.
+        await asyncio.sleep(0.05)
+        assert backend.calls == 1
+        assert session.has_verify_busy() is True
+        assert session.has_inflight_work() is False
+        backend.release.set()
+        r1, r2 = await asyncio.gather(t1, t2)
+        assert backend.calls == 1
+        assert r1.contract_failure is True
+        assert r2.contract_failure is True
+        assert (r2.metadata or {}).get("verify_shared") == "inflight"
+        assert "团队共享验证" in (r2.output or "")
+        # Cache hit on a third call (no new sandbox execute).
+        r3 = await tool.execute(
+            {"check": "typecheck"},
+            ToolContext(
+                execution_id="e-coalesce",
+                run_id="w1",
+                agent_id="w1",
+                backend=backend,  # type: ignore[arg-type]
+                user_id="u",
+            ),
+        )
+        assert backend.calls == 1
+        assert (r3.metadata or {}).get("verify_shared") == "cache"
+        # Successful land must invalidate cache so a later verify re-runs.
+        from agentcore.tools.builtin.file_ops import _mark_landed_files
+
+        _mark_landed_files(
+            ToolContext(
+                execution_id="e-coalesce",
+                run_id="w1",
+                agent_id="w1",
+                backend=backend,  # type: ignore[arg-type]
+                user_id="u",
+            ),
+            "src/app.ts",
+            kind="skeleton",
+        )
+        assert session._verify_cache == {}
+        r4 = await tool.execute(
+            {"check": "typecheck"},
+            ToolContext(
+                execution_id="e-coalesce",
+                run_id="w2",
+                agent_id="w2",
+                backend=backend,  # type: ignore[arg-type]
+                user_id="u",
+            ),
+        )
+        assert backend.calls == 2
+        assert (r4.metadata or {}).get("verify_shared") is None
+    finally:
+        clear_active_coordination("e-coalesce")

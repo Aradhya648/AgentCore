@@ -101,6 +101,34 @@ def upstream_body_floor_satisfied(
     return n >= floor
 
 
+def promote_brief_to_deliverable(
+    summary: str,
+    key_points: object = None,
+) -> str:
+    """升格交接简报为下游可读候选正文（同轮正文 0 字时的交付替身）。
+
+    ``summary`` 为首段；非空 ``key_points`` 附作 ``- …`` 列表。空 summary → ``""``
+    （不豁免空交）。handoff / 收工闸 / 依赖注入共用。
+    """
+    head = (summary or "").strip()
+    if not head:
+        return ""
+    points: list[str] = []
+    if isinstance(key_points, list):
+        for raw in key_points:
+            item = str(raw).strip()
+            if item:
+                points.append(item)
+    elif key_points is not None:
+        item = str(key_points).strip()
+        if item:
+            points.append(item)
+    if not points:
+        return head
+    bullets = "\n".join(f"- {p}" for p in points)
+    return f"{head}\n\n{bullets}"
+
+
 def batch_includes_review_role(tasks: object) -> bool:
     """True when hand-written tasks already include an independent review role."""
     if not isinstance(tasks, list):

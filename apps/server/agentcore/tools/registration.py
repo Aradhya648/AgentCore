@@ -133,6 +133,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         BrowserSnapshotTool,
         BrowserTypeTool,
     )
+    from agentcore.tools.builtin.code_diagnostics import CodeDiagnosticsTool
     from agentcore.tools.builtin.code_execute import CodeExecuteTool
     from agentcore.tools.builtin.code_search import CodeSearchTool
     from agentcore.tools.builtin.consult_memory import ConsultMemoryTool
@@ -203,6 +204,7 @@ def _load_declared_tools() -> tuple[type, ...]:
         MdToPdfTool,
         GrepTool,
         CodeSearchTool,
+        CodeDiagnosticsTool,
         GitTool,
         TestRunTool,
         CodeExecuteTool,

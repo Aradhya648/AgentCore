@@ -1002,6 +1002,15 @@ class ServerWorkspace:
         manager = self._get_index_manager()
         return await manager.ensure_index(self, force=force)
 
+    async def diagnostics(self, paths: list[str]) -> dict:
+        """Cloud has no language-service channel — honest unavailable (no fake tsc)."""
+        _ = paths
+        return {
+            "status": "unavailable",
+            "reason": "云端工作区暂不支持语言服务内环诊断",
+            "diagnostics": [],
+        }
+
     async def execute(self, req: ExecutionRequest) -> ExecutionResult:
         # Run code in the workspace root so relative file paths resolve against
         # the same files the file tools see.

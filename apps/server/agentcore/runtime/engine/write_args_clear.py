@@ -8,6 +8,10 @@ This projection — applied at request-assembly time only, like ``tool_clear`` �
 the write body's argument field with a stable stub once a tool result acknowledges the
 call. Canonical ``messages`` / journal keep the full args; resume rebuilds then re-applies.
 
+For ``str_replace``, only ``new_string`` is stubbed; ``old_string`` is kept so the model
+still sees a valid schema-shaped prior call (empty/wrong-key stubs taught models to
+re-emit blank ``old_string``).
+
 The stub keeps a compact **structural digest** (HTML class/id lists, CSS selectors, …)
 so a multi-file worker can still contract against what it already wrote without re-paying
 the full body — and without blind-writing the next file from memory alone.
@@ -168,9 +172,14 @@ def _body_text(data: dict) -> str:
 
 
 def write_args_stub(tool_name: str, arguments: str, original_len: int) -> str:
-    """Stable stub arguments: keep path/pattern identity + structural digest, drop body."""
+    """Stable stub arguments: keep path/anchor identity + structural digest, drop body.
+
+    ``str_replace`` keeps the full ``old_string`` (anchor is usually short) and only
+    stubs ``new_string``. Stub keys MUST match the live tool schema — wrong keys
+    (e.g. ``old_str``) teach models to re-emit empty/malformed calls.
+    """
     path = ""
-    pattern = ""
+    old_string = ""
     try:
         data = json.loads(arguments) if arguments else {}
     except (json.JSONDecodeError, TypeError, ValueError):
@@ -178,22 +187,33 @@ def write_args_stub(tool_name: str, arguments: str, original_len: int) -> str:
     body = ""
     if isinstance(data, dict):
         path = str(data.get("path") or data.get("file_path") or "")
-        pattern = str(data.get("old_str") or data.get("pattern") or "")[:80]
-        body = _body_text(data)
-    stub: dict[str, str] = {
-        "_cleared": (
-            f"{tool_name} 正文已从上下文窗口移除（原 {original_len} 字符）；"
-            "内容已落盘，如需细节请 file_read。"
+        # Prefer schema keys; accept legacy aliases only when reading historical args.
+        old_string = str(
+            data.get("old_string") or data.get("old_str") or data.get("pattern") or ""
         )
-    }
+        body = _body_text(data)
+    if tool_name == "str_replace":
+        cleared_msg = (
+            f"str_replace 的 new_string 已从上下文窗口移除（原 {original_len} 字符）；"
+            "内容已落盘。下次调用必须重新填写完整 old_string 与 new_string，"
+            "禁止把本 stub（含 _cleared）原样当参数重发；如需细节请 file_read。"
+        )
+    else:
+        cleared_msg = (
+            f"{tool_name} 正文已从上下文窗口移除（原 {original_len} 字符）；"
+            "内容已落盘。下次调用必须重新填写完整参数，"
+            "禁止把本 stub（含 _cleared）原样当参数重发；如需细节请 file_read。"
+        )
+    stub: dict[str, str] = {"_cleared": cleared_msg}
     if path:
         stub["path"] = path
     summary = structural_write_summary(path, body)
     if summary:
         stub["_structure"] = summary
-    if pattern and tool_name == "str_replace":
-        stub["old_str"] = pattern
-        stub["new_str"] = "[已清理]"
+    if tool_name == "str_replace":
+        # 乙：保留完整锚点；甲：schema 真名 + 明示须重填正文。
+        stub["old_string"] = old_string if old_string else "[已清理·须重填]"
+        stub["new_string"] = "[已清理·须重填]"
     elif tool_name in {"file_write", "file_append"}:
         stub["content"] = "[已清理]"
     return json.dumps(stub, ensure_ascii=False)

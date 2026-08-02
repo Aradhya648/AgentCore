@@ -250,23 +250,33 @@ def test_token_wind_down_threshold_and_tool_narrowing():
     assert should_enter_token_wind_down(1, 30_000, 30_000) is False  # reserve >= ceiling
     assert should_enter_token_wind_down(1, 20_000, 30_000) is False  # reserve > ceiling
 
-    # 收尾窗口本意「落盘 + handoff」，分段长文落盘要靠 file_append，白名单不可漏它。
+    # 收尾窗口本意「落盘 + 内环诊断 + handoff」；分段长文靠 file_append，白名单不可漏。
     assert "file_append" in WIND_DOWN_ALLOWED_TOOLS
+    assert "code_diagnostics" in WIND_DOWN_ALLOWED_TOOLS
     available = {
         "web_search",
         "handoff",
         "file_write",
         "file_append",
         "file_list",
+        "code_diagnostics",
         "code_execute",
     }
     narrowed = narrow_tools_for_wind_down(
         available,
-        allowed=["web_search", "handoff", "file_write", "file_append", "file_list"],
+        allowed=[
+            "web_search",
+            "handoff",
+            "file_write",
+            "file_append",
+            "file_list",
+            "code_diagnostics",
+        ],
     )
     assert "handoff" in narrowed
     assert "file_write" in narrowed
     assert "file_append" in narrowed  # 追加写在收尾窗口可用（钉死）
+    assert "code_diagnostics" in narrowed  # 收窄后仍可内环自检
     assert "web_search" not in narrowed
     assert "code_execute" not in narrowed
     assert set(narrowed) <= (WIND_DOWN_ALLOWED_TOOLS | {"handoff"})

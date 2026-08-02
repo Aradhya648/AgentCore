@@ -28,6 +28,7 @@ import {
   revisionFeedbackSummary,
 } from "./agentNode/shared";
 import { INPUT_ID } from "./constants";
+import { agentNodeToShell } from "./graphLive";
 import {
   aggregateDebateRoundStatus,
   debateRoundActiveBeat,
@@ -64,6 +65,11 @@ export interface FlowGraphProjectionInput {
   onToggleUnitExpand?: (unitId: string) => void;
   /** Prefer bezier edges (tree / mind-map look). */
   edgePathType?: "smoothstep" | "bezier";
+  /**
+   * Document shells only: omit Live fields / callbacks / animated.
+   * Faces self-read Live via {@link graphLive} when GraphDocumentMode is on.
+   */
+  documentShell?: boolean;
 }
 
 export interface FlowEdgeProjectionInput extends FlowGraphProjectionInput {
@@ -191,6 +197,7 @@ export function projectFlowNodes({
   scene,
   expandedUnits = new Set(),
   onToggleUnitExpand,
+  documentShell = false,
 }: FlowGraphProjectionInput): Node[] {
   const placed = (id: string) => positions[id];
 
@@ -374,109 +381,109 @@ export function projectFlowNodes({
             foldedCx.map((r) => debateBeatFromContext(r.receivedContext)),
           )
         : null;
+    const agentData = {
+      agentId: run.agentId,
+      role: (hostAgent ?? agent)?.role ?? run.agentId,
+      runId: run.id,
+      status: aggregatedStatus,
+      isAnimating: aggregatedStatus === "running",
+      task: run.task,
+      error:
+        aggregatedStatus === "failed"
+          ? (roundRuns.find((r) => r.status === "failed")?.error ?? run.error)
+          : run.error,
+      failureKind:
+        aggregatedStatus === "failed"
+          ? (roundRuns.find((r) => r.status === "failed")?.failureKind ??
+            run.failureKind)
+          : run.failureKind,
+      productLanded:
+        aggregatedStatus === "failed"
+          ? (roundRuns.find((r) => r.status === "failed")?.productLanded ??
+            run.productLanded)
+          : run.productLanded,
+      outputPreview: tailText(output),
+      debateFacePrimary: isDebateAgentNode({
+        stance: run.stance,
+        group: run.group,
+      })
+        ? debateFacePrimaryFromContext(run.receivedContext)
+        : null,
+      challengePreview: isDebateAgentNode({
+        stance: run.stance,
+        group: run.group,
+      })
+        ? challengePreviewFromContext(run.receivedContext)
+        : null,
+      reasoningPreview: tailText(reasoning),
+      toolProgress: agent?.toolProgress ?? null,
+      toolExecutionLive: agent?.toolExecutionLive ?? null,
+      phase: faceRun.phase ?? run.phase ?? null,
+      phaseTool: faceRun.phaseTool ?? run.phaseTool ?? null,
+      tokenCount: estimateTokens(output),
+      toolCount: agent?.toolCalls.length ?? 0,
+      artifacts: agent ? deriveArtifacts(agent.toolCalls) : [],
+      focused,
+      nodeWidth: size?.width,
+      model: faceRun.model ?? run.model,
+      durationMs,
+      // 进行中 live 计时锚点：取当前在跑的 beat（辩论折叠轮取 faceRun），回退轮根。
+      startedAt: faceRun.startedAt ?? run.startedAt,
+      realTokens,
+      costText:
+        costNano > 0 ? formatCostCaption(costNano, costEstimated) : undefined,
+      handleDirection,
+      isSubtask,
+      isRevision: isContinuation,
+      continuationIndex: run.continuationIndex,
+      continuesRunId: run.continuesRunId,
+      round: run.round,
+      debateBeat: isContinuation
+        ? debateBeatFromContext(run.receivedContext)
+        : null,
+      debateRoundPhase: phaseLabel,
+      debateCrossExamMark: settledMark,
+      onActivateCrossExam:
+        settledMark && cxActivateId
+          ? () => activateNode(cxActivateId)
+          : undefined,
+      group: run.group,
+      revisionSummary: isContinuation
+        ? revisionFeedbackSummary(run.receivedContext)
+        : null,
+      revised: run.revised,
+      replacesRunId: run.replacesRunId,
+      didRework: (hostAgent ?? agent)?.didRework === true,
+      stance: run.stance,
+      checkpoint: run.checkpoint,
+      escalationPending: roundRuns.reduce(
+        (n, r) =>
+          n + r.escalations.filter((e) => e.status === "pending").length,
+        0,
+      ),
+      escalationRaised: roundRuns.reduce(
+        (n, r) => n + r.escalations.filter((e) => e.status === "raised").length,
+        0,
+      ),
+      escalationKind: pickEscalationKind(
+        roundRuns.flatMap((r) => r.escalations),
+      ),
+      reviewConcern,
+      foldedChildCount:
+        foldedChildCount > 0 && !foldInfo.debateUnits.has(run.id)
+          ? foldedChildCount
+          : undefined,
+      unitExpanded: expandedUnits.has(run.id),
+      onToggleUnitExpand: () => onToggleUnitExpand?.(run.id),
+      enterIndex: i + 1,
+      onActivate: () => activateNode(activateId),
+    };
     nodes.push({
       id: run.id,
       type: "agent",
       position: pos,
       ...(group ? { parentId: group.groupId, extent: "parent" as const } : {}),
-      data: {
-        agentId: run.agentId,
-        role: (hostAgent ?? agent)?.role ?? run.agentId,
-        runId: run.id,
-        status: aggregatedStatus,
-        isAnimating: aggregatedStatus === "running",
-        task: run.task,
-        error:
-          aggregatedStatus === "failed"
-            ? (roundRuns.find((r) => r.status === "failed")?.error ?? run.error)
-            : run.error,
-        failureKind:
-          aggregatedStatus === "failed"
-            ? (roundRuns.find((r) => r.status === "failed")?.failureKind ??
-              run.failureKind)
-            : run.failureKind,
-        productLanded:
-          aggregatedStatus === "failed"
-            ? (roundRuns.find((r) => r.status === "failed")?.productLanded ??
-              run.productLanded)
-            : run.productLanded,
-        outputPreview: tailText(output),
-        debateFacePrimary: isDebateAgentNode({
-          stance: run.stance,
-          group: run.group,
-        })
-          ? debateFacePrimaryFromContext(run.receivedContext)
-          : null,
-        challengePreview: isDebateAgentNode({
-          stance: run.stance,
-          group: run.group,
-        })
-          ? challengePreviewFromContext(run.receivedContext)
-          : null,
-        reasoningPreview: tailText(reasoning),
-        toolProgress: agent?.toolProgress ?? null,
-        toolExecutionLive: agent?.toolExecutionLive ?? null,
-        phase: faceRun.phase ?? run.phase ?? null,
-        phaseTool: faceRun.phaseTool ?? run.phaseTool ?? null,
-        tokenCount: estimateTokens(output),
-        toolCount: agent?.toolCalls.length ?? 0,
-        artifacts: agent ? deriveArtifacts(agent.toolCalls) : [],
-        focused,
-        nodeWidth: size?.width,
-        model: faceRun.model ?? run.model,
-        durationMs,
-        // 进行中 live 计时锚点：取当前在跑的 beat（辩论折叠轮取 faceRun），回退轮根。
-        startedAt: faceRun.startedAt ?? run.startedAt,
-        realTokens,
-        costText:
-          costNano > 0 ? formatCostCaption(costNano, costEstimated) : undefined,
-        handleDirection,
-        isSubtask,
-        isRevision: isContinuation,
-        continuationIndex: run.continuationIndex,
-        continuesRunId: run.continuesRunId,
-        round: run.round,
-        debateBeat: isContinuation
-          ? debateBeatFromContext(run.receivedContext)
-          : null,
-        debateRoundPhase: phaseLabel,
-        debateCrossExamMark: settledMark,
-        onActivateCrossExam:
-          settledMark && cxActivateId
-            ? () => activateNode(cxActivateId)
-            : undefined,
-        group: run.group,
-        revisionSummary: isContinuation
-          ? revisionFeedbackSummary(run.receivedContext)
-          : null,
-        revised: run.revised,
-        replacesRunId: run.replacesRunId,
-        didRework: (hostAgent ?? agent)?.didRework === true,
-        stance: run.stance,
-        checkpoint: run.checkpoint,
-        escalationPending: roundRuns.reduce(
-          (n, r) =>
-            n + r.escalations.filter((e) => e.status === "pending").length,
-          0,
-        ),
-        escalationRaised: roundRuns.reduce(
-          (n, r) =>
-            n + r.escalations.filter((e) => e.status === "raised").length,
-          0,
-        ),
-        escalationKind: pickEscalationKind(
-          roundRuns.flatMap((r) => r.escalations),
-        ),
-        reviewConcern,
-        foldedChildCount:
-          foldedChildCount > 0 && !foldInfo.debateUnits.has(run.id)
-            ? foldedChildCount
-            : undefined,
-        unitExpanded: expandedUnits.has(run.id),
-        onToggleUnitExpand: () => onToggleUnitExpand?.(run.id),
-        enterIndex: i + 1,
-        onActivate: () => activateNode(activateId),
-      },
+      data: documentShell ? agentNodeToShell(agentData) : agentData,
     } as Node);
   }
 
@@ -487,24 +494,37 @@ export function projectFlowNodes({
         id: INPUT_ID,
         type: "userInput",
         position: inputPos,
-        data: {
-          variant: "input",
-          status: "completed",
-          label: execution.taskSummary,
-          handleDirection,
-          enterIndex: 0,
-          focused: !!taskMessage && litEndpointMessageId === taskMessage.id,
-          onActivate: taskMessage ? () => activateNode(INPUT_ID) : undefined,
-        },
+        data: documentShell
+          ? {
+              variant: "input" as const,
+              label: execution.taskSummary,
+              handleDirection,
+              enterIndex: 0,
+            }
+          : {
+              variant: "input" as const,
+              status: "completed" as const,
+              label: execution.taskSummary,
+              handleDirection,
+              enterIndex: 0,
+              focused: !!taskMessage && litEndpointMessageId === taskMessage.id,
+              onActivate: taskMessage
+                ? () => activateNode(INPUT_ID)
+                : undefined,
+            },
       } as Node);
     }
-    if (captainRun && captainStatus) {
+    // Document shell: emit captain whenever the run exists (Live fills status).
+    // Legacy path still requires captainStatus (callers always derive it).
+    if (captainRun && (documentShell || captainStatus)) {
       const captainPos = placed(captainRun.id);
       if (captainPos) {
         const waitCaption = (captainStatusCaption ?? "").trim();
         // Coordination wait uses running chrome (spinner) even while derived
         // captain status is still pending (workers in flight).
-        const sinkStatus: RunStatus = waitCaption ? "running" : captainStatus;
+        const sinkStatus: RunStatus = waitCaption
+          ? "running"
+          : (captainStatus ?? "pending");
         const answerPreview = finalAnswer ? headText(finalAnswer.content) : "";
         const synthPreview =
           !answerPreview && sinkStatus === "running" && !waitCaption
@@ -516,19 +536,28 @@ export function projectFlowNodes({
           id: captainRun.id,
           type: "captain",
           position: captainPos,
-          data: {
-            variant: "captain",
-            status: sinkStatus,
-            statusCaption: waitCaption || undefined,
-            label: "",
-            preview: answerPreview || synthPreview,
-            handleDirection,
-            enterIndex: workerRuns.length + 1,
-            focused: !!finalAnswer && litEndpointMessageId === finalAnswer.id,
-            onActivate: finalAnswer
-              ? () => activateNode(captainRun.id)
-              : undefined,
-          },
+          data: documentShell
+            ? {
+                variant: "captain" as const,
+                runId: captainRun.id,
+                label: "",
+                handleDirection,
+                enterIndex: workerRuns.length + 1,
+              }
+            : {
+                variant: "captain" as const,
+                status: sinkStatus,
+                statusCaption: waitCaption || undefined,
+                label: "",
+                preview: answerPreview || synthPreview,
+                handleDirection,
+                enterIndex: workerRuns.length + 1,
+                focused:
+                  !!finalAnswer && litEndpointMessageId === finalAnswer.id,
+                onActivate: finalAnswer
+                  ? () => activateNode(captainRun.id)
+                  : undefined,
+              },
         } as Node);
       } else {
         missingPosIds.push(captainRun.id);
@@ -574,22 +603,34 @@ export function projectActCardNodes(
   cards: ActCardLayout[],
   handleDirection: "horizontal" | "vertical",
   onFocusAct: (actId: string) => void,
+  documentShell = false,
 ): Node[] {
   const actById = new Map(scene.acts.map((a) => [a.actId, a]));
   const nodes: Node[] = [];
   for (const c of cards) {
     const act = actById.get(c.actId);
     if (!act) continue;
+    const full = {
+      ...actCardDataFromScene(act, c.index),
+      handleDirection,
+      onActivate: () => onFocusAct(c.actId),
+    };
     nodes.push({
       id: c.id,
       type: "actSummary",
       position: { x: c.x, y: c.y },
       draggable: false,
-      data: {
-        ...actCardDataFromScene(act, c.index),
-        handleDirection,
-        onActivate: () => onFocusAct(c.actId),
-      },
+      data: documentShell
+        ? {
+            actId: full.actId,
+            kind: full.kind,
+            title: full.title,
+            authorizedBy: full.authorizedBy,
+            roles: full.roles,
+            handleDirection,
+            index: full.index,
+          }
+        : full,
     } as Node);
   }
   return nodes;
@@ -606,6 +647,7 @@ export function projectFlowEdges({
   captainRun,
   captainStatus,
   edgePathType = "smoothstep",
+  documentShell = false,
 }: Pick<
   FlowEdgeProjectionInput,
   | "edges"
@@ -617,22 +659,43 @@ export function projectFlowEdges({
   | "captainRun"
   | "captainStatus"
   | "edgePathType"
+  | "documentShell"
 >): Edge[] {
-  const gapEdges = injectOverlay?.activeGapEdges ?? [];
+  // Document: topology only — inject gap edges are a Live overlay (GraphView).
+  const gapEdges =
+    documentShell || !injectOverlay ? [] : (injectOverlay.activeGapEdges ?? []);
   const allEdges = gapEdges.length > 0 ? [...edges, ...gapEdges] : edges;
   const horizontal = handleDirection === "horizontal";
   const heightOf = (id: string) => nodeSizes[id]?.height ?? NODE_HEIGHT;
   const ports = computeEdgePorts(allEdges, positions, horizontal, heightOf);
 
   return allEdges.map((e) => {
-    const animated =
-      e.target === captainRun?.id
-        ? captainStatus === "running"
-        : execution.runs.find((s) => s.id === e.target)?.status === "running";
     const kind = e.kind ?? "dep";
     const handoff =
       kind === "dep" ? resolveHandoff(execution, e.source, e.target) : null;
     const port = ports.get(e.id);
+    if (documentShell) {
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "step",
+        data: {
+          kind,
+          handoff,
+          handleDirection,
+          pathType: edgePathType,
+          sourcePortIndex: port?.sourcePortIndex ?? 0,
+          sourcePortTotal: port?.sourcePortTotal ?? 1,
+          targetPortIndex: port?.targetPortIndex ?? 0,
+          targetPortTotal: port?.targetPortTotal ?? 1,
+        },
+      } as Edge;
+    }
+    const animated =
+      e.target === captainRun?.id
+        ? captainStatus === "running"
+        : execution.runs.find((s) => s.id === e.target)?.status === "running";
     const injectHighlight =
       kind === "inject" || (injectOverlay?.highlightEdgeIds.has(e.id) ?? false);
     const injectDimmed =
@@ -650,6 +713,48 @@ export function projectFlowEdges({
         handoff,
         injectHighlight,
         injectDimmed,
+        handleDirection,
+        pathType: edgePathType,
+        sourcePortIndex: port?.sourcePortIndex ?? 0,
+        sourcePortTotal: port?.sourcePortTotal ?? 1,
+        targetPortIndex: port?.targetPortIndex ?? 0,
+        targetPortTotal: port?.targetPortTotal ?? 1,
+      },
+    } as Edge;
+  });
+}
+
+/** Live-only inject gap edges (Document topology stays untouched). */
+export function projectInjectGapEdges({
+  injectOverlay,
+  positions,
+  nodeSizes,
+  handleDirection,
+  edgePathType = "smoothstep",
+}: {
+  injectOverlay:
+    | import("@/lib/causalInject").InjectGraphOverlay
+    | null
+    | undefined;
+  positions: Record<string, { x: number; y: number }>;
+  nodeSizes: Record<string, { width: number; height: number }>;
+  handleDirection: "horizontal" | "vertical";
+  edgePathType?: "smoothstep" | "bezier";
+}): Edge[] {
+  const gapEdges = injectOverlay?.activeGapEdges ?? [];
+  if (gapEdges.length === 0) return [];
+  const horizontal = handleDirection === "horizontal";
+  const heightOf = (id: string) => nodeSizes[id]?.height ?? NODE_HEIGHT;
+  const ports = computeEdgePorts(gapEdges, positions, horizontal, heightOf);
+  return gapEdges.map((e) => {
+    const port = ports.get(e.id);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: "step",
+      data: {
+        kind: "inject" as const,
         handleDirection,
         pathType: edgePathType,
         sourcePortIndex: port?.sourcePortIndex ?? 0,

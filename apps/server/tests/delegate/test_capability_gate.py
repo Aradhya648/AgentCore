@@ -621,18 +621,15 @@ async def test_execute_repair_code_forces_code_verified_acceptance():
 # ── D1：code_verified × 无执行类 tools 硬拒 ───────────────────────────────────
 
 
-def test_worker_tools_gate_rejects_code_verified_without_execution_tools():
+def test_worker_tools_gate_retired_for_code_verified_without_execution_tools():
     plan = _plan_with_tools(["file_read", "grep", "web_search"])
-    msg = validate_code_verified_worker_tools(
-        {"type": "code_verified", "verify_command": "pytest -q"},
-        plan,
+    assert (
+        validate_code_verified_worker_tools(
+            {"type": "code_verified", "verify_command": "pytest -q"},
+            plan,
+        )
+        is None
     )
-    assert msg is not None
-    assert "无人持有执行类工具" in msg
-    assert "test_run" in msg
-    assert "只增不减" in msg or "超集" in msg
-    assert "repair_code" in msg
-    assert "省略" in msg
 
 
 def test_worker_tools_gate_passes_when_one_holds_test_run():
@@ -659,9 +656,9 @@ def test_worker_tools_gate_silent_when_not_code_verified():
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_code_verified_when_all_workers_lack_execution_tools():
-    """手写 code_verified + 全员无执行类 tools → 入闸拒绝（带出路文案）。"""
-    reg = _registry("file_read", "grep", "web_search")
+async def test_execute_allows_code_verified_when_tools_declaration_lacks_execution():
+    """真纯丙：手写 code_verified + 声明无执行类 tools → 不再因白名单入闸拒绝。"""
+    reg = _registry("file_read", "grep", "web_search", "test_run", "file_write")
     t = DelegateTool(
         llm=Provider(["X"]),
         sink=EventSink(),
@@ -690,14 +687,11 @@ async def test_execute_rejects_code_verified_when_all_workers_lack_execution_too
         },
         local_ctx(),
     )
-    assert result.success is False
-    assert result.contract_failure is True
-    assert "无人持有执行类工具" in (result.error or "")
-    assert "test_run" in (result.error or "")
-    assert "repair_code" in (result.error or "")
+    assert result.success is True
+    assert result.contract_failure is not True
 
 
-# ── 落盘 × 无写盘白名单硬拒 ───────────────────────────────────────────────────
+# ── 落盘 × 无写盘白名单硬拒（真纯丙已退役）───────────────────────────────────
 
 
 def _plan_files_with_tools(tools: list[str] | None, *, role: str = "前端"):
@@ -727,13 +721,9 @@ def _plan_files_with_tools(tools: list[str] | None, *, role: str = "前端"):
     return plan
 
 
-def test_write_tools_gate_rejects_files_form_with_search_only_whitelist():
+def test_write_tools_gate_retired_for_files_form_with_search_only_whitelist():
     plan = _plan_files_with_tools(["file_read", "grep", "web_search"])
-    msg = validate_files_worker_tools(None, plan)
-    assert msg is not None
-    assert "前端" in msg
-    assert "写盘" in msg or "file_write" in msg
-    assert "form=files" in msg
+    assert validate_files_worker_tools(None, plan) is None
 
 
 def test_write_tools_gate_passes_prose_with_search_whitelist():
@@ -767,13 +757,9 @@ def test_write_tools_gate_passes_files_with_file_write():
     assert validate_files_worker_tools(None, plan) is None
 
 
-def test_write_tools_gate_batch_rejects_files_written_without_write_tools():
-    # 无 form=files，但显式 files_written + 检索白名单 → 批次闸硬拒
+def test_write_tools_gate_batch_retired_for_files_written_without_write_tools():
     plan = _plan_with_tools(["file_read", "grep"])
-    msg = validate_files_worker_tools("files_written", plan)
-    assert msg is not None
-    assert "files_written" in msg
-    assert "file_write" in msg
+    assert validate_files_worker_tools("files_written", plan) is None
 
 
 def test_write_tools_gate_batch_passes_when_one_non_prose_holds_write():
@@ -801,19 +787,20 @@ def test_write_tools_gate_batch_passes_when_one_non_prose_holds_write():
     assert validate_files_worker_tools("files_written", plan) is None
 
 
-def test_write_tools_gate_node_holds_write_tools_semantics():
+def test_write_tools_gate_node_holds_write_tools_always_true():
+    """真纯丙：不再用白名单判断；窄名单亦视为具备写盘。"""
     assert node_holds_write_tools(RunSpec(run_id="a", role="x", task="t", tools=None))
     assert node_holds_write_tools(
         RunSpec(run_id="a", role="x", task="t", tools=["str_replace", "file_read"])
     )
-    assert not node_holds_write_tools(
+    assert node_holds_write_tools(
         RunSpec(run_id="a", role="x", task="t", tools=["file_read", "grep"])
     )
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_files_form_with_search_only_tools():
-    """form=files + 检索白名单 → 入闸硬拒，contract_failure。"""
+async def test_execute_allows_files_form_with_search_only_tools_declaration():
+    """真纯丙：form=files + 声明检索 tools → 不再 no_write_tools 拒派。"""
     reg = _registry("file_read", "grep", "web_search", "file_write")
     t = DelegateTool(
         llm=Provider(["X"]),
@@ -839,7 +826,7 @@ async def test_execute_rejects_files_form_with_search_only_tools():
         },
         local_ctx(),
     )
-    assert result.success is False
-    assert result.contract_failure is True
-    assert "前端" in (result.error or "")
-    assert "file_write" in (result.error or "") or "写盘" in (result.error or "")
+    assert result.success is True
+    assert result.contract_failure is not True
+    assert "no_write_tools" not in (result.error or "")
+    assert "写盘" not in (result.error or "")

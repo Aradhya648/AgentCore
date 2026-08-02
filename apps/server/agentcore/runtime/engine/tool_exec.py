@@ -42,6 +42,7 @@ from agentcore.tools.registry import ToolRegistry
 from .constants import MAX_PARALLEL_TOOLS
 from .timeout import resolve_tool_timeout
 from .tool_protocol_sanitize import (
+    salvage_handoff_raw_arguments,
     sanitize_raw_tool_arguments,
     sanitize_tool_args,
     sanitize_tool_name,
@@ -106,22 +107,8 @@ def _attempt_meta_with_landing_path(
             )
     return meta
 
-_PROSE_WITHHELD_WRITE_MSG = (
-    "本回合交付形态为 form=prose（仅文字报告），未授改文件工具。"
-    "请完成正文后 handoff；若任务实际需要改代码/落盘，请 escalate 请主管将"
-    "deliverable.form 改为 files 后重派，或在 handoff 中诚实说明形态阻塞。"
-    "禁止改用 delegate 派人，也禁止用 handoff 正文冒充写盘交差。"
-)
-
 # Aggregable tip length for ``tool.execute_end`` reason (status=error).
 _TOOL_ERROR_REASON_MAX = 200
-
-
-def _is_prose_write_withheld(context: ToolContext | None) -> bool:
-    return (
-        context is not None
-        and getattr(context, "withheld_write_tools", None) == "prose"
-    )
 
 
 def _file_read_round_coalesce_key(args: dict[str, Any]) -> str | None:
@@ -176,7 +163,6 @@ def _missing_tool_feedback(
     *,
     raw_name: str | None,
     registry: ToolRegistry,
-    context: ToolContext | None = None,
 ) -> tuple[str, str, bool]:
     """Build user-facing text + log status + policy flag for a registry miss.
 
@@ -184,10 +170,6 @@ def _missing_tool_feedback(
     or assembly gates (CEO vs worker, cloud execution withheld) — not typos. Those
     get an actionable message and ``policy_failure`` so the run circuit breaker
     does not burn on repeated role mistakes.
-
-    ``form=prose`` withhold is stamped on ``context.withheld_write_tools`` at
-    assembly — never infer prose miss solely from ``worker_only`` names (that
-    collides with CEO audience_deny 「请用 delegate」).
     """
     from agentcore.tools.registration import (
         declared_tool_names,
@@ -198,9 +180,6 @@ def _missing_tool_feedback(
     worker_only = worker_only_tool_names()
     execution = execution_class_tool_names()
     declared = declared_tool_names()
-
-    if missing in _FILE_PRODUCT_TOOL_NAMES and _is_prose_write_withheld(context):
-        return (_PROSE_WITHHELD_WRITE_MSG, "prose_withheld", True)
 
     if missing in worker_only and missing in execution:
         return (
@@ -413,10 +392,30 @@ async def execute_tools(
                 tc.function.arguments = parse_args
             raw_args = parse_args
         fingerprint = fingerprint_tool_call(name, raw_args)
+        parse_exc: json.JSONDecodeError | None = None
         try:
             args = json.loads(raw_args) if raw_args else {}
         except json.JSONDecodeError as exc:
-            model_msg, user_msg = _format_args_parse_error(name or raw_name, raw_args, exc)
+            parse_exc = exc
+            salvaged = salvage_handoff_raw_arguments(raw_args, tool_name=name or raw_name)
+            if salvaged is not None:
+                # Guaranteed loadable object by salvage; continue as a normal parse.
+                args = json.loads(salvaged)
+                parse_exc = None
+                logger.info(
+                    "tool.args_salvaged",
+                    tool=name or raw_name,
+                    tool_call_id=tc.id,
+                    args_preview=salvaged[:200],
+                )
+                with contextlib.suppress(TypeError, ValueError):
+                    tc.function.arguments = salvaged
+                raw_args = salvaged
+                fingerprint = fingerprint_tool_call(name, raw_args)
+        if parse_exc is not None:
+            model_msg, user_msg = _format_args_parse_error(
+                name or raw_name, raw_args, parse_exc
+            )
             # Honest wire pair: marker args (not ``{}``) + error end — never run the tool.
             # UI/process line gets人话 for write tools; model transcript keeps technical tip.
             sink.emit(
@@ -437,8 +436,8 @@ async def execute_tools(
                 "tool.args_parse_failed",
                 tool=name or raw_name,
                 tool_call_id=tc.id,
-                pos=exc.pos,
-                msg=exc.msg,
+                pos=parse_exc.pos,
+                msg=parse_exc.msg,
                 args_preview=raw_args[:200],
             )
             logger.info(
@@ -503,10 +502,7 @@ async def execute_tools(
             )
 
         if allowed_set is not None and name not in allowed_set:
-            if name in _FILE_PRODUCT_TOOL_NAMES and _is_prose_write_withheld(context):
-                error_msg = _PROSE_WITHHELD_WRITE_MSG
-                deny_status = "prose_withheld"
-            elif name in _FILE_PRODUCT_TOOL_NAMES:
+            if name in _FILE_PRODUCT_TOOL_NAMES:
                 # 白名单限制：说明限制即可；禁止劝「handoff 正文交差」冒充写盘。
                 error_msg = (
                     f"工具 '{name}' 不在本 run 的允许列表中，未执行。"
@@ -557,7 +553,7 @@ async def execute_tools(
         if tool is None:
             missing = name or raw_name
             error_msg, status, policy_failure = _missing_tool_feedback(
-                missing, raw_name=raw_name, registry=registry, context=context
+                missing, raw_name=raw_name, registry=registry
             )
             sink.emit(
                 tool_use_end(

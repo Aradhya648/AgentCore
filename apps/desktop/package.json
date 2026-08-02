@@ -1,6 +1,6 @@
 {
   "name": "agentcore-desktop",
-  "version": "0.6.25",
+  "version": "0.6.26",
   "description": "AgentCore Desktop - Multi-Agent AI Workspace",
   "author": "AgentCore",
   "main": "./out/main/index.js",
@@ -16,6 +16,8 @@
     "shoot:conversations": "node scripts/shoot-conversations.mjs",
     "shoot:capability-packs": "node scripts/shoot-capability-packs.mjs",
     "shoot:graph-probe": "node scripts/shoot-graph-probe.mjs",
+    "shoot:graph-perf": "node scripts/shoot-graph-perf.mjs",
+    "shoot:graph-perf-ab": "node scripts/shoot-graph-perf-ab.mjs",
     "shoot:graph-missing": "node scripts/shoot-graph-missing.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "smoke:webapp": "node scripts/smoke-webapp.mjs",

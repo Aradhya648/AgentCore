@@ -1318,11 +1318,17 @@ def test_zero_write_and_prose_idle_retired_no_mid_loop_cut():
     )
     assert c.zero_write_finalize_rounds == 0
     assert c.prose_idle is False
+    # Soft delivery_idle replaces retired zero-write FINALIZE (nudge/narrow only).
+    assert c.delivery_idle_nudge_rounds > 0
+    assert c.delivery_idle_narrow_rounds > 0
     for i in range(12):
         c.record([ToolAttempt(fingerprint=f"f{i}", tool_name="file_read", success=True)])
     assert c.convergence_action() is Intervention.CONTINUE
     assert not c.is_thrashing()
     assert not c.zero_write_warn_due()
+    assert c.delivery_idle_rounds == 12
+    assert c.delivery_idle_nudge_due()
+    assert c.delivery_idle_narrow_due()
 
     prose = create_loop_controller(
         frozenset({"file_read"}),
@@ -1367,6 +1373,160 @@ def test_zero_write_and_prose_idle_retired_no_mid_loop_cut():
     assert directive.reason == "convergence"
     assert directive.finish_reason is None
     assert not any("零写" in str(getattr(m, "content", "") or "") for m in messages)
+
+
+def test_delivery_idle_nudge_then_narrow_without_finalize():
+    """files_expected idle: soft nudge → narrow pending; never FINALIZE/FAILED."""
+    from agentcore.runtime.engine.directive import Continue
+    from agentcore.runtime.engine.governance import (
+        govern_after_tools,
+        maybe_inject_delivery_idle,
+    )
+    from agentcore.runtime.engine.outcome import RoundOutcome
+    from agentcore.runtime.loop_controller import (
+        delivery_idle_narrow_prompt,
+        delivery_idle_nudge_prompt,
+    )
+
+    inv = frozenset({"file_read", "file_list", "grep", "web_search"})
+    c = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        zero_write_finalize_rounds=0,
+        delivery_idle_nudge_rounds=2,
+        delivery_idle_narrow_rounds=3,
+        investigation_tools=inv,
+    )
+    empty = RoundOutcome(
+        content="",
+        reasoning="",
+        usage=None,
+        tool_calls=[],
+        tool_results=[],
+        attempts=[],
+    )
+
+    c.record([ToolAttempt(fingerprint="r1", tool_name="file_read", success=True)])
+    assert not c.delivery_idle_nudge_due()
+    c.record([ToolAttempt(fingerprint="r2", tool_name="grep", success=True)])
+    assert c.delivery_idle_rounds == 2
+    assert c.delivery_idle_nudge_due()
+    assert not c.delivery_idle_narrow_due()
+
+    messages: list = []
+    assert maybe_inject_delivery_idle(
+        c, messages=messages, run_id="r1", round_idx=2, role="worker"
+    ) == "nudge"
+    assert c.delivery_idle_nudged
+    assert any("交文件空转提醒" in str(m.content) for m in messages)
+    assert delivery_idle_nudge_prompt(rounds=2) in {m.content for m in messages}
+    # Captain / non-worker must not fire.
+    assert (
+        maybe_inject_delivery_idle(
+            c, messages=[], run_id="r1", round_idx=2, role="captain"
+        )
+        == "none"
+    )
+
+    c.record([ToolAttempt(fingerprint="r3", tool_name="web_search", success=True)])
+    assert c.delivery_idle_narrow_due()
+    messages2: list = []
+    assert maybe_inject_delivery_idle(
+        c, messages=messages2, run_id="r1", round_idx=3, role="worker"
+    ) == "narrow"
+    assert c.delivery_idle_narrowed
+    assert c.take_delivery_idle_narrow_apply() is True
+    assert c.take_delivery_idle_narrow_apply() is False
+    assert any("交文件空转收窄" in str(m.content) for m in messages2)
+    assert delivery_idle_narrow_prompt(rounds=3) in {m.content for m in messages2}
+    assert "内环诊断" in delivery_idle_narrow_prompt(rounds=3)
+
+    # Still Continue — no mid-loop FINALIZE / DEGRADED from idle.
+    assert c.convergence_action() is Intervention.CONTINUE
+    directive = govern_after_tools(
+        empty,
+        c,
+        messages=[],
+        round_idx=3,
+        run_id="r1",
+        breaker_message=None,
+        role="worker",
+    )
+    assert isinstance(directive, Continue)
+
+
+def test_delivery_idle_skips_non_files_and_resets_on_write():
+    """Recon-idle nudges investigate workers; landing write clears files idle clock."""
+    from agentcore.runtime.engine.governance import (
+        create_loop_controller,
+        maybe_inject_delivery_idle,
+    )
+
+    plain = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=False,
+    )
+    assert plain.delivery_idle_recon is True
+    assert plain.delivery_idle_narrow_rounds == 0
+    bar = plain.delivery_idle_nudge_rounds
+    assert bar > 0
+    for i in range(bar):
+        plain.record(
+            [ToolAttempt(fingerprint=f"p{i}", tool_name="file_read", success=True)]
+        )
+    assert plain.delivery_idle_rounds == bar
+    messages: list = []
+    assert (
+        maybe_inject_delivery_idle(
+            plain, messages=messages, run_id="r", round_idx=bar, role="worker"
+        )
+        == "nudge"
+    )
+    assert any("调查空转提醒" in str(m.content) for m in messages)
+    assert any("handoff" in str(m.content).lower() or "escalate" in str(m.content).lower() for m in messages)
+    # Recon path never arms tool narrow.
+    plain.record(
+        [ToolAttempt(fingerprint="p-extra", tool_name="file_read", success=True)]
+    )
+    assert (
+        maybe_inject_delivery_idle(
+            plain, messages=[], run_id="r", round_idx=bar + 1, role="worker"
+        )
+        == "none"
+    )
+    assert not plain.take_delivery_idle_narrow_apply()
+
+    armed = LoopController(
+        convergence_finalize_rounds=30,
+        convergence_spin_rounds=0,
+        delivery_idle_nudge_rounds=2,
+        delivery_idle_narrow_rounds=4,
+        investigation_tools=frozenset({"file_read"}),
+    )
+    armed.record([ToolAttempt(fingerprint="a", tool_name="file_read", success=True)])
+    armed.record([ToolAttempt(fingerprint="b", tool_name="file_read", success=True)])
+    assert armed.delivery_idle_nudge_due()
+    armed.record(
+        [ToolAttempt(fingerprint="w", tool_name="file_write", success=True, meta={"path": "a.py"})]
+    )
+    assert armed.landing_succeeded
+    assert armed.delivery_idle_rounds == 0
+    assert not armed.delivery_idle_nudge_due()
+    assert not armed.delivery_idle_narrow_due()
+    assert armed.convergence_action() is Intervention.CONTINUE
+
+
+def test_recon_idle_nudge_prompt_does_not_demand_writes():
+    from agentcore.runtime.loop_controller import delivery_idle_nudge_prompt
+
+    text = delivery_idle_nudge_prompt(rounds=8, recon=True)
+    assert "调查空转提醒" in text
+    assert "写盘" not in text
+    assert "str_replace" not in text
+    assert "handoff" in text.lower() or "escalate" in text.lower()
+    files = delivery_idle_nudge_prompt(rounds=4, recon=False)
+    assert "交文件空转提醒" in files
+    assert "str_replace" in files
 
 
 def test_landing_success_latches_for_wind_down():

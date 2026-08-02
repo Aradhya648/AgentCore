@@ -680,6 +680,9 @@ def format_for_ceo(
             "（设 `replaces_run_id` 或 `continue_from_run_id` 指向失败/跳过节点；"
             "单次条数受缺口硬闸，勿整团重开、勿另开无关大派）。"
             "若无需补跑，直接如实回复用户即可。"
+            "已完成但质量不够（软验收 / 需改同一落盘路径）：**同座位**再派即可"
+            "（系统会 auto-replaces 并转写锁），勿另起 `-v2` 角色名抢路径，"
+            "勿让队员 escalate 请用户「移交写权」。"
         )
     raw_chars = sum(len(s.content) for s in results.values() if s and s.content)
     output, ratio_capped = _cap_synthesis_output(output, raw_chars)

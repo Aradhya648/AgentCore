@@ -513,8 +513,9 @@ function DormantEscalation({
 
 /** 非阻塞上报「边干边提醒」(run_escalation, status=raised): the worker surfaced a
  * decision/blocker but did NOT suspend — it proceeded on its assumption. A passive,
- * non-interactive notice (neutral tone, no buttons) so 升级实时可见 holds even when the
- * 协作图 is collapsed, while staying visibly distinct from a 待你拍板 decision card. */
+ * non-interactive notice (neutral tone, no resolve buttons) so 升级实时可见 holds even
+ * when the 协作图 is collapsed, while staying visibly distinct from a 待你拍板 card.
+ * 默认折成一行摘要（对齐队员任务），点开再看全文 + 假设——无需拍板不占裁决卡面积。 */
 function RaisedEscalation({
   escalation,
   role,
@@ -522,27 +523,56 @@ function RaisedEscalation({
   escalation: RunEscalation;
   role: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const kind = escalationKindTag(escalation);
   return (
     <DecisionCard tone="neutral" className="bg-card/60">
-      <div className="flex items-start gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={
+          open ? `收起 ${role} 边干边上报` : `展开 ${role} 边干边上报`
+        }
+        className="flex w-full items-start gap-2 text-left"
+      >
         <span className="mt-0.5 shrink-0 text-muted-foreground">
           <Megaphone size={14} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-muted-foreground">
-            {role} · 边干边上报（无需你拍板）
-            {escalationKindTag(escalation)
-              ? ` · ${escalationKindTag(escalation)}`
-              : ""}
-          </p>
-          <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">
+          <div className="flex items-start gap-1.5">
+            <p className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
+              {role} · 边干边上报（无需你拍板）
+              {kind ? ` · ${kind}` : ""}
+            </p>
+            {open ? (
+              <ChevronDown
+                size={14}
+                className="mt-0.5 shrink-0 text-muted-foreground"
+              />
+            ) : (
+              <ChevronRight
+                size={14}
+                className="mt-0.5 shrink-0 text-muted-foreground"
+              />
+            )}
+          </div>
+          <p
+            className={
+              open
+                ? "mt-0.5 whitespace-pre-wrap text-sm text-foreground"
+                : "mt-0.5 line-clamp-1 text-sm text-muted-foreground"
+            }
+          >
             {escalation.question}
           </p>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            已按假设继续：{escalation.assumption}
-          </p>
+          {open && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              已按假设继续：{escalation.assumption}
+            </p>
+          )}
         </div>
-      </div>
+      </button>
     </DecisionCard>
   );
 }

@@ -20,10 +20,13 @@ sidecar policy) but still need the permission axis; else honest 甲 degrade.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shlex
 import time
+from dataclasses import replace
 from typing import Any, Literal
 
 from agentcore.core.errors import SandboxError
@@ -63,12 +66,28 @@ Framework = Literal["pytest", "vitest", "jest"]
 Scope = Literal["all", "affected", "file"]
 CheckKind = Literal["test", "typecheck", "build", "install", "command"]
 
-# Minute-level verify budget (incl. install). Engine schema timeout adds slack so the
-# sandbox returns Timeout first and we can mark ``contract_failure`` (not engine cancel).
-# Aligned with ``settings.gvisor_timeout_max_seconds`` (300) — do not trap install at 60s.
-_VERIFY_BUDGET_SECONDS = 300
+# Outer-loop verify budgets (分档，非盲加全局 timeout)：
+# - standard 300s: install / test / non-heavy command
+# - heavy 600s: typecheck / build / typecheck·build-shaped command
+# Engine schema timeout uses heavy + slack so the sandbox returns Timeout first.
+# Aligned with ``settings.gvisor_timeout_max_seconds`` (630 = 600 + slack) and
+# desktop ``EXEC_TIMEOUT_CAP_S`` — 外环验收墙钟.
+_VERIFY_BUDGET_STANDARD_SECONDS = 300
+_VERIFY_BUDGET_HEAVY_SECONDS = 600
+_VERIFY_BUDGET_SECONDS = _VERIFY_BUDGET_STANDARD_SECONDS  # back-compat alias
 _ENGINE_TIMEOUT_SLACK_SECONDS = 30
 _DEFAULT_TIMEOUT = _VERIFY_BUDGET_SECONDS
+
+# Heavy outer-loop shape (typecheck / build) — lengthens command= budget only.
+_HEAVY_VERIFY_RE = re.compile(
+    r"\b(?:"
+    r"tsc\b|vue-tsc\b|typecheck\b|type-check\b|"
+    r"(?:npm|pnpm|yarn)\s+run\s+(?:typecheck|type-check|build)\b|"
+    r"(?:npm|pnpm|yarn)\s+(?:typecheck|build)\b|"
+    r"cargo\s+(?:check|build)\b|go\s+build\b"
+    r")",
+    re.IGNORECASE,
+)
 
 TEST_RUN_PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -83,7 +102,7 @@ TEST_RUN_PARAMETERS: dict[str, Any] = {
                 "command=显式跑 command（用于 completion_criteria / verify_command）。"
                 "绿场验包优先 check=install 再 build/typecheck。慢 build / 全量 tsc / "
                 "项目测试 / 装包请用本工具，勿用 code_execute。全量 typecheck/build/"
-                "`tsc -b` 仅验收员；fix worker 请用窄范围（包内 / 改动相关 / 单文件），"
+                "`tsc -b` 仅验收员（外环）；修码自检用内环 code_diagnostics，"
                 "勿三路并行全仓 tsc。"
             ),
         },
@@ -262,6 +281,50 @@ def _is_allowed_verify_argv(argv: list[str]) -> bool:
     if is_install_shaped_argv(argv):
         return validate_install_argv(argv) is None
     return bool(_VERIFY_SHAPED_RE.search(_argv_to_shell(argv)))
+
+
+def _is_heavy_verify_argv(argv: list[str]) -> bool:
+    """True when argv looks like typecheck/build (outer-loop heavy budget)."""
+    return bool(_HEAVY_VERIFY_RE.search(_argv_to_shell(argv)))
+
+
+def resolve_verify_budget_seconds(check: CheckKind, argv: list[str] | None = None) -> int:
+    """Pick outer-loop wall budget: typecheck/build (+ heavy command) → 600; else 300."""
+    if check in ("typecheck", "build"):
+        return _VERIFY_BUDGET_HEAVY_SECONDS
+    if check == "command" and argv is not None and _is_heavy_verify_argv(argv):
+        return _VERIFY_BUDGET_HEAVY_SECONDS
+    return _VERIFY_BUDGET_STANDARD_SECONDS
+
+
+def verify_coalesce_fingerprint(
+    check: CheckKind,
+    argv: list[str],
+    working_directory: str | None,
+) -> str:
+    """Stable key for sibling verify coalesce (resolved argv, not raw args)."""
+    payload = {
+        "check": check,
+        "argv": list(argv),
+        "wd": (working_directory or "").strip(),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+_VERIFY_SHARED_PREFIX = (
+    "【团队共享验证】同 execution 内队友已跑过相同验证，复用结果避免重复烧预算"
+    "（来源：{source}）。\n\n"
+)
+
+
+def _annotate_shared_verify(result: ToolResult, source: str) -> ToolResult:
+    meta = dict(result.metadata or {})
+    meta["verify_shared"] = source
+    body = result.output or ""
+    prefix = _VERIFY_SHARED_PREFIX.format(source=source)
+    output = body if body.startswith("【团队共享验证】") else prefix + body
+    return replace(result, output=output, metadata=meta)
 
 
 def _argv_to_shell(argv: list[str]) -> str:
@@ -514,6 +577,7 @@ def _format_check_output(
     exec_result: ExecutionResult,
     duration_seconds: float,
     budget_exceeded: bool,
+    budget_seconds: int,
 ) -> str:
     if budget_exceeded:
         status = "未完成（预算耗尽）"
@@ -529,11 +593,11 @@ def _format_check_output(
         f"- 命令：{_argv_to_shell(command_argv)}",
         f"- 退出码：{exec_result.exit_code}",
         f"- 耗时：{duration_seconds:.1f}s",
-        f"- 预算：{_VERIFY_BUDGET_SECONDS}s",
+        f"- 预算：{budget_seconds}s",
     ]
     if budget_exceeded:
         parts.append(
-            f"- 说明：验证未在 {_VERIFY_BUDGET_SECONDS}s 预算内完成；"
+            f"- 说明：验证未在 {budget_seconds}s 预算内完成；"
             "这是验证未完成，不是执行工具故障。可缩小范围、换更快的 check，或拆命令后重试。"
         )
     raw = (exec_result.stdout or "").strip()
@@ -656,16 +720,19 @@ class TestRunTool:
                 "【不要】用 code_execute 跑这些。云端装包用 check=install（或 "
                 "check=command + npm install），需受限出网；无网时诚实降级，勿空转。"
                 "超预算返回「验证未完成」，不是工具故障。长驻进程请用 terminal。"
-                "【范围】修码 / fix worker 默认窄范围（scope=file、包内、改动相关）；"
-                "全量 typecheck / build / `tsc -b` 仅验收员角色执行——"
+                "【范围】修码自检用内环 code_diagnostics；"
+                "全量 typecheck / build / `tsc -b` 仅验收员外环执行——"
                 "禁止多名 fix worker 三路并行全仓 tsc。"
+                "同 execution 内队友已跑过的相同验证会自动复用结果，勿重复硬烧预算。"
             ),
             parameters=TEST_RUN_PARAMETERS,
             category=ToolCategory.EXECUTION,
             # Same sandbox chain + GRANTABLE posture as code_execute (P0): a project
             # check executes arbitrary project code, so governance must stay aligned.
             approval=ToolApproval.GRANTABLE,
-            timeout_seconds=_VERIFY_BUDGET_SECONDS + _ENGINE_TIMEOUT_SLACK_SECONDS,
+            # Engine wall covers heavy outer-loop budget so typecheck/build are not
+            # cancelled before the sandbox Timeout → contract_failure path.
+            timeout_seconds=_VERIFY_BUDGET_HEAVY_SECONDS + _ENGINE_TIMEOUT_SLACK_SECONDS,
         )
 
     async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
@@ -767,6 +834,33 @@ class TestRunTool:
             )
         assert argv is not None
 
+        # Investigate/review posture: refuse outer-loop typecheck/build burns.
+        policy = (getattr(context, "verify_policy", None) or "").strip().lower()
+        if policy == "inner":
+            heavy = check in ("typecheck", "build") or (
+                check == "command" and _is_heavy_verify_argv(argv)
+            )
+            if heavy:
+                msg = (
+                    "当前队员为调查/审查姿态（verify_policy=inner）："
+                    "禁止全仓 typecheck / build / 同形慢命令。"
+                    "修码自检请用 code_diagnostics；运行时问题优先 browser / 读入口；"
+                    "外环验绿请 escalate 或交验收员（verify_policy=outer）执行 test_run。"
+                )
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output=msg,
+                    error=msg,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    contract_failure=True,
+                    metadata={
+                        "code": "verify_policy_inner",
+                        "check": check,
+                        "verify_policy": "inner",
+                    },
+                )
+
         if is_install_shaped_argv(argv) or check == "install":
             install_err = validate_install_argv(argv)
             if install_err:
@@ -825,6 +919,7 @@ class TestRunTool:
                 )
 
         command_shell = _argv_to_shell(argv)
+        budget_seconds = resolve_verify_budget_seconds(check, argv)
         env: dict[str, str] | None = None
         cache_bucket: str | None = None
         registry_egress = False
@@ -844,7 +939,7 @@ class TestRunTool:
         request = ExecutionRequest(
             code=_python_argv_runner(argv),
             language="python",
-            timeout_seconds=_VERIFY_BUDGET_SECONDS,
+            timeout_seconds=budget_seconds,
             on_output=_make_output_callback(context),
             network_mode="restricted" if allows_restricted else "none",
             registry_egress=registry_egress,
@@ -855,121 +950,174 @@ class TestRunTool:
         if context.on_phase:
             context.on_phase("executing")
 
-        try:
-            exec_result = await context.backend.execute(request)
-        except SandboxError as e:
-            duration_ms = int((time.monotonic() - start) * 1000)
-            msg = e.message or str(e)
-            details = getattr(e, "details", None) or {}
-            egress_code = details.get("code") if isinstance(details, dict) else None
-            if needs_install_net and egress_code == "egress_unavailable":
-                degrade = network_unavailable_message()
+        fingerprint = verify_coalesce_fingerprint(check, argv, working_directory)
+
+        async def _run_verify() -> ToolResult:
+            # Downgrade loop's busy("tool") → verify so idle patrol can wake CEO
+            # during minute-level budgets (wall+0 no longer parks forever).
+            if context.run_id:
+                from agentcore.runtime.coordination.session import note_coord_worker_busy
+
+                note_coord_worker_busy(context.run_id, "verify")
+            try:
+                exec_result = await context.backend.execute(request)
+            except SandboxError as e:
+                duration_ms = int((time.monotonic() - start) * 1000)
+                msg = e.message or str(e)
+                details = getattr(e, "details", None) or {}
+                egress_code = details.get("code") if isinstance(details, dict) else None
+                if needs_install_net and egress_code == "egress_unavailable":
+                    degrade = network_unavailable_message()
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output=degrade,
+                        error=degrade,
+                        duration_ms=duration_ms,
+                        contract_failure=True,
+                        metadata={"code": network_unavailable_code(), "check": check},
+                    )
                 return ToolResult(
                     tool_call_id="",
                     success=False,
-                    output=degrade,
-                    error=degrade,
+                    output=msg,
+                    error=msg,
                     duration_ms=duration_ms,
-                    contract_failure=True,
-                    metadata={"code": network_unavailable_code(), "check": check},
                 )
-            return ToolResult(
-                tool_call_id="",
-                success=False,
-                output=msg,
-                error=msg,
-                duration_ms=duration_ms,
-            )
-        duration_ms = int((time.monotonic() - start) * 1000)
-        duration_s = duration_ms / 1000.0
-        budget_exceeded = _is_budget_timeout(exec_result)
+            duration_ms = int((time.monotonic() - start) * 1000)
+            duration_s = duration_ms / 1000.0
+            budget_exceeded = _is_budget_timeout(exec_result)
 
-        if check == "test" and framework is not None and not budget_exceeded:
-            parsed = _parse_output(
-                framework,
-                exec_result.stdout,
-                exec_result.stderr,
-                exec_result.exit_code,
-            )
-            if parsed.duration_seconds is None and exec_result.duration_ms:
-                parsed.duration_seconds = exec_result.duration_ms / 1000.0
-            output = _format_test_output(parsed, argv, duration_s)
-            tests_passed = (
-                parsed.failed == 0 and parsed.errors == 0 and exec_result.exit_code == 0
-            )
-            display = {
-                "check": check,
-                "framework": parsed.framework,
-                "command": command_shell,
-                "passed": parsed.passed,
-                "failed": parsed.failed,
-                "errors": parsed.errors,
-                "skipped": parsed.skipped,
-                "exit_code": exec_result.exit_code,
-                "stdout": exec_result.stdout,
-                "stderr": exec_result.stderr,
-                "failures": [
-                    {
-                        "test_name": f.test_name,
-                        "file_path": f.file_path,
-                        "line": f.line,
-                        "message": f.message,
-                        "snippet": f.snippet,
-                    }
-                    for f in parsed.failures
-                ],
-            }
-            return ToolResult(
-                tool_call_id="",
-                success=tests_passed,
-                output=output,
-                error=None if tests_passed else f"测试未通过（退出码 {exec_result.exit_code}）",
-                duration_ms=duration_ms,
-                metadata={
+            if check == "test" and framework is not None and not budget_exceeded:
+                parsed = _parse_output(
+                    framework,
+                    exec_result.stdout,
+                    exec_result.stderr,
+                    exec_result.exit_code,
+                )
+                if parsed.duration_seconds is None and exec_result.duration_ms:
+                    parsed.duration_seconds = exec_result.duration_ms / 1000.0
+                output = _format_test_output(parsed, argv, duration_s)
+                tests_passed = (
+                    parsed.failed == 0
+                    and parsed.errors == 0
+                    and exec_result.exit_code == 0
+                )
+                display = {
                     "check": check,
                     "framework": parsed.framework,
+                    "command": command_shell,
                     "passed": parsed.passed,
                     "failed": parsed.failed,
                     "errors": parsed.errors,
+                    "skipped": parsed.skipped,
+                    "exit_code": exec_result.exit_code,
+                    "stdout": exec_result.stdout,
+                    "stderr": exec_result.stderr,
+                    "failures": [
+                        {
+                            "test_name": f.test_name,
+                            "file_path": f.file_path,
+                            "line": f.line,
+                            "message": f.message,
+                            "snippet": f.snippet,
+                        }
+                        for f in parsed.failures
+                    ],
+                }
+                return ToolResult(
+                    tool_call_id="",
+                    success=tests_passed,
+                    output=output,
+                    error=(
+                        None
+                        if tests_passed
+                        else f"测试未通过（退出码 {exec_result.exit_code}）"
+                    ),
+                    duration_ms=duration_ms,
+                    metadata={
+                        "check": check,
+                        "framework": parsed.framework,
+                        "passed": parsed.passed,
+                        "failed": parsed.failed,
+                        "errors": parsed.errors,
+                    },
+                    display=display,
+                )
+
+            output = _format_check_output(
+                check=check,
+                command_argv=argv,
+                exec_result=exec_result,
+                duration_seconds=duration_s,
+                budget_exceeded=budget_exceeded,
+                budget_seconds=budget_seconds,
+            )
+            ok = (not budget_exceeded) and exec_result.exit_code == 0
+            error: str | None
+            if budget_exceeded:
+                error = (
+                    f"验证未在 {budget_seconds}s 预算内完成（验证未完成，非工具故障）"
+                )
+            else:
+                error = None if ok else f"验证未通过（退出码 {exec_result.exit_code}）"
+
+            return ToolResult(
+                tool_call_id="",
+                success=ok,
+                output=output,
+                error=error,
+                duration_ms=duration_ms,
+                metadata={
+                    "check": check,
+                    "code": "verify_budget" if budget_exceeded else "verify_result",
+                    "timeout_seconds": budget_seconds,
+                    "exit_code": exec_result.exit_code,
                 },
-                display=display,
+                display={
+                    "check": check,
+                    "command": command_shell,
+                    "exit_code": exec_result.exit_code,
+                    "stdout": exec_result.stdout,
+                    "stderr": exec_result.stderr,
+                    "budget_exceeded": budget_exceeded,
+                },
+                contract_failure=budget_exceeded,
             )
 
-        output = _format_check_output(
-            check=check,
-            command_argv=argv,
-            exec_result=exec_result,
-            duration_seconds=duration_s,
-            budget_exceeded=budget_exceeded,
-        )
-        ok = (not budget_exceeded) and exec_result.exit_code == 0
-        error: str | None
-        if budget_exceeded:
-            error = (
-                f"验证未在 {_VERIFY_BUDGET_SECONDS}s 预算内完成（验证未完成，非工具故障）"
-            )
-        else:
-            error = None if ok else f"验证未通过（退出码 {exec_result.exit_code}）"
+        session = None
+        eid = (context.execution_id or "").strip()
+        if eid:
+            from agentcore.runtime.coordination.session import active_coordination
 
-        return ToolResult(
-            tool_call_id="",
-            success=ok,
-            output=output,
-            error=error,
-            duration_ms=duration_ms,
-            metadata={
-                "check": check,
-                "code": "verify_budget" if budget_exceeded else "verify_result",
-                "timeout_seconds": _VERIFY_BUDGET_SECONDS,
-                "exit_code": exec_result.exit_code,
-            },
-            display={
-                "check": check,
-                "command": command_shell,
-                "exit_code": exec_result.exit_code,
-                "stdout": exec_result.stdout,
-                "stderr": exec_result.stderr,
-                "budget_exceeded": budget_exceeded,
-            },
-            contract_failure=budget_exceeded,
-        )
+            session = active_coordination(eid)
+
+        if session is not None and session.active:
+            # Mark verify while waiting on a sibling inflight too — keeps progress
+            # honest without blocking idle patrol (verify ∉ has_inflight_work).
+            if context.run_id:
+                from agentcore.runtime.coordination.session import note_coord_worker_busy
+
+                note_coord_worker_busy(context.run_id, "verify")
+            result, source = await session.coalesce_verify(fingerprint, _run_verify)
+            if source != "run":
+                from agentcore.core.logging import get_logger
+
+                get_logger(__name__).info(
+                    "test_run.verify_shared",
+                    execution_id=session.execution_id,
+                    run_id=context.run_id,
+                    source=source,
+                    check=check,
+                    fingerprint=fingerprint[:12],
+                    command=command_shell[:120],
+                )
+                result = _annotate_shared_verify(result, source)
+                # Caller-facing duration = wait/join wall, not producer wall.
+                result = replace(
+                    result,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                )
+            return result
+
+        return await _run_verify()

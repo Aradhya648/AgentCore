@@ -23,6 +23,16 @@ class EngineSettings(BaseModel):
     # 零写整条已退役（files 催写 + prose_idle 梯子 + 中途 FINALIZE/DEGRADED）。
     # 保留字段兼容旧配置/测试；默认 0 = 不开。硬顶 thrashing 走 ceiling_backstop。
     engine_zero_write_finalize_rounds: int = 0
+    # 交文件队员久读无写（与 token/timeout wind_down 解耦；不做 FINALIZE/FAILED）：
+    # 连续纯调查轮达 nudge → soft「先改或交接」；达 narrow → 复用 wind_down 白名单收窄工具。
+    # 仅 files_expected 且非 prose 开启。≤0 关闭对应阶。
+    # 默认 4/6：摸仓留足空间，又在绝对收敛顶（48）与 spin（3）之间形成交付压力。
+    engine_delivery_idle_nudge_rounds: int = 4
+    engine_delivery_idle_narrow_rounds: int = 6
+    # 非交文件（调查/诊断）队员：久读无结论只 soft nudge，不收窄工具、不 FINALIZE。
+    # 与 delivery_idle 共用纯调查轮计数器；文案催 handoff/escalate/收敛，不催写盘。
+    # ≤0 关闭。默认 8：在 reflection（~3）之后、绝对顶（48）之前给一次刹车。
+    engine_recon_idle_nudge_rounds: int = 8
     engine_finish_guard_max_reworks: int = 2
     # C2 概览契约：本回合已发 delivery_status 时，CEO 终稿超过此字数 → finish_guard 回炉压缩。
     # 细节已在交付卡 / 产物卡 / run 详情；气泡只做索引。≤0 关闭。无交付卡的 prose 回合不设顶。
@@ -65,7 +75,7 @@ class EngineSettings(BaseModel):
     # 上下文瘦身,这只是防失控的安全阀。每轮末比对累计 input+output tokens,到顶即收口。
     # 经 ``apply_worker_budgets`` 统一回填到各 worker；CEO 显式 ``token_ceiling`` 优先。
     # ≤0 关闭 (CEO/solo 路径不传此上限,保持 0)。
-    engine_worker_token_ceiling: int = 2_000_000
+    engine_worker_token_ceiling: int = 4_000_000
     # 用户回合 turn 级累计 token 硬顶（CEO + 全树 worker，含续派）：触顶后禁新
     # delegate / debate / 新波派发，在飞跑完不 cancel。与 per-worker 顶正交。≤0 关闭。
     engine_turn_token_ceiling: int = 12_000_000

@@ -333,6 +333,7 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='coordination.user_interjection_queued'),
     EventSpec(name='coordination.user_stop_cancelled'),
     EventSpec(name='coordination.user_stop_released'),
+    EventSpec(name='coordination.verify_cache_invalidated'),
     EventSpec(name='coordination.wait'),
     EventSpec(name='coordination.wait_end'),
     EventSpec(name='coordination.wait_sse_failed'),
@@ -619,6 +620,9 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='engine.coordination_listen'),
     EventSpec(name='engine.debate_gate_nudge'),
     EventSpec(name='engine.degraded'),
+    EventSpec(name='engine.delivery_idle_narrow'),
+    EventSpec(name='engine.delivery_idle_narrow_apply'),
+    EventSpec(name='engine.delivery_idle_nudge'),
     EventSpec(name='engine.finish_guard_rework'),
     EventSpec(name='engine.force_finalize_failed'),
     EventSpec(name='engine.force_finalize_hard_failed'),
@@ -707,7 +711,6 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='journal.append_failed'),
     EventSpec(name='journal.persist_failed'),
     EventSpec(name='journal.sealed_at_pause'),
-    EventSpec(name='kickoff.research_dossier_probe_failed'),
     EventSpec(
         name='llm.call',
         description='单次 LLM 调用（latency/tokens/cost_nano）',
@@ -1100,6 +1103,7 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='team_preview.persist_unavailable'),
     EventSpec(name='team_preview.research_first_rejected'),
     EventSpec(name='team_preview.resolved'),
+    EventSpec(name='test_run.verify_shared'),
     EventSpec(name='title.empty_retry'),
     EventSpec(name='title.timeout'),
     EventSpec(
@@ -1108,6 +1112,13 @@ EVENTS: list[EventSpec] = [
             'args_preview': FieldType('str'),
             'msg': FieldType('str'),
             'pos': FieldType('int'),
+        },
+    ),
+    EventSpec(
+        name='tool.args_salvaged',
+        description='handoff 参数 JSON 窄 salvage 成功（裸字符串字段 / 截断闭合）',
+        fields={
+            'args_preview': FieldType('str'),
         },
     ),
     EventSpec(name='tool.delegate_arguments_unwrapped'),

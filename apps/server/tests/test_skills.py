@@ -509,8 +509,11 @@ def test_revise_skill_teaches_recall_and_delegate_fallback():
     assert "冷委派" in body and "replaces_run_id" in body
     assert "真换职能" in body or "非仅改 title" in body
     assert "补派" in body or "接手" in body
-    # D1：乙可声明超集 tools；只读不够则扩面或冷开验证。
-    assert "只增不减" in body or "超集" in body
+    # 真纯丙：不再教「声明超集 tools」；默认全开相关工具面。
+    assert "只增不减" not in body
+    assert "声明超集" not in body
+    assert "默认全开" in body
+    assert "tools" in body
     assert "test_run" in body
     # 修订落盘纪律：优先 str_replace / file_append；整盖允许但勿惰性省略。
     assert "str_replace" in body and "file_append" in body

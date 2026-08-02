@@ -167,16 +167,22 @@ def _placeholder_hard_exempt_paths(
     ]
 
 
+# 定案 B · 终态可见性：per-worker soft tip 前缀，CEO / delivery_status 按角色辨认。
+_MEMBER_WAVE_UNDELIVERED = "本队员本波未交卷"
+
+
 def zero_files_gap_message(*, landing_failure_kind: str | None = None) -> str:
     """User/admin-facing zero-disk gap copy, attributed by real cause when known.
 
-    Keeps the shared marker ``未把产物写入工作区`` so :func:`is_zero_files_gap` and
-    delivery_status projection stay aligned. Does **not** invent new gap reason
-    codes — callers keep ``files_not_landed``.
+    Leads with ``本队员本波未交卷`` so CEO / ``delivery_status`` can attribute the
+    soft tip per worker (定案 B). Keeps the shared marker ``未把产物写入工作区``
+    so :func:`is_zero_files_gap` and delivery projection stay aligned. Does
+    **not** invent new gap reason codes — callers keep ``files_not_landed``.
     """
+    head = f"{_MEMBER_WAVE_UNDELIVERED}："
     if landing_failure_kind == "channel_dead":
         return (
-            "未把产物写入工作区：写盘通道不可用（local workspace channel dead / "
+            f"{head}未把产物写入工作区：写盘通道不可用（local workspace channel dead / "
             "活性挂起），落盘工具已失败——请恢复工作区通道后重试，"
             "勿改用正文粘贴冒充落盘"
         )
@@ -185,12 +191,12 @@ def zero_files_gap_message(*, landing_failure_kind: str | None = None) -> str:
 
         tools = format_file_landing_tools_slash()
         return (
-            "未把产物写入工作区：已尝试写盘但未成功落盘（工具失败），"
+            f"{head}未把产物写入工作区：已尝试写盘但未成功落盘（工具失败），"
             f"请用 {tools} 修复后重写——"
             "此缺口来自写盘失败，而非「粘在回复正文」"
         )
     return (
-        "未把产物写入工作区：交付物须用 file_write / str_replace / file_append "
+        f"{head}未把产物写入工作区：交付物须用 file_write / str_replace / file_append "
         "或 code_execute / file_copy 落盘，而非粘在回复正文里"
     )
 

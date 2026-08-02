@@ -753,18 +753,14 @@ async def test_worker_with_omitted_tools_is_offered_all_team_tools():
     assert provider.choices[0] == "auto"
 
 
-async def test_worker_with_explicit_tools_is_restricted_to_them():
-    # RunSpec.tools internal-carrier path: the CEO手填 tools 入口 has been removed, but
-    # internal writers (retrieval_budget strip / system playbooks) still put an explicit
-    # tool set on the task dict, and _inline_spec narrows the worker's offered tools to it.
-    # Here we塞 tools directly into the dict to stand in for those internal writers
-    # (web_search is registered but must NOT be offered).
+async def test_worker_with_explicit_tools_is_not_restricted():
+    """真纯丙：入参 tools 填了也不收窄；执行层仍 offer 全 registry。"""
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "tools": ["code_execute"]}],
         id_prefix="t",
         valid_tools={"code_execute", "web_search"},
     )
-    assert plan.nodes[0].tools == ["code_execute"]
+    assert plan.nodes[0].tools is None
     reg = ToolRegistry()
     reg.register(_GrantableTool("code_execute"))
     reg.register(_GrantableTool("web_search"))
@@ -780,26 +776,26 @@ async def test_worker_with_explicit_tools_is_restricted_to_them():
         execution_id="e",
     )
     await WaveScheduler().run(plan, executor)
-    assert provider.offered[0] == ["code_execute"]
+    offered = set(provider.offered[0])
+    assert "code_execute" in offered
+    assert "web_search" in offered
 
 
-async def test_debater_allowlist_blocks_file_write_at_execute():
-    """辩手 RunSpec 装配 DEBATER_TOOLS 后，即便 registry 有 file_write、模型仍发起调用，
-    执行层必须拒绝（CEO debate 工具与 stage_card start_debate 共用 rounds→executor）。"""
-    from agentcore.runtime.debate.constants import DEBATER_TOOLS
+async def test_debater_path_offers_file_write_without_readonly_box():
+    """真纯丙·H4：辩手路径不再靠系统只读箱；遗留 tools 声明仍被忽略，写盘可执行。"""
+    legacy_readonly = ("web_search", "read_url", "file_read", "file_list", "grep")
 
     plan, errs = build_run_plan(
-        [{"role": "正方", "task": "立论取证", "tools": list(DEBATER_TOOLS)}],
+        [{"role": "正方", "task": "立论取证", "tools": list(legacy_readonly)}],
         id_prefix="debate_r1",
-        valid_tools=set(DEBATER_TOOLS) | {"file_write", "escalate"},
+        valid_tools=set(legacy_readonly) | {"file_write", "escalate"},
     )
     assert errs == []
-    assert plan.nodes[0].tools == list(DEBATER_TOOLS)
-    assert "file_write" not in (plan.nodes[0].tools or [])
+    assert plan.nodes[0].tools is None
 
     fw = _FileWriteTool()
     reg = ToolRegistry()
-    for name in DEBATER_TOOLS:
+    for name in legacy_readonly:
         reg.register(_ResearchTool(name))
     reg.register(fw)
     reg.register(_GrantableTool("escalate"))
@@ -822,19 +818,17 @@ async def test_debater_allowlist_blocks_file_write_at_execute():
     res = await WaveScheduler().run(plan, executor)
     state = next(iter(res.values()))
     assert state.phase is RunPhase.COMPLETED
-    assert fw.calls == 0
+    assert fw.calls == 1
 
 
-async def test_collaboration_off_denies_note_tools_to_restricted_debater():
-    # 团队便签去特例 (辩论): a debater is a RESTRICTED worker (DEBATER_TOOLS = web_search/read_url).
-    # On a non-collaborative batch (collaboration=False, the debate path) the 团队便签 tools are
-    # NOT force-added, so an adversarial debater is offered ONLY its own tools — no
-    # post/read/amend_note, no way to broadcast its 立论 to the opposing side.
+async def test_collaboration_off_denies_note_tools_to_unrestricted_debater():
+    # 真纯丙下辩手亦为 unrestricted；collaboration=False 仍从 registry 卸便签。
     plan, _ = build_run_plan(
         [{"role": "正方", "task": "立论", "tools": ["web_search"]}],
         id_prefix="t",
         valid_tools={"web_search"},
     )
+    assert plan.nodes[0].tools is None
     reg = ToolRegistry()
     reg.register(_GrantableTool("web_search"))
     reg.register(_GrantableTool("post_note"))
@@ -853,7 +847,11 @@ async def test_collaboration_off_denies_note_tools_to_restricted_debater():
         collaboration=False,
     )
     await WaveScheduler().run(plan, executor)
-    assert provider.offered[0] == ["web_search"]
+    offered = set(provider.offered[0])
+    assert "web_search" in offered
+    assert "post_note" not in offered
+    assert "read_notes" not in offered
+    assert "amend_note" not in offered
 
 
 async def test_collaboration_off_denies_note_tools_to_unrestricted_worker():
@@ -882,14 +880,14 @@ async def test_collaboration_off_denies_note_tools_to_unrestricted_worker():
     assert "code_execute" in provider.offered[0]
 
 
-async def test_collaboration_on_grants_note_tools_to_restricted_worker():
-    # The default (collaboration=True, the delegate path) is unchanged: even a least-privilege
-    # worker keeps the 团队便签 broadcast channel so a collaborating team aligns mid-flight.
+async def test_collaboration_on_grants_note_tools_when_tools_declared():
+    # 真纯丙：声明 tools 无效；协作批仍 offer 便签（全开面）。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "tools": ["web_search"]}],
         id_prefix="t",
         valid_tools={"web_search"},
     )
+    assert plan.nodes[0].tools is None
     reg = ToolRegistry()
     reg.register(_GrantableTool("web_search"))
     reg.register(_GrantableTool("post_note"))
@@ -906,15 +904,17 @@ async def test_collaboration_on_grants_note_tools_to_restricted_worker():
     )
     await WaveScheduler().run(plan, executor)
     assert "post_note" in provider.offered[0]
+    assert "web_search" in provider.offered[0]
 
 
-async def test_restricted_worker_always_granted_handoff():
-    """CEO omit handoff from tools allow-list → executor still offers it (like escalate)."""
+async def test_worker_always_granted_handoff_even_if_tools_declared_without_it():
+    """真纯丙：tools 声明无效；handoff/escalate 仍在全开面上。"""
     plan, _ = build_run_plan(
         [{"role": "A", "task": "做A", "tools": ["web_search"]}],
         id_prefix="t",
         valid_tools={"web_search"},
     )
+    assert plan.nodes[0].tools is None
     reg = ToolRegistry()
     reg.register(_GrantableTool("web_search"))
     reg.register(_GrantableTool("handoff"))

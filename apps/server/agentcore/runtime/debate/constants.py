@@ -9,13 +9,8 @@ from agentcore.runtime.runs.retrieval_budget import (
 
 DEBATE_OUTPUT_LIMIT = 16000
 
-# 辩手最小权限工具集（least-privilege）：取证类（查资料 / 读网页）+ 只读文件三件套
-# （消费幕1 AgentCore/文档/research/ 案卷），不给写文件 / 代码 / 委派 / 提问等副作用工具——辩手职责是论证
-# 而非动手改东西。首轮经 task 的 tools 字段成为 allow-list，后续轮经 session.spec 自动沿用。
-DEBATER_TOOLS = ("web_search", "read_url", "file_read", "file_list", "grep")
-
-# 证人只读工具集（批 D1）：与辩手取证同形，禁写盘 / handoff / 委派。
-WITNESS_TOOLS = ("web_search", "read_url", "file_read", "file_list", "grep")
+# 真纯丙·H4：已退役 DEBATER_TOOLS / WITNESS_TOOLS 系统只读窄名单。
+# 辩手/证人默认与全开工具面一致（仍受写盘授权 / write_scope）；只读纪律靠角色提示自觉。
 
 # 庭前无 pack / pack 非 full 时：发言期对称有界检索（复用案卷残搜槽位，不平行发明第二套）。
 # 庭前调查员舰队已删；此常量只驱动辩手 debater_retrieval_budgets。

@@ -272,7 +272,7 @@ def file_only_tool_names() -> frozenset[str]:
         if schema.category is ToolCategory.FILESYSTEM
     }
     # Grep is FILESYSTEM-adjacent but often categorized separately — include if present.
-    for extra in ("grep", "code_search"):
+    for extra in ("grep", "code_search", "code_diagnostics"):
         if full.get(extra) is not None:
             names.add(extra)
     return frozenset(names)

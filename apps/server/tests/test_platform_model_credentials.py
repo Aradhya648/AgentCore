@@ -21,6 +21,7 @@ from agentcore.core.errors import PlatformBillingUnavailableError
 from agentcore.llm.resolve import (
     ModelSelection,
     platform_llm_credentials,
+    platform_wire_model,
     resolve_model_config,
 )
 
@@ -51,12 +52,16 @@ def test_parse_valid_json_keeps_only_nonblank_fields():
         ' "c": {"base_url": "u3"},'
         ' "d": {"api_key": "", "base_url": "  "},'
         ' "  ": {"api_key": "x"},'
-        ' "e": "not-an-object"}'
+        ' "e": "not-an-object",'
+        ' "f": {"upstream_model": "glm-5.2"},'
+        ' "g": {"api_key": "k3", "upstream_model": "  "}}'
     )
     assert parsed == {
         "a": {"api_key": "k1", "base_url": "u1"},
         "b": {"api_key": "k2"},
         "c": {"base_url": "u3"},
+        "f": {"upstream_model": "glm-5.2"},
+        "g": {"api_key": "k3"},
     }
 
 
@@ -120,6 +125,17 @@ def test_override_missing_base_url_falls_back_to_default(monkeypatch):
     assert creds is not None
     assert creds.api_key == "sk-m"  # override key
     assert creds.base_url == "https://default/v1"  # base_url falls back
+
+
+def test_platform_wire_model_uses_upstream_override(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "platform_model_credentials",
+        '{"glm-5.2-jiu": {"api_key": "sk-jiu", "upstream_model": "glm-5.2"}}',
+    )
+    assert platform_wire_model("glm-5.2-jiu") == "glm-5.2"
+    assert platform_wire_model("glm-5.2") == "glm-5.2"  # no override → catalog id
+    assert platform_wire_model("") == ""
 
 
 def test_override_only_key_serves_model_when_default_absent(monkeypatch):
@@ -289,6 +305,35 @@ async def test_platform_provider_uses_per_model_key(monkeypatch):
     await provider.complete(LLMRequest(messages=msgs, model="glm-5.2"))
     await provider.complete(LLMRequest(messages=msgs, model="relay-b"))
     assert seen == [("glm-5.2", "sk-default"), ("relay-b", "sk-relay-b-key")]
+    await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_platform_provider_rewrites_upstream_model(monkeypatch):
+    """Catalog id stays for lookup; leaf HTTP model is remapped via upstream_model."""
+    from agentcore.llm.provider.openai_compatible import OpenAICompatibleProvider
+    from agentcore.llm.provider.platform import PlatformProvider
+    from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse
+
+    override = (
+        '{"glm-5.2-jiu": {"api_key": "sk-jiu", "base_url": "https://jiu.example/v1",'
+        ' "upstream_model": "glm-5.2"}}'
+    )
+    monkeypatch.setattr(settings, "platform_api_key", "sk-default")
+    monkeypatch.setattr(settings, "platform_base_url", "https://default/v1")
+    monkeypatch.setattr(settings, "platform_model_credentials", override)
+
+    seen: list[tuple[str, str]] = []
+
+    async def _capture_complete(self, request):  # noqa: ANN001
+        seen.append((request.model, self._api_key))
+        return LLMResponse(content="ok", model=request.model)
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "complete", _capture_complete)
+    provider = PlatformProvider()
+    msgs = [LLMMessage(role="user", content="hi")]
+    await provider.complete(LLMRequest(messages=msgs, model="glm-5.2-jiu"))
+    assert seen == [("glm-5.2", "sk-jiu")]
     await provider.close()
 
 

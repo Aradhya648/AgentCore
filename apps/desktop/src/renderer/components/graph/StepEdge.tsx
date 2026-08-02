@@ -10,6 +10,12 @@ import {
 } from "@xyflow/react";
 import { useContext } from "react";
 import { GraphHoverContext } from "./graphHover";
+import {
+  GraphCaptainRunIdContext,
+  useGraphDocumentMode,
+  useGraphInjectPaint,
+  useStepEdgeAnimated,
+} from "./graphLive";
 
 /**
  * Real information handoff carried on a dependency edge (前端UX设计.md §五 信息流边):
@@ -27,7 +33,7 @@ export interface EdgeHandoff {
 }
 
 type StepEdgeData = Edge<{
-  animated: boolean;
+  animated?: boolean;
   kind?: "dep" | "delegate" | "continuation" | "inject" | "handoff";
   handoff?: EdgeHandoff | null;
   injectHighlight?: boolean;
@@ -125,7 +131,11 @@ export function StepEdge(props: EdgeProps<StepEdgeData>) {
         borderRadius: 10,
       });
 
-  const isAnimated = data?.animated ?? false;
+  const documentMode = useGraphDocumentMode();
+  const captainRunId = useContext(GraphCaptainRunIdContext);
+  const liveAnimated = useStepEdgeAnimated(props.target, captainRunId);
+  const injectPaint = useGraphInjectPaint();
+  const isAnimated = documentMode ? liveAnimated : (data?.animated ?? false);
   // 信息流边 (1A): surface a small label only on a LOSSY handoff — a summarized /
   // pointer-only product, or one truncated on the way. A 全文 (pass_through) handoff
   // stays a clean line (the common, ideal case), so labels mark exactly where a
@@ -142,8 +152,13 @@ export function StepEdge(props: EdgeProps<StepEdgeData>) {
   const isContinuation = data?.kind === "continuation";
   const isHandoff = data?.kind === "handoff";
   const isInject = data?.kind === "inject";
-  const injectHighlight = data?.injectHighlight === true;
-  const injectDimmed = data?.injectDimmed === true;
+  const injectHighlight = documentMode
+    ? isInject || (injectPaint?.highlightEdgeIds.has(props.id) ?? false)
+    : data?.injectHighlight === true;
+  const injectDimmed = documentMode
+    ? !!injectPaint?.dimUnrelatedEdges &&
+      !(injectPaint?.focusedEdgeIds.has(props.id) ?? false)
+    : data?.injectDimmed === true;
 
   const { hoveredNodeId, keepBrightIds } = useContext(GraphHoverContext);
   // Bright when both ends sit on the hover path (full upstream/downstream set).

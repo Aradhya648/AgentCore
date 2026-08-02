@@ -11,6 +11,7 @@ import {
   useExecutionStore,
 } from "@/stores/execution";
 import { useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   countPendingDecisions,
   isTurnRecoverable,
@@ -71,7 +72,20 @@ export function useCanvasTurns({
 }: UseCanvasTurnsOptions) {
   const messages = useActiveMessages();
   const conversationId = useConversationStore((s) => s.currentConversationId);
-  const byId = useExecutionStore((s) => s.byId);
+
+  const teamTurnIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const m of messages) {
+      if (m.role !== "assistant" || !m.executionId) continue;
+      ids.push(assistantProjectionId(m));
+    }
+    return ids;
+  }, [messages]);
+
+  // Per-turn runtimes only (not the whole byId table).
+  const teamRuntimes = useExecutionStore(
+    useShallow((s) => teamTurnIds.map((id) => s.byId[id])),
+  );
 
   useEffect(() => {
     const store = useExecutionStore.getState();
@@ -88,6 +102,7 @@ export function useCanvasTurns({
     const out: TurnItem[] = [];
     let lastUser = "";
     let lastUserId = "";
+    let teamIdx = 0;
     for (const m of messages) {
       if (m.role === "user") {
         lastUser = m.content;
@@ -97,7 +112,7 @@ export function useCanvasTurns({
       if (m.role !== "assistant") continue;
       const turnId = assistantProjectionId(m);
       if (m.executionId) {
-        const rt = byId[turnId];
+        const rt = teamRuntimes[teamIdx++];
         const exec = rt ? projectRuntime(rt) : null;
         out.push({
           id: turnId,
@@ -129,7 +144,7 @@ export function useCanvasTurns({
       }
     }
     return out;
-  }, [messages, byId, conversationId]);
+  }, [messages, teamRuntimes, conversationId]);
 
   const latestTeamId = useMemo(() => {
     for (let i = turns.length - 1; i >= 0; i--) {

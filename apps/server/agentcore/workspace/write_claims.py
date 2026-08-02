@@ -17,7 +17,11 @@ Two eras share one class:
   - **Completion handoff** moves owned paths to the unique dependent that listed
     the same artifact.
   - Explicit transfer: ``replaces_run_id`` / ``continue_from_run_id`` / ``force`` /
-    ``resolve_escalation(transfer_ownership=true)`` / user structured裁决.
+    ``resolve_escalation(transfer_ownership=true)`` / user structured裁决
+    (user ownership card **only** when lock owner is still ``running``;
+    completed holders use same-seat replaces / declare handoff).
+  - Write-time ``claim`` refusals are remembered per refused run so escalate can
+    attach ``ownership_paths`` even when the model paraphrases the conflict.
 
   Write tools consult the same book (``str_replace`` / ``write_section`` /
   delete / move included). Write ancestors = plan ``depends_on`` closure ∪
@@ -72,6 +76,10 @@ def ownership_conflict_message(
     ``ownership_kind``: ``\"declared\"`` (dispatch reserve, file may be empty/missing) or
     ``\"written\"`` (successful write recorded). ``owner_status``: ``running`` /
     ``completed`` / ``unknown``.
+
+    Completed holders are **not** a user「移交写权」path — same-seat ``replaces`` /
+    dispatch ``declare`` auto-handoff is the fix. User transfer card is for
+    still-running lock owners only.
     """
     who = f"【{owner_role}】（`{owner_run_id}`）" if owner_role else f"`{owner_run_id}`"
     kind_bit = ""
@@ -79,11 +87,18 @@ def ownership_conflict_message(
         kind_bit = "（仅派发占位、尚未落盘——不是上一 run 残留锁）"
     elif ownership_kind == "written":
         kind_bit = "（锁主已成功写入过该路径）"
+    if owner_status == "completed":
+        return (
+            f"写入冲突：`{path}` 仍记在已完成队友 {who} 名下{kind_bit}。"
+            "锁主状态：已完成（账本仍记其名；同座续派 / 派发 declare "
+            "同 artifact 会自动接手）。"
+            "请改写你自己职责下的文件，或等主管用同座位 replan/append"
+            "（系统 auto-replaces）接手后再写；"
+            "不要 escalate 请用户点「移交写权」，也不要另起同名终稿文件名抢写。"
+        )
     status_bit = ""
     if owner_status == "running":
         status_bit = "锁主状态：进行中。"
-    elif owner_status == "completed":
-        status_bit = "锁主状态：已完成（本协作会话内仍占位）。"
     elif owner_status == "unknown":
         status_bit = "锁主状态：未知（批内账本或无协调会话）。"
     return (
@@ -117,6 +132,10 @@ class WriteCoordinator:
         self._written: set[str] = {
             _normalize(p) for p in (written or ()) if _normalize(p)
         }
+        # Turn-local: run_id -> ordered paths this run was refused on ``claim``.
+        # Feeds escalate ownership UI without depending on LLM question wording.
+        # Not snapshotted — same-process escalate after collision is the hot path.
+        self._denied: dict[str, list[str]] = {}
 
     def to_dict(self) -> dict[str, Any]:
         """Snapshot: v2 nested ``{owners, written}``; empty written may still use v2."""
@@ -173,6 +192,23 @@ class WriteCoordinator:
             return []
         return sorted(p for p, owner in self._owner.items() if owner == rid)
 
+    def record_denied(self, path: str, run_id: str) -> None:
+        """Remember a write-time refusal so escalate can attach ``ownership_paths``."""
+        key = _normalize(path)
+        rid = (run_id or "").strip()
+        if not key or not rid:
+            return
+        bucket = self._denied.setdefault(rid, [])
+        if key not in bucket:
+            bucket.append(key)
+
+    def denied_paths_for(self, run_id: str) -> list[str]:
+        """Ordered paths this run was refused on; empty when unknown / never denied."""
+        rid = (run_id or "").strip()
+        if not rid:
+            return []
+        return list(self._denied.get(rid) or ())
+
     def claim(
         self,
         path: str,
@@ -194,6 +230,7 @@ class WriteCoordinator:
         rid = (run_id or "").strip() or "unknown"
         owner = self._owner.get(key)
         if owner is not None and owner != rid and owner not in ancestors and not force:
+            self.record_denied(key, rid)
             return owner
         self._owner[key] = rid
         return None
@@ -358,20 +395,33 @@ def ownership_escalation_hints(
     execution_id: str | None = None,
     paths: list[str] | None = None,
     write_ancestors: frozenset[str] | set[str] | None = None,
+    write_coordinator: WriteCoordinator | None = None,
 ) -> dict[str, Any]:
     """Structured ownership hints for CEO escalation inject / resolve transfer.
+
+    Path source order: explicit ``paths`` → this run's recent ``claim`` denials
+    on ``write_coordinator`` (still held by someone else) → regex on
+    ``写入冲突：`path``` in ``question``. Preferring ledger denials keeps the
+    user ownership card wired when the model paraphrases the conflict.
 
     Returns keys: ownership_paths, lock_owner_run_id, escalator_is_lock_owner_nested_child,
     ownership_kind, owner_status (empty dict when no conflict path resolved).
     """
     hints: dict[str, Any] = {}
+    escalator = (escalator_run_id or "").strip()
     path_list = [p for p in (paths or []) if isinstance(p, str) and p.strip()]
+    if not path_list and escalator and write_coordinator is not None:
+        path_list = [
+            p
+            for p in write_coordinator.denied_paths_for(escalator)
+            if (owner := write_coordinator.owner_of(p)) and owner != escalator
+        ]
     if not path_list:
         path_list = parse_ownership_conflict_paths(question)
     if not path_list:
         return hints
 
-    ledger = resolve_write_coordinator(execution_id=execution_id)
+    ledger = write_coordinator or resolve_write_coordinator(execution_id=execution_id)
     lock_owners: list[str] = []
     kinds: list[str] = []
     for p in path_list:
@@ -391,7 +441,7 @@ def ownership_escalation_hints(
     hints["owner_status"] = status
     anc = write_ancestors or frozenset()
     nested = lock_owner in anc or _is_nested_child_of(
-        escalator_run_id, lock_owner, execution_id=execution_id
+        escalator, lock_owner, execution_id=execution_id
     )
     hints["escalator_is_lock_owner_nested_child"] = bool(nested)
     return hints

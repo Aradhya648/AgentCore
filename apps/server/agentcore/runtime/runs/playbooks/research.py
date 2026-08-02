@@ -339,17 +339,8 @@ def research_report(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[st
             "depends_on": ["write"],
             "deliverable": {"name": "审校报告 + 修改建议"},
             # 审校为依赖写作的收尾节点：通读长稿 + 核对出处。墙钟显式 300s（优先于统一
-            # backstop）；token 顶走 worker_budget 统一回填。定向检索：显式装配
-            # grep/code_search（+ 读文件 / 核对原文），避免 least-privilege 退化成只
-            # file_list/file_read 整文件通读。
-            "tools": [
-                "file_list",
-                "file_read",
-                "grep",
-                "code_search",
-                "web_search",
-                "read_url",
-            ],
+            # backstop）；token 顶走 worker_budget 统一回填。真纯丙：不再靠显式 tools
+            # 名单收窄；定向检索纪律写在 task 正文（见 DIRECTED_SEARCH_TASK_HINT）。
             "timeout_ms": 300_000,
         }
     )

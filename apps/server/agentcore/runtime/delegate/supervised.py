@@ -114,6 +114,10 @@ def apply_replan(
     in :func:`build_added_nodes`; here we just append the vetted specs and, because the
     graph grew, flip the plan origin to CAPTAIN and recompute fan-out awareness so any
     newly-parallel nodes see each other.
+
+    When an active coordination session owns ``plan`` as its live graph, ``adds`` go
+    through the same seat/artifact admit + ``declare_plan_artifacts`` path as append
+    merge (auto-``replaces`` → ``transfer_all_from``).
     """
     from agentcore.runtime.runs import RunOrigin, build_added_nodes
     from agentcore.runtime.runs.builder import _apply_sibling_summaries
@@ -197,6 +201,12 @@ def apply_replan(
             continue
         steer_ops.append((node, note))
 
+    # Active coordination: replan.adds share append's seat/artifact admit before mutate.
+    if new_specs and not errors:
+        seat_reject = _admit_replan_adds_against_coordination(tool, plan, new_specs)
+        if seat_reject is not None:
+            errors.append(seat_reject)
+
     if errors:
         return errors
     for node, fields in bind_ops:
@@ -215,8 +225,101 @@ def apply_replan(
         from agentcore.runtime.runs.plan import clear_revivable_skips
 
         clear_revivable_skips(plan, completed)
+        _declare_replan_adds_on_coordination(tool, plan, new_specs)
     return []
 
+
+def _replan_coordination_session(
+    tool: DelegateTool, plan: RunPlan
+) -> Any | None:
+    """Return the active session only when ``plan`` is its live coordination graph."""
+    from agentcore.runtime.coordination.session import active_coordination
+
+    sup = getattr(tool, "_supervised", None)
+    eid = ""
+    if sup is not None:
+        eid = str(getattr(sup, "execution_id", "") or "").strip()
+    if not eid:
+        ctx = getattr(tool, "_base_tool_context", None)
+        eid = str(getattr(ctx, "execution_id", "") or "").strip()
+    if not eid:
+        return None
+    session = active_coordination(eid)
+    if session is None or not session.active:
+        return None
+    # Nested lead sub-plans must not be gated against the root live graph.
+    if session.live_plan is not None and session.live_plan is not plan:
+        return None
+    return session
+
+
+def _admit_replan_adds_against_coordination(
+    tool: DelegateTool,
+    plan: RunPlan,
+    new_specs: list[RunSpec],
+) -> str | None:
+    """Seat/artifact admit for replan.adds; ``None`` when no session or admitted."""
+    from agentcore.core.logging import get_logger
+    from agentcore.runtime.coordination.append_guard import admit_added_nodes
+    from agentcore.runtime.runs.plan import RunPlan as Plan
+    from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+    session = _replan_coordination_session(tool, plan)
+    if session is None:
+        return None
+    force = getattr(tool, "_delegate_force", False) is True
+    ownership = (
+        session.ensure_file_ownership() if file_ownership_v2_enabled() else None
+    )
+    staging = Plan(nodes=list(new_specs))
+    reject = admit_added_nodes(
+        staging,
+        plan,
+        completed_run_ids=session.completed_run_ids,
+        vacated_run_ids=session.vacated_run_ids,
+        ownership=ownership,
+        force=force,
+        total_workers=session.total_workers,
+    )
+    if reject is not None:
+        get_logger(__name__).info(
+            "coordination.append_overlap_rejected",
+            execution_id=session.execution_id,
+            overlaps=1,
+            completed=len(session.completed_run_ids),
+            total=session.total_workers,
+            via="replan",
+        )
+    return reject
+
+
+def _declare_replan_adds_on_coordination(
+    tool: DelegateTool,
+    plan: RunPlan,
+    new_specs: list[RunSpec],
+) -> None:
+    """Dispatch ownership for admitted replan.adds (replaces → transfer_all_from)."""
+    from agentcore.runtime.coordination.append_guard import declare_plan_artifacts
+    from agentcore.runtime.runs.executor_context import _ancestors_by_id
+    from agentcore.workspace.write_claims import file_ownership_v2_enabled
+
+    session = _replan_coordination_session(tool, plan)
+    if session is None:
+        return
+    if session.live_plan is None:
+        session.live_plan = plan
+    session.total_workers = len(plan.nodes)
+    if not file_ownership_v2_enabled() or not new_specs:
+        return
+    force = getattr(tool, "_delegate_force", False) is True
+    declare_plan_artifacts(
+        plan,
+        session.ensure_file_ownership(),
+        force=force,
+        only_run_ids={n.run_id for n in new_specs},
+        ancestor_map=_ancestors_by_id(plan),
+        completed_run_ids=session.completed_run_ids,
+    )
 
 async def finalize_stopped(
     tool: DelegateTool, plan: RunPlan, seed_completed: dict[str, RunState]

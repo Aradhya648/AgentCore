@@ -25,7 +25,9 @@ import {
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Favicon } from "../Favicon";
+import { CodeDiagnosticsResult } from "./CodeDiagnosticsResult";
 import { SearchHitResult } from "./SearchHitResult";
+import { codeDiagnosticsPeek, extractCodeDiagnostics } from "./codeDiagnostics";
 import { type DiffLine, lineDiff } from "./diff";
 import { isFileReadCeilingGuidance } from "./fileReadCeiling";
 import { isSearchHitTool } from "./parseSearchHits";
@@ -168,6 +170,17 @@ export function toolResultPeek(d: ToolResultData): string {
   }
   if (isBrowserDisplay(d.display)) {
     return browserResultPeek(d.display);
+  }
+  // Inner-loop diagnostics peek (「N 个类型错误」) — before write path labels so
+  // a write that attached diagnostics surfaces the error count when present.
+  const diagPeek = extractCodeDiagnostics(d.display);
+  if (diagPeek) {
+    const peek = codeDiagnosticsPeek(diagPeek);
+    if (diagPeek.status === "unavailable" || peek !== "未发现类型错误") {
+      return clampLine(peek);
+    }
+    // Clean diagnostics on a write → keep「已写入 path」below; standalone → clean.
+    if (!isFileEdit(d) && !isFileWrite(d)) return peek;
   }
   if (isFileEdit(d)) {
     const path = asString(d.args.path);
@@ -612,6 +625,8 @@ function TextResult({
  * rich data is absent — falls back to the model-facing text result.
  */
 export function ToolResultView({ data }: { data: ToolResultData }) {
+  const diagnostics = extractCodeDiagnostics(data.display);
+
   if (isWebSearchDisplay(data.display)) {
     return <WebSearchResult display={data.display} />;
   }
@@ -649,20 +664,30 @@ export function ToolResultView({ data }: { data: ToolResultData }) {
   }
   if (isFileEdit(data)) {
     return (
-      <FileEditDiff
-        path={asString(data.args.path)}
-        oldStr={asString(data.args.old_string) ?? ""}
-        newStr={asString(data.args.new_string) ?? ""}
-      />
+      <div>
+        <FileEditDiff
+          path={asString(data.args.path)}
+          oldStr={asString(data.args.old_string) ?? ""}
+          newStr={asString(data.args.new_string) ?? ""}
+        />
+        {diagnostics && <CodeDiagnosticsResult display={diagnostics} />}
+      </div>
     );
   }
   if (isFileWrite(data)) {
     return (
-      <FileWriteCard
-        path={asString(data.args.path)}
-        content={asString(data.args.content) ?? ""}
-      />
+      <div>
+        <FileWriteCard
+          path={asString(data.args.path)}
+          content={asString(data.args.content) ?? ""}
+        />
+        {diagnostics && <CodeDiagnosticsResult display={diagnostics} />}
+      </div>
     );
+  }
+  // Standalone / write-tool-attached diagnostics (not a write preview above).
+  if (diagnostics) {
+    return <CodeDiagnosticsResult display={diagnostics} />;
   }
   // grep / code_search: clickable workspace paths → side-panel file preview.
   // Empty「可执行下一步」notes have no hit lines → plain TextResult below.

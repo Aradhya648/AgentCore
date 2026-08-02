@@ -16,6 +16,8 @@ from agentcore.runtime.loop_controller import (
     Intervention,
     LoopController,
     ToolAttempt,
+    delivery_idle_narrow_prompt,
+    delivery_idle_nudge_prompt,
     progress_review_prompt,
 )
 from agentcore.tools.registry import ToolRegistry
@@ -196,6 +198,66 @@ def maybe_inject_team_gate(
         NoteFact(role="user", content=nudge, reason="team_gate", run_id=run_id).to_fact()
     )
     return True
+
+
+def maybe_inject_delivery_idle(
+    controller: LoopController,
+    *,
+    messages: list[LLMMessage],
+    run_id: str,
+    round_idx: int,
+    role: str,
+) -> Literal["none", "nudge", "narrow"]:
+    """Files_expected read-idle: soft nudge then tool-narrow pending (not FINALIZE).
+
+    Orthogonal to token/timeout wind_down and to the retired zero-write DEGRADED
+    escalate. Narrow allowlist apply is consumed by the react loop via
+    :meth:`LoopController.take_delivery_idle_narrow_apply`.
+    """
+    if role != "worker" or controller.landing_succeeded:
+        return "none"
+
+    rounds = controller.delivery_idle_rounds
+    if controller.delivery_idle_narrow_due():
+        controller.mark_delivery_idle_narrowed()
+        prompt = delivery_idle_narrow_prompt(rounds=rounds)
+        logger.info(
+            "engine.delivery_idle_narrow",
+            round=round_idx,
+            idle_rounds=rounds,
+            nudge_bar=controller.delivery_idle_nudge_rounds,
+            narrow_bar=controller.delivery_idle_narrow_rounds,
+        )
+        messages.append(LLMMessage(role="user", content=prompt))
+        record_turn_fact(
+            NoteFact(
+                role="user", content=prompt, reason="delivery_idle_narrow", run_id=run_id
+            ).to_fact()
+        )
+        return "narrow"
+
+    if controller.delivery_idle_nudge_due():
+        controller.mark_delivery_idle_nudged()
+        prompt = delivery_idle_nudge_prompt(
+            rounds=rounds, recon=controller.delivery_idle_recon
+        )
+        logger.info(
+            "engine.delivery_idle_nudge",
+            round=round_idx,
+            idle_rounds=rounds,
+            nudge_bar=controller.delivery_idle_nudge_rounds,
+            narrow_bar=controller.delivery_idle_narrow_rounds,
+            recon=controller.delivery_idle_recon,
+        )
+        messages.append(LLMMessage(role="user", content=prompt))
+        record_turn_fact(
+            NoteFact(
+                role="user", content=prompt, reason="delivery_idle_nudge", run_id=run_id
+            ).to_fact()
+        )
+        return "nudge"
+
+    return "none"
 
 
 def audit_gate_nudge_prompt() -> str:
@@ -497,8 +559,13 @@ def create_loop_controller(
     thrash; see :meth:`LoopController.apply_seed`); omit on a fresh turn.
 
     Zero-write / prose_idle mid-loop warn→FINALIZE is **retired** (always off).
-    Delivery pressure stays on round/token hard ceilings + convergence spin;
-    write_pass still grants persist tools when ``files_expected`` (seam B).
+    Soft delivery_idle (nudge → tool narrow) opens for ``files_expected`` and not
+    ``form_prose``. Non-landing workers get recon-idle **nudge only** (no narrow)
+    so diagnose/research 摊大饼 gets a conclude/handoff steer without write pressure.
+    Orthogonal to token/timeout wind_down and never stamps DEGRADED / FAILED for
+    read-idle.
+    Delivery pressure otherwise stays on round/token hard ceilings + convergence
+    spin. 真纯丙后不再有「白名单缺写盘 → 补写工具」半成品路径。
 
     Short ``max_rounds`` also pulls ``reflection_start_round`` earlier so the
     progress-review inject is not collinear with the hard ceiling.
@@ -508,8 +575,6 @@ def create_loop_controller(
     ``code_execute`` ladders reach nudge→finalize sooner — still the same
     LoopController paths, not a parallel fuse.
     """
-    _ = files_expected  # call-site seam; write_pass grant is outside this factory
-
     tool_failure_warn = settings.engine_tool_failure_warn
     tool_failure_disable = settings.engine_tool_failure_disable
     unproductive_threshold = settings.engine_unproductive_threshold
@@ -522,6 +587,18 @@ def create_loop_controller(
     if short_write_posture and max_rounds is not None and max_rounds > 0:
         # Leave ≥1 react round after inject before hard ceiling (max_rounds=4 → start 2).
         reflection_start = min(reflection_start, max(1, max_rounds - 2))
+
+    # Soft read-idle ladder (not the retired zero-write FINALIZE).
+    delivery_idle_nudge = 0
+    delivery_idle_narrow = 0
+    delivery_idle_recon = False
+    if files_expected and not form_prose:
+        delivery_idle_nudge = int(settings.engine_delivery_idle_nudge_rounds or 0)
+        delivery_idle_narrow = int(settings.engine_delivery_idle_narrow_rounds or 0)
+    elif not form_prose:
+        delivery_idle_nudge = int(settings.engine_recon_idle_nudge_rounds or 0)
+        delivery_idle_narrow = 0
+        delivery_idle_recon = delivery_idle_nudge > 0
 
     controller = LoopController(
         empty_threshold=settings.engine_empty_response_threshold,
@@ -536,6 +613,9 @@ def create_loop_controller(
         zero_write_finalize_rounds=0,
         prose_idle=False,
         form_prose=form_prose,
+        delivery_idle_nudge_rounds=delivery_idle_nudge,
+        delivery_idle_narrow_rounds=delivery_idle_narrow,
+        delivery_idle_recon=delivery_idle_recon,
         investigation_tools=investigation_tools,
         product_landing_artifacts=product_landing_artifacts,
     )
@@ -569,9 +649,9 @@ def finalize_allows_persist(
 ) -> bool:
     """True when finalize should keep file_write+handoff (files-form / wind_down).
 
-    Prose withhold (``form_prose`` or writes absent from registry) → coordination
-    only. ``files_expected``催写/finalize grants persist when ``file_write`` is
-    registered even if the explicit allowlist omitted it (least-privilege seam).
+    ``form_prose`` or writes absent from registry → coordination only (finalize
+   不催 prose 队员落盘). ``files_expected`` → offer persist when ``file_write``
+    is registered. 真纯丙后执行层默认 unrestricted，不再依赖「名单缺写盘补写」。
     """
     if form_prose or "file_write" not in tools.names:
         return False
@@ -797,6 +877,13 @@ def govern_after_tools(
             round_idx=round_idx,
             role=role,
         )
+        maybe_inject_delivery_idle(
+            controller,
+            messages=messages,
+            run_id=run_id,
+            round_idx=round_idx,
+            role=role,
+        )
         return Continue()
 
     if signal is not None and action is Intervention.FINALIZE:
@@ -848,6 +935,13 @@ def govern_after_tools(
         investigation_tools=investigation_tools,
     )
     maybe_inject_turn_token_budget_gate(
+        controller,
+        messages=messages,
+        run_id=run_id,
+        round_idx=round_idx,
+        role=role,
+    )
+    maybe_inject_delivery_idle(
         controller,
         messages=messages,
         run_id=run_id,

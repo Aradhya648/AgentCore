@@ -104,6 +104,32 @@ def test_dep_block_leads_with_author_debrief_summary():
     assert "做A的POC" not in block.body  # next_steps is CEO-facing, not shipped downstream
 
 
+def test_dep_block_promotes_brief_when_content_empty():
+    """仅 debrief.summary（无正文、无落盘）→ 升格注入，不当前置缺席。"""
+    plan = _plan(RunSpec(run_id="u", agent_id="u", role="研究员", task="调研"))
+    state = _state(
+        "",
+        debrief={"summary": "方案A更优", "key_points": ["成本更低", "风险可控"]},
+    )
+    blocks = _dep_context_blocks(plan, ["u"], {"u": state})
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.fidelity == "pass_through"
+    assert "前置缺席" not in block.heading
+    assert "方案A更优" in block.body
+    assert "成本更低" in block.body
+    assert "风险可控" in block.body
+
+
+def test_dep_block_empty_completed_without_brief_still_absent():
+    """COMPLETED 但无 content / files / debrief summary → 仍前置缺席。"""
+    plan = _plan(RunSpec(run_id="u", agent_id="u", role="研究员", task="调研"))
+    blocks = _dep_context_blocks(plan, ["u"], {"u": _state("")})
+    assert len(blocks) == 1
+    assert blocks[0].fidelity == "absent"
+    assert "前置缺席" in blocks[0].heading
+
+
 def test_dep_summarize_uses_author_summary_over_blind_head_chop():
     # summarize fidelity: the author's own 结论 beats a mechanical head-chop of noisy prose.
     spec = RunSpec(

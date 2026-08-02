@@ -141,13 +141,7 @@ async def apply_loop_directive(
                 finish_override_sink.append(fr)
             # Mid-loop zero_write → DEGRADED + raised「Worker 因零写…」已退役。
             # Hard-ceiling thrashing still uses ceiling.record_thrashing_backstop.
-            from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
-
             finalize_allowed = allowed_tool_names
-            if files_expected and not form_prose:
-                finalize_allowed = merge_persist_write_tools(
-                    allowed_tool_names, registry_names=set(tools.names)
-                )
             (
                 final_content,
                 final_reasoning,

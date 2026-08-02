@@ -168,7 +168,7 @@ _TEAM_ORCHESTRATION_ADVANCED = """\
 `requires_files`）；有复现症状 / 多点 / 需验 → `repair_code`（单症状三波；`playbook_args` 必填 \
 `problem` + `verify`）。【已有多角调查/审查批、用户确认按结论修】→ **禁止**再套 \
 `repair_code` 冷开新三角色；手写 tasks + 对各调查 run 设 `continue_from_run_id`（可并行；\
-可改 task 正文/title，换马甲≠换职能；可声明超集 tools 只增不减）。\
+可改 task 正文/title，换马甲≠换职能；队员默认全开相关工具面，不必再填 tools）。\
 **禁止**把 `none` 当修码默认、禁止触顶后再派马甲从零读。\
 可用：""" + _PLAYBOOK_LISTING + """。槽位见 `delegate` 的 playbook_args。
 
@@ -266,7 +266,7 @@ delegate 追加即可。\
 含 `checkpoint_after` 把关节点且闸开（走阻塞等待，好让把关卡到点弹给用户）——这是预期，\
 别为进协调而去掉把关点。
 - 交付形态（`deliverable.form`，优先用）：产出给用户【看】（回答 / 分析 / 汇报 / 创意文字 / \
-打招呼）→ `form=prose`（正文交付，引擎不授写文件工具）；给用户【用】（要打开 / 运行 / 编辑 / \
+打招呼）→ `form=prose`（正文交付；写盘工具仍装配，靠角色提示自觉勿乱写）；给用户【用】（要打开 / 运行 / 编辑 / \
 保存的文件——代码 / 网页 / 配置等）→ `form=files`（隐含 `requires_files`；未落盘仅 soft 提示，不自动返工）。\
 省略 = worker 自行判断（兼容旧行为）。不要对 prose 批设 `completion_criteria=files_written`\
 （契约矛盾，会被拒绝）。
@@ -281,7 +281,7 @@ delegate 追加即可。\
 引擎验 worker 是否用 `code_execute` / `test_run` / \
 `terminal` 跑通 verify 形态命令且 exit 0；**启动开发服务器不算**；纯 prose 交卷不算过门；\
 修码 / `repair_code` / light 要验缺 `verify_command` 会被契约拒绝；\
-**批内至少一名 worker 须持执行类 tools**，否则入闸硬拒——乙续派可声明超集 tools 扩面）；\
+队员默认全开相关工具面（含执行类）；环境未装配时由能力闸/提示处理，勿再靠 tools 白名单）；\
 ② 用户要【启动开发服务器 / 长驻进程 / 打开本机服务并报 URL / 跑起来看一下】→ \
 意图梯度：仅启服·看活·「打开项目看一下」（未点名右坞/浏览器）且 CEO `terminal=已装配` → \
 CEO 自己 `terminal` 启服报 URL（**【禁止】**为此派验证员/browser；勿默认 `runtime_ready`；\
@@ -496,10 +496,9 @@ task 正文写清续干指令（改哪里 / 新任务是什么）；可与 depen
 正文改成改码/落实指令即可）。换 title / 马甲文案（如「审查员」→「修复员」）【不算】换职能，\
 【禁止】因此冷开新人。【禁止】此时再套 `playbook=repair_code` 冷开诊断→修补→验证新三角色——\
 `repair_code` 仅覆盖【无先验调查批】的单症状修码。\
-【工具面·只增不减】乙续派可在该 task 声明超集 `tools`（merge 进原现场；未声明则沿用）；\
-只读调查面不够验码时 → 声明含 `test_run`（或 `code_execute` / `terminal`）的超集，或甲冷开\
-验证员；**禁止**指望引擎静默减面/换马甲。若批次 `completion_criteria=code_verified` 而全员\
-无执行类工具 → 入闸硬拒。
+【工具面】队员默认全开相关工具（含写盘 / 执行类）；**不要**再填 `tools` 白名单收窄。\
+续派同人带现场即可；验码靠 task 正文点名 `test_run` 等，或甲冷开验证员。环境未装配\
+执行面时走能力闸 / `ask_user`，勿靠名单硬拒。
 
 【修订落盘纪律·写进续派 task】已有成品按审校意见【逐条】用 `str_replace` 局部改（优先）；扩写章节用 \
 `file_append`；整文件 `file_write` 覆盖允许，但须写出完整正文——勿惰性省略中段（正文自带\

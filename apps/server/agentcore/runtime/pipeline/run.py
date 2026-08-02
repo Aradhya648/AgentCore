@@ -109,7 +109,9 @@ async def run_chat_pipeline(
     ``x_client_platform`` is the raw ``X-Client-Platform`` header (desktop / mobile-web /
     …). Gates ``ask_user``'s ``action=bind_local_folder`` advertisement and the
     ``<workspace_context>`` desktop-online line — cloud web/mobile must not see the bind
-    action. ``None`` / absent defaults to desktop (legacy tests).
+    action. ``None`` / absent / unknown → fail-closed via ``resolve_channel_profile``
+    (``desktop_online=False``); do **not** confuse with auth ``parse_client_platform``,
+    which may still legacy-default desktop for JWT aud.
 
     ``profile_set`` is the turn's per-scenario model set — which model each scenario
     (chat / agent / ...) runs this turn — resolved by the caller from the user's

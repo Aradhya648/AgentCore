@@ -1,4 +1,4 @@
-"""Worker token/timeout 统一 backstop：未显式声明时回填全局 ceiling + 600s。"""
+"""Worker token/timeout 统一 backstop：未显式声明时回填全局 ceiling + 1200s。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def test_apply_fills_unified_backstop():
     spec = RunSpec(run_id="x", task="t", role="r", policy=RunPolicy())
     apply_worker_budgets_to_specs([spec], default_token_ceiling=600_000)
     assert spec.token_ceiling == 600_000
-    assert spec.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S == 600
+    assert spec.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S == 1200
 
 
 def test_apply_preserves_pre_set_token_ceiling_and_timeout():
@@ -75,7 +75,7 @@ def test_build_plan_applies_unified_backstop_regardless_of_shape():
     )
     assert errors == []
     for node in plan.nodes:
-        assert node.token_ceiling == 2_000_000
+        assert node.token_ceiling == 4_000_000
         assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
 
 
@@ -93,7 +93,7 @@ def test_build_plan_research_root_still_gets_research_retrieval():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 2_000_000
+    assert node.token_ceiling == 4_000_000
     assert node.policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
     from agentcore.runtime.runs.retrieval_budget import DEFAULT_RETRIEVAL_BUDGET
 
@@ -115,7 +115,7 @@ def test_explicit_timeout_ms_wins_over_backstop():
     )
     assert errors == []
     node = plan.nodes[0]
-    assert node.token_ceiling == 2_000_000
+    assert node.token_ceiling == 4_000_000
     assert node.policy.timeout_s == 90  # CEO 显式优先
 
 
@@ -164,7 +164,7 @@ def test_apply_light_round_budgets_is_noop():
 
 
 def test_files_zero_write_retired_always_off():
-    """Files + prose idle ladders retired: factory never opens either."""
+    """Zero-write / prose_idle retired; soft delivery_idle opens only for files_expected."""
     from agentcore.runtime.engine.governance import create_loop_controller
     from agentcore.runtime.runs.worker_budget import (
         LIGHT_REPAIR_MAX_ROUNDS,
@@ -197,6 +197,8 @@ def test_files_zero_write_retired_always_off():
         short_write_posture=False,
     )
     assert standard.zero_write_finalize_rounds == 0
+    assert standard.delivery_idle_nudge_rounds > 0
+    assert standard.delivery_idle_narrow_rounds > 0
     short_files = create_loop_controller(
         frozenset({"file_read"}),
         files_expected=True,
@@ -204,6 +206,7 @@ def test_files_zero_write_retired_always_off():
     )
     assert short_files.zero_write_finalize_rounds == 0
     assert short_files.prose_idle is False
+    assert short_files.delivery_idle_nudge_rounds > 0
     prose = create_loop_controller(
         frozenset({"file_read"}),
         files_expected=True,
@@ -212,6 +215,23 @@ def test_files_zero_write_retired_always_off():
     )
     assert prose.zero_write_finalize_rounds == 0
     assert prose.prose_idle is False
+    assert prose.delivery_idle_nudge_rounds == 0
+    assert prose.delivery_idle_narrow_rounds == 0
+    no_files = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=False,
+    )
+    # Investigate/diagnose: recon-idle nudge only (no tool narrow, no write pressure).
+    assert no_files.delivery_idle_nudge_rounds > 0
+    assert no_files.delivery_idle_narrow_rounds == 0
+    assert no_files.delivery_idle_recon is True
+    prose_no_files = create_loop_controller(
+        frozenset({"file_read"}),
+        files_expected=False,
+        form_prose=True,
+    )
+    assert prose_no_files.delivery_idle_nudge_rounds == 0
+    assert prose_no_files.delivery_idle_recon is False
 
 
 def test_is_directed_search_role_covers_review_and_investigation():
@@ -244,7 +264,8 @@ def test_ensure_directed_search_tools_enriches_restricted_allow_list():
     assert frozenset({"grep", "code_search"}) == DIRECTED_SEARCH_TOOL_NAMES
 
 
-def test_build_plan_enriches_reviewer_least_privilege_tools():
+def test_build_plan_ignores_reviewer_least_privilege_tools():
+    """真纯丙：CEO 窄名单不再写入 plan；定向检索 enrichment 对 None 为 no-op。"""
     plan, errors = build_run_plan(
         [
             {
@@ -261,10 +282,7 @@ def test_build_plan_enriches_reviewer_least_privilege_tools():
         valid_tools={"file_list", "file_read", "grep", "code_search", "handoff"},
     )
     assert errors == []
-    tools = plan.nodes[0].tools
-    assert tools is not None
-    assert "grep" in tools
-    assert "code_search" in tools
+    assert plan.nodes[0].tools is None
 
 
 def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
@@ -390,31 +408,12 @@ def test_prose_idle_gate_and_scaled_bar():
     assert files.zero_write_finalize_rounds == 0
 
 
-def test_merge_persist_write_tools_and_light_repair_grant():
-    """窄 allowlist 缺 file_write + files_expected → write_pass/light 并入写盘集；prose no-op。"""
+def test_narrow_for_light_repair_strips_investigation():
+    """Light repair 去掉调查工具，保留 light-repair 集（含写盘）；无名单补写半成品。"""
     from agentcore.core.types import ToolCategory
     from agentcore.runtime.runs.executor_node import _narrow_for_light_repair
-    from agentcore.runtime.runs.worker_budget import (
-        PERSIST_WRITE_TOOL_NAMES,
-        merge_persist_write_tools,
-    )
     from agentcore.tools.protocol import ToolResult, ToolSchema
     from agentcore.tools.registry import ToolRegistry
-
-    assert "file_write" in PERSIST_WRITE_TOOL_NAMES
-    assert merge_persist_write_tools(None, registry_names={"file_write"}) is None
-    merged = merge_persist_write_tools(
-        ["file_read", "grep", "handoff"],
-        registry_names={"file_read", "grep", "handoff", "file_write", "str_replace"},
-    )
-    assert merged is not None
-    assert "file_write" in merged
-    assert "str_replace" in merged
-    assert "grep" in merged
-    # registry 无写工具（prose withhold）→ 不并入
-    assert merge_persist_write_tools(
-        ["file_read", "handoff"], registry_names={"file_read", "handoff"}
-    ) == ["file_read", "handoff"]
 
     class _T:
         def __init__(self, name: str) -> None:
@@ -443,17 +442,24 @@ def test_merge_persist_write_tools_and_light_repair_grant():
     ):
         reg.register(_T(n))
 
-    _r, no_grant = _narrow_for_light_repair(
-        reg, ["file_read", "grep", "handoff"], grant_write_tools=False
+    _r, unrestricted = _narrow_for_light_repair(reg, None)
+    assert "file_write" in unrestricted
+    assert "str_replace" in unrestricted
+    assert "handoff" in unrestricted
+    assert "grep" not in unrestricted
+    assert "web_search" not in unrestricted
+
+    _r2, narrowed = _narrow_for_light_repair(
+        reg, ["file_read", "grep", "handoff", "file_write"]
     )
+    assert "file_write" in narrowed
+    assert "handoff" in narrowed
+    assert "grep" not in narrowed
+    # 缺写盘的显式名单不再补写（真纯丙退役 merge_persist）
+    _r3, no_grant = _narrow_for_light_repair(reg, ["file_read", "grep", "handoff"])
     assert "file_write" not in no_grant
-    _r2, granted = _narrow_for_light_repair(
-        reg, ["file_read", "grep", "handoff"], grant_write_tools=True
-    )
-    assert "file_write" in granted
-    assert "str_replace" in granted
-    assert "handoff" in granted
-    assert "grep" not in granted  # investigation stripped
+    assert "handoff" in no_grant
+    assert "grep" not in no_grant
 
 
 def test_should_skip_contract_retry_for_budget_handoff_ok_wind_down():

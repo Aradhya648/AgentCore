@@ -284,7 +284,10 @@ class CodeExecuteTool:
 
         verify_matched = project_verify_command_match(code)
         if verify_matched is not None:
-            msg = project_verify_redirect_message(verify_matched)
+            msg = project_verify_redirect_message(
+                verify_matched,
+                verify_policy=getattr(context, "verify_policy", "") or "",
+            )
             return ToolResult(
                 tool_call_id="",
                 success=False,

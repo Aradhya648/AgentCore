@@ -850,23 +850,24 @@ def test_debater_task_injects_background_block():
         assert "仍需独立检索取证" not in task
 
 
-def test_debater_tools_include_readonly_file_suite():
-    """辩手工具面：取证 + 只读文件三件套；不含写工具。"""
-    from agentcore.runtime.debate.constants import DEBATER_TOOLS
+def test_debater_task_omits_system_readonly_toolbox():
+    """真纯丙·H4：辩手装配不再注入系统只读 tools 名单。"""
+    import agentcore.runtime.debate.constants as debate_constants
 
-    assert "web_search" in DEBATER_TOOLS and "read_url" in DEBATER_TOOLS
-    for name in ("file_read", "file_list", "grep"):
-        assert name in DEBATER_TOOLS
-    for banned in ("file_write", "file_delete", "str_replace", "delegate", "code_execute"):
-        assert banned not in DEBATER_TOOLS
+    assert not hasattr(debate_constants, "DEBATER_TOOLS")
+    assert not hasattr(debate_constants, "WITNESS_TOOLS")
+
+    sides = [DebateSide("plaintiff", "正方", "支持"), DebateSide("defendant", "反方", "反对")]
+    cfg = DebateConfig(motion="命题", form=DebateForm.DEBATE, sides=sides)
+    payload = debater_task(cfg, sides[0], 0, round_no=1, focus="焦点")
+    assert "tools" not in payload
 
 
-def test_both_debate_start_paths_assemble_debater_tools_allowlist():
-    """CEO debate 工具与 stage_card start_debate 均经 DebateTool→rounds→debater_task，
-    首轮 RunSpec.tools 必须是 DEBATER_TOOLS（不含写盘）。"""
+def test_both_debate_start_paths_omit_debater_tools_allowlist():
+    """真纯丙·H4：debater_task 不再声明 tools；build_run_plan 节点 tools 仍为 None。
+    CEO debate 与 stage_card 仍经 DebateTool→rounds。"""
     import inspect
 
-    from agentcore.runtime.debate.constants import DEBATER_TOOLS
     from agentcore.runtime.pipeline.stage_card_debate import run_stage_card_debate_pipeline
     from agentcore.runtime.resolve.prepare import _assemble_ceo_toolset
     from agentcore.runtime.runs import build_run_plan
@@ -882,13 +883,12 @@ def test_both_debate_start_paths_assemble_debater_tools_allowlist():
         debater_task(cfg, side, idx, round_no=1, focus="焦点")
         for idx, side in enumerate(sides)
     ]
+    assert all("tools" not in t for t in tasks)
     valid = {s.name for s in build_worker_registry().list_all()}
     plan, errors = build_run_plan(tasks, valid_tools=valid, id_prefix="debate_open")
     assert errors == []
     for node in plan.nodes:
-        assert node.tools == list(DEBATER_TOOLS)
-        for banned in ("file_write", "file_delete", "str_replace"):
-            assert banned not in (node.tools or [])
+        assert node.tools is None
 
 
 def test_debater_task_injects_research_dossier_index():
@@ -930,13 +930,8 @@ def test_debater_task_injects_research_dossier_index():
     assert "选读" in task or "勿全量" in task
     assert payload.get("retrieval_budget") == DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER
     assert DEFAULT_RETRIEVAL_BUDGET_DEBATER_WITH_DOSSIER == 2  # 2026-07-22 复测校准
-    assert set(payload["tools"]) == {
-        "web_search",
-        "read_url",
-        "file_read",
-        "file_list",
-        "grep",
-    }
+    # 真纯丙·H4：不再注入系统只读 tools 名单
+    assert "tools" not in payload
 
     # 庭前完整度驱动：full pack → 辩手 retrieval_budget=0（禁外证扫网）
     cfg_full = DebateConfig(

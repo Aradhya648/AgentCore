@@ -46,13 +46,6 @@ DelegateFactory = Callable[[str, int], LeadSubteam]
 # wave's width being parked on the user. Tunable; start conservative.
 ESCALATION_CONCURRENCY_CAP = 3
 
-# Write tools withheld from ``form=prose`` workers — they deliver as text body only.
-PROSE_WITHHELD_WRITE_TOOLS: tuple[str, ...] = (
-    "file_write",
-    "file_append",
-    "str_replace",
-)
-
 # Legacy two-way form policy (form omitted): worker judges prose vs files itself.
 # Kept as the default so omitting form preserves prior behaviour.
 _WORKER_DELIVERABLE_FORM = """\

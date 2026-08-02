@@ -33,6 +33,7 @@ _EXPECTED_NAMES = {
     "md_to_pdf",
     "grep",
     "code_search",
+    "code_diagnostics",
     "git",
     "test_run",
     "code_execute",
@@ -49,6 +50,7 @@ _CEO_READONLY_NAMES = {
     "file_list",
     "grep",
     "code_search",
+    "code_diagnostics",
     "git",
 }
 _DELEGATED_MUTATION_NAMES = {

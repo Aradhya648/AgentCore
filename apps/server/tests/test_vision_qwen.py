@@ -123,16 +123,40 @@ async def test_read_empty_content_raises():
 
 
 def test_build_vision_reader_none_without_key():
-    cfg = SimpleNamespace(vision_api_key="")
+    cfg = SimpleNamespace(billing_mode="platform", vision_api_key="", vision_base_url="https://x/v1")
     assert build_vision_reader(cfg) is None
 
 
-def test_build_vision_reader_returns_qwen_with_key():
+def test_build_vision_reader_none_without_base_url():
     cfg = SimpleNamespace(
+        billing_mode="platform",
         vision_api_key="sk-x",
-        vision_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        vision_model="qwen-vl-max",
+        vision_base_url="",
+        vision_model="kimi-k2.5",
+        vision_timeout_seconds=60.0,
+    )
+    assert build_vision_reader(cfg) is None
+
+
+def test_build_vision_reader_none_when_byok_even_with_key():
+    cfg = SimpleNamespace(
+        billing_mode="byok",
+        vision_api_key="sk-x",
+        vision_base_url="https://relay.example/v1",
+        vision_model="kimi-k2.5",
+        vision_timeout_seconds=60.0,
+    )
+    assert build_vision_reader(cfg) is None
+
+
+def test_build_vision_reader_returns_reader_on_platform():
+    cfg = SimpleNamespace(
+        billing_mode="platform",
+        vision_api_key="sk-x",
+        vision_base_url="https://relay.example/v1",
+        vision_model="kimi-k2.5",
         vision_timeout_seconds=60.0,
     )
     reader = build_vision_reader(cfg)
     assert isinstance(reader, QwenVLReader)
+    assert reader._model == "kimi-k2.5"

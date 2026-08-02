@@ -81,7 +81,7 @@ def _budget_pools_from_dict(data: dict[str, Any]) -> tuple[int, int]:
 
 # Fallback per-worker wall-clock before a timeout *notification* (CEO decides; no auto-cancel).
 # Prefer ``RunPolicy.timeout_s`` from worker_budget backstop (or CEO-explicit ``timeout_ms``).
-DEFAULT_WORKER_TIMEOUT_S = 600.0
+DEFAULT_WORKER_TIMEOUT_S = 1200.0
 # Fraction of threshold at which the worker gets a wind-down warn (handoff-in-1-round)
 # before the CEO-facing TIMEOUT notification. Overridden by engine settings at arm time.
 DEFAULT_TIMEOUT_WARN_RATIO = 0.75
@@ -358,10 +358,21 @@ class CoordinationSession:
     # disarm / completion. NOT snapshotted: resume re-dispatches unfinished workers,
     # which re-arm and re-register — so a completed worker is never resolvable.
     _running_workers: dict[str, str] = field(default_factory=dict, repr=False)
-    # Worker busy stamps (run_id → "llm" | "tool"): set while a coordination worker
-    # has an in-flight LLM stream or tool execution. Idle-patrol consults this so
-    # 「长时间无协调事件」在 worker 仍在干活时不误唤醒 CEO。不快照。
+    # Worker busy stamps (run_id → "llm" | "tool" | "verify"):
+    # - llm/tool: short in-flight work; idle-patrol defers (勿误唤醒).
+    # - verify: minute-level bounded verify (test_run); still shown in progress
+    #   summary, but does NOT count as has_inflight_work — CEO may patrol /
+    #   cancel_worker instead of parking behind wall+0. 不快照。
     _busy_workers: dict[str, str] = field(default_factory=dict, repr=False)
+    # Sibling verify coalesce (same execution): fingerprint → inflight Future /
+    # completed ToolResult snapshot. Process-local; not snapshotted (resume
+    # re-runs unfinished workers). Generation bumps on successful land so a
+    # still-running verify cannot re-poison the cache after disk changed. 不快照。
+    _verify_inflight: dict[str, asyncio.Future[Any]] = field(
+        default_factory=dict, repr=False
+    )
+    _verify_cache: dict[str, Any] = field(default_factory=dict, repr=False)
+    _verify_generation: int = field(default=0, repr=False)
     # Explicit user /stop cascaded cancel — release_turn_coordination must clear
     # (not detach) so the background drive does not outlive the stopped turn.
     user_stopped: bool = False
@@ -607,25 +618,33 @@ class CoordinationSession:
         return sorted(self._running_workers.items())
 
     def mark_worker_busy(self, run_id: str, kind: str) -> None:
-        """Stamp that ``run_id`` is inside an LLM stream or tool call."""
+        """Stamp that ``run_id`` is inside an LLM stream, tool call, or verify."""
         rid = (run_id or "").strip()
         if not rid or rid not in self._running_workers:
             return
-        label = kind if kind in ("llm", "tool") else "llm"
+        label = kind if kind in ("llm", "tool", "verify") else "llm"
         self._busy_workers[rid] = label
 
     def clear_worker_busy(self, run_id: str) -> None:
         self._busy_workers.pop((run_id or "").strip(), None)
 
     def has_inflight_work(self) -> bool:
-        """True when any registered worker currently holds an LLM/tool call."""
-        return bool(self._busy_workers)
+        """True when any worker holds a short LLM/tool call (not long verify)."""
+        return any(kind in ("llm", "tool") for kind in self._busy_workers.values())
+
+    def has_verify_busy(self) -> bool:
+        """True when any registered worker is inside a bounded verify."""
+        return any(kind == "verify" for kind in self._busy_workers.values())
 
     def worker_progress_summary(self) -> str:
         """Human lines for idle-patrol nudge: role / elapsed / busy-or-idle."""
         now = time.monotonic()
         lines: list[str] = []
-        busy_label = {"llm": "LLM 调用中", "tool": "工具执行中"}
+        busy_label = {
+            "llm": "LLM 调用中",
+            "tool": "工具执行中",
+            "verify": "有界验证中（可用 cancel_worker 打断）",
+        }
         for run_id, role in self.running_workers():
             started = self._worker_started_at.get(run_id)
             elapsed = int(now - started) if started is not None else 0
@@ -637,6 +656,76 @@ class CoordinationSession:
         if not lines:
             return f"{head}无在跑队员。"
         return head + "\n" + "\n".join(lines)
+
+    def invalidate_verify_cache(self, *, reason: str = "landed") -> int:
+        """Drop cached verify results after the workspace changed.
+
+        Clears ``_verify_cache`` and bumps ``_verify_generation`` so in-flight
+        producers still finish for awaiters but do **not** re-enter the cache
+        (avoids cancel storms while preventing stale greens).
+        Returns how many cache entries were dropped.
+        """
+        dropped = len(self._verify_cache)
+        self._verify_cache.clear()
+        self._verify_generation += 1
+        if dropped:
+            with contextlib.suppress(Exception):
+                logger.info(
+                    "coordination.verify_cache_invalidated",
+                    execution_id=self.execution_id,
+                    reason=reason,
+                    dropped=dropped,
+                    generation=self._verify_generation,
+                )
+        return dropped
+
+    async def coalesce_verify(
+        self,
+        fingerprint: str,
+        runner: Any,
+    ) -> tuple[Any, str]:
+        """Run or join a sibling verify for ``fingerprint``.
+
+        Returns ``(tool_result, source)`` where ``source`` is ``run`` | ``inflight``
+        | ``cache``. Completed results (success or failure / budget) are cached for
+        the rest of this execution so overlapping sibling ``test_run`` calls do not
+        double-burn the minute-level budget. A land that bumps generation prevents
+        a late producer from re-caching a pre-write result.
+        """
+        from dataclasses import replace
+
+        key = (fingerprint or "").strip()
+        if not key:
+            result = await runner()
+            return result, "run"
+
+        cached = self._verify_cache.get(key)
+        if cached is not None:
+            return replace(cached), "cache"
+
+        existing = self._verify_inflight.get(key)
+        if existing is not None:
+            shared = await existing
+            return replace(shared), "inflight"
+
+        generation = self._verify_generation
+        fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+        self._verify_inflight[key] = fut
+        try:
+            result = await runner()
+            snap = replace(result)
+            # Only cache when the workspace generation is unchanged since start.
+            if self._verify_generation == generation:
+                self._verify_cache[key] = snap
+            if not fut.done():
+                fut.set_result(snap)
+            return result, "run"
+        except BaseException as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        finally:
+            self._verify_inflight.pop(key, None)
 
     def resolve_cancel_target(self, raw: str) -> CancelResolution:
         """Resolve a CEO-supplied ``cancel_worker`` arg to a live worker's full run_id.
@@ -1674,7 +1763,7 @@ async def await_live_detached_drive(conversation_id: str) -> bool:
 
 
 def note_coord_worker_busy(run_id: str, kind: str) -> None:
-    """Best-effort stamp: worker ``run_id`` is inside an LLM stream or tool call."""
+    """Best-effort stamp: worker ``run_id`` is inside LLM / tool / verify."""
     session = active_coordination()
     if session is None or not session.active:
         return

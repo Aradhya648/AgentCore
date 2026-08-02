@@ -36,8 +36,21 @@ def project_verify_command_match(code: str) -> str | None:
     return None
 
 
-def project_verify_redirect_message(matched: str) -> str:
-    """``code_execute`` refusal: tip ``test_run`` without running the command."""
+def project_verify_redirect_message(
+    matched: str,
+    *,
+    verify_policy: str = "",
+) -> str:
+    """``code_execute`` refusal: tip the right next tool without running the command."""
+    policy = (verify_policy or "").strip().lower()
+    if policy == "inner":
+        return (
+            f"禁止用 code_execute 跑项目级慢验证（检测到：{matched}）。"
+            "当前队员为调查/审查姿态（verify_policy=inner）："
+            "全量 typecheck/build 请改用内环 code_diagnostics，"
+            "或 escalate / 交验收员跑 test_run；"
+            "运行时 blank-page / 挂载问题优先 browser 与入口链路，勿烧分钟级 tsc 预算。"
+        )
     return (
         f"禁止用 code_execute 跑项目级慢验证（检测到：{matched}）。"
         "本工具约 60s 硬顶，不适配 install / tsc / 全量 test·build。"

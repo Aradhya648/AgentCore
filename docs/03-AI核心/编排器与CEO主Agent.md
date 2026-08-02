@@ -90,13 +90,13 @@ CEO 是**管理者**（不是调查员）：主要持只读 / 检索工具，用
 | `result_handling` | 上游→下游注入保真：`pass_through`（默认偏全文）/ `summarize`；**不**作用于 CEO 综述 |
 | `complexity_hint` | `light`/`standard`：编排姿态（如 light 隐含 `coordination=none`），**不**映射 worker token/超时 |
 | `coordination` | 便签墙档；缺省 `none`；权威 → [Agent 协作模式](/docs/03-AI核心/Agent协作模式.md) |
-| `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema`。`form=prose` = 纯文字、引擎不授写文件工具；`form=files` / 省略 = 可写盘。`form=prose` 不得同时声明 `requires_files` / 非空 `artifacts`（硬拒）。批次 `files_written` / `code_verified` / `graph_consistent` 须**至少一名**可写盘 worker（全员 prose 硬拒）；`repair_code` 形（修补 `files` + 诊断/验证 `prose`）合法。仅 `runtime_ready` 允许全员 prose。落盘承诺 / 上述验收**硬拒**用不含写盘工具（`file_write` 等）的检索白名单。**`form` 只表交付形态，不再代理探索期「别乱写工程」**。案卷中间笔记（`AgentCore/文档/{research,reviews,debate}/`）默认**不**计入 `form=files` 修码产品落盘（零写 / `files_written`），除非 `artifacts` 声明该路径 |
+| `deliverable` | `requires_files` / `artifacts` = 落盘契约；否决悬空 `output_schema`。`form=prose` = 纯文字交付（写工具仍装配，靠角色提示自觉勿乱写）；`form=files` / 省略 = 可写盘。`form=prose` 不得同时声明 `requires_files` / 非空 `artifacts`（硬拒）。批次 `files_written` / `code_verified` / `graph_consistent` 须**至少一名**非 prose（可写盘形态）worker（全员 prose 硬拒）；`repair_code` 形（修补 `files` + 诊断/验证 `prose`）合法。仅 `runtime_ready` 允许全员 prose。**`form` 只表交付形态，不再代理探索期「别乱写工程」、也不再硬卸写工具**。案卷中间笔记（`AgentCore/文档/{research,reviews,debate}/`）默认**不**计入 `form=files` 修码产品落盘（零写 / `files_written`），除非 `artifacts` 声明该路径 |
 | `write_scope` ✅ | worker 本批可写范围：`none` / `explore_memory`（仅 `AgentCore/` 约定记忆与探索笔记）/ `project`（用户工程树，默认满权限批次）。探索硬挡 pending 时上限 `explore_memory`；越权在**写工具层**拒，不在 `delegate` 入口因 `form=files` 拒整批。否决：explore 专用 playbook 分叉、pending 时静默把 files 改成 prose |
 | `completion_criteria` | 批次验收；省略不强制（含不自动 overlay 挡；落 TS 的 D2/图扫仅为 soft note）；文案推断已废除。`files_written` / `code_verified`（编译·测试·build，**默认走有界验证 `test_run`**）/ `runtime_ready`（terminal 长驻就绪）/ `graph_consistent`（`.ts/.tsx/.vue` import 图闭合；显式声明才 binding，落盘此类文件时自动扫仅为 soft note）互不混用；启动开发服务器用 `runtime_ready`；慢 build/tsc/`npm install` **硬拒**塞进 `code_execute`（改 `test_run`） |
 | `continue_from_run_id` | 带现场续派；权威 → [多轮编排与同人续派](/docs/03-AI核心/多轮编排与同人续派.md) |
 | worker 模型 | CEO **不**选 per-task 模型档；力度用协作结构表达；用户侧「模型组合」可选 Worker 槽 |
 
-嵌套委派：默认开一层（`depth≤2`），无 `can_delegate` 字段。worker 工具集缺省全量（内部装配；CEO 不手填 `tools`）。显式 `tools` 白名单若承诺落盘却不含写盘工具 → 入闸硬拒。
+嵌套委派：默认开一层（`depth≤2`），无 `can_delegate` 字段。worker 工具集缺省全量（内部装配）；CEO **不必也不应**手填 `tasks[].tools` 收窄（填了也不生效）。
 
 ## 冷启动探索幕
 

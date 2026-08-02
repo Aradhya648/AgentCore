@@ -287,6 +287,10 @@ class ToolContext:
     # speech research (reject weak-tier + mall/dict/hospital-encyclopedia). Wired from
     # ``RunSpec.search_policy`` by the worker executor.
     search_policy: str = ""
+    # ``""`` = outer verify allowed; ``"inner"`` = diagnose/review posture — refuse
+    # full typecheck/build on ``test_run`` (use code_diagnostics / browser). Wired
+    # from ``RunSpec.verify_policy``.
+    verify_policy: str = ""
     # Same-round streamed prose length (chars) before tool calls. Set by tool_round so
     # ``handoff`` can log ``body_chars`` (deliverable) separately from ``chars`` (summary).
     # ``None`` when unset (CEO / tests / tools that do not need it).
@@ -338,9 +342,6 @@ class ToolContext:
     # 经 ``dataclasses.replace`` 继承）——仅允许 ``AgentCore/`` 下约定记忆与探索笔记，
     # 禁止 ``AgentCore/文档/项目/``；``none``=拒一切写。闸在写工具入口。
     write_scope: Literal["none", "explore_memory", "project"] = "project"
-    # form=prose 卸装写工具时打标（``"prose"``）；供 tool_exec 回执分流，禁止仅靠
-    # worker_only 名猜「请用 delegate」。None = 未因形态卸装（CEO / files / legacy）。
-    withheld_write_tools: str | None = None
 
 
 @dataclass

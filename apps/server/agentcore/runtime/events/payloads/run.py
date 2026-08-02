@@ -292,7 +292,8 @@ class DeliveryGap(WirePayload):
     comes from a structured engine signal — known:
     ``token_budget`` / ``worker_timeout`` / ``degraded_handoff`` /
     ``unverified_note`` (soft 待核实/示例自注) /
-    ``files_not_landed`` (零落盘 soft tip：契约与 files_written 合并；甲⁺ 起不挡收工) /
+    ``files_not_landed`` (零落盘 soft tip：per-worker「本队员本波未交卷」/
+    批次「本批未见落盘」；甲⁺ 起不挡收工) /
     ``verify_failed`` (验证形工具失败：browser_navigate / test_run /
     verify 形 code_execute·terminal).
     Absent for ordinary contract / criteria prose gaps that have not been projected.

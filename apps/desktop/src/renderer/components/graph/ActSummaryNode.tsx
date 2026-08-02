@@ -16,36 +16,29 @@ import {
   XCircle,
 } from "lucide-react";
 import { actAuthorizedByLabel } from "./actAuthLabels";
+import { useGraphActions } from "./graphActions";
+import { useActSummaryLive, useGraphDocumentMode } from "./graphLive";
 
 /**
  * 幕摘要卡（批 R2 幕级 LOD）: one act of a multi-act turn folded into ONE node on the
- * collaboration graph's top-level chain. It is the「幕 = 一等视觉单元」rule — the graph
- * shows a chain of these cards and expands exactly one focused act into its full DAG
- * (自相似于画布「恰好一个聚焦回合」LOD). Non-focused acts stay a card; clicking one
- * focuses it.
- *
- * The face intentionally mirrors {@link import("./TurnSummaryNode").TurnSummaryNode}'s
- * stable color/shape convention (status ring + icon, 身份 avatars via
- * {@link agentColorVar}, a count + progress) so a folded act reads the same as a folded
- * turn. Every field is真实可得 run data (title/kind, aggregate status, participants,
- * duration, pending decisions) — never invented.
+ * collaboration graph's top-level chain.
  */
 export interface ActSummaryData {
   actId: string;
   kind: ActKind | null;
   title: string | null;
   authorizedBy: ActAuthorizedBy | null;
-  status: ExecutionStatus;
+  status?: ExecutionStatus;
   /** Distinct participant roles, first-seen order — drives the identity avatars. */
   roles: string[];
-  agentCount: number;
-  completed: number;
-  total: number;
-  durationMs: number | null;
+  agentCount?: number;
+  completed?: number;
+  total?: number;
+  durationMs?: number | null;
   /** 图上指挥扫视: unanswered boss decisions folded on this act (待你拍板 chip). */
-  pendingDecisions: number;
+  pendingDecisions?: number;
   /** Recoverable terminal trouble in this act (待救火 chip when no decision pends). */
-  recoverable: boolean;
+  recoverable?: boolean;
   /** Edge anchor orientation, driven by the active graph layout. */
   handleDirection: "vertical" | "horizontal";
   /** 1-based act number for the「幕 N」eyebrow. */
@@ -93,20 +86,41 @@ const KIND_LABEL: Record<ActKind, string> = {
 const AVATAR_CAP = 5;
 
 export function ActSummaryNode({ data }: NodeProps) {
-  const d = data as ActSummaryData;
-  const style = STATUS_STYLES[d.status] ?? STATUS_STYLES.planning;
-  const horizontal = d.handleDirection === "horizontal";
-  const running = d.status === "running";
-  const kindLabel = d.kind ? KIND_LABEL[d.kind] : null;
-  const title = d.title?.trim() || kindLabel || `幕 ${d.index}`;
-  const eyebrowParts = [`幕 ${d.index}`];
+  const shell = data as ActSummaryData;
+  const documentMode = useGraphDocumentMode();
+  const live = useActSummaryLive(shell.actId);
+  const actions = useGraphActions();
+
+  const status =
+    (documentMode ? live?.status : shell.status) ??
+    ("planning" as ExecutionStatus);
+  const roles = (documentMode ? live?.roles : shell.roles) ?? shell.roles;
+  const agentCount =
+    (documentMode ? live?.agentCount : shell.agentCount) ?? roles.length;
+  const completed = (documentMode ? live?.completed : shell.completed) ?? 0;
+  const total = (documentMode ? live?.total : shell.total) ?? 0;
+  const durationMs = documentMode ? live?.durationMs : shell.durationMs;
+  const pendingDecisions =
+    (documentMode ? live?.pendingDecisions : shell.pendingDecisions) ?? 0;
+  const recoverable =
+    (documentMode ? live?.recoverable : shell.recoverable) ?? false;
+  const onActivate = documentMode
+    ? () => actions.focusAct(shell.actId)
+    : shell.onActivate;
+
+  const style = STATUS_STYLES[status] ?? STATUS_STYLES.planning;
+  const horizontal = shell.handleDirection === "horizontal";
+  const running = status === "running";
+  const kindLabel = shell.kind ? KIND_LABEL[shell.kind] : null;
+  const title = shell.title?.trim() || kindLabel || `幕 ${shell.index}`;
+  const eyebrowParts = [`幕 ${shell.index}`];
   if (kindLabel) eyebrowParts.push(kindLabel);
-  const auth = actAuthorizedByLabel(d.authorizedBy);
+  const auth = actAuthorizedByLabel(shell.authorizedBy);
   if (auth) eyebrowParts.push(auth);
-  const shown = d.roles.slice(0, AVATAR_CAP);
-  const overflow = d.roles.length - shown.length;
-  const pct = d.total > 0 ? (d.completed / d.total) * 100 : 0;
-  const interactive = !!d.onActivate;
+  const shown = roles.slice(0, AVATAR_CAP);
+  const overflow = roles.length - shown.length;
+  const pct = total > 0 ? (completed / total) * 100 : 0;
+  const interactive = !!onActivate;
 
   return (
     <>
@@ -124,7 +138,7 @@ export function ActSummaryNode({ data }: NodeProps) {
               onKeyDown: (e: React.KeyboardEvent) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  d.onActivate?.();
+                  onActivate?.();
                 }
               },
             }
@@ -149,13 +163,13 @@ export function ActSummaryNode({ data }: NodeProps) {
               {title}
             </p>
           </div>
-          {d.pendingDecisions > 0 ? (
+          {pendingDecisions > 0 ? (
             <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               <AlertTriangle size={11} />
-              待你拍板{d.pendingDecisions > 1 ? ` ${d.pendingDecisions}` : ""}
+              待你拍板{pendingDecisions > 1 ? ` ${pendingDecisions}` : ""}
             </span>
           ) : (
-            d.recoverable && (
+            recoverable && (
               <span className="flex shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
                 <AlertTriangle size={11} />
                 待救火
@@ -191,15 +205,15 @@ export function ActSummaryNode({ data }: NodeProps) {
             </div>
           )}
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-            {d.agentCount} 个 Agent · {d.completed}/{d.total}
+            {agentCount} 个 Agent · {completed}/{total}
           </span>
         </div>
 
-        {d.durationMs != null && d.durationMs > 0 && (
+        {durationMs != null && durationMs > 0 && (
           <div className="mt-2 flex items-center">
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               <Clock size={11} className="shrink-0" />
-              用时 {formatDuration(d.durationMs)}
+              用时 {formatDuration(durationMs)}
             </span>
           </div>
         )}

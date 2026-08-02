@@ -2,12 +2,10 @@ import {
   hasParallelTimeline,
   parallelTimelineMetricsSummary,
 } from "@/components/chat/ParallelTimeline";
-import { captainSynthesisPreviewText } from "@/components/chat/teamSynthesisPhase";
-import { useCoordinationWaitChrome } from "@/components/chat/useCoordinationWaitChrome";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
-import { isGraphTraceEnabled, traceGraphDomClip } from "@/services/graphTrace";
+import "@/services/graphStress";
 import {
   isTerminalPhase,
   useActiveTurnPhase,
@@ -15,14 +13,13 @@ import {
 } from "@/stores/conversation";
 import { useDisclosureStore } from "@/stores/disclosure";
 import {
-  type RunStatus,
   useActiveExecField,
   useExecutionScope,
   useProjectedExecution,
 } from "@/stores/execution";
 import { useGraphStore } from "@/stores/graph";
 import type { EndpointKind } from "@/stores/sidePanel";
-import { Background, type Node, ReactFlow } from "@xyflow/react";
+import { Background, type Edge, type Node, ReactFlow } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CanvasPlaybackControls } from "./CanvasPlaybackControls";
 import { CanvasZoomControls } from "./CanvasZoomControls";
@@ -33,11 +30,25 @@ import { GraphLayoutError } from "./GraphLayoutError";
 import { GraphToolbar } from "./GraphToolbar";
 import { WaveLanes } from "./WaveLanes";
 import { edgeTypes, nodeTypes } from "./constants";
+import type { GraphActionsValue } from "./graphActions";
+import { GraphActionsContext } from "./graphActions";
+import {
+  graphDocumentFingerprint,
+  graphShellSnapshotKey,
+} from "./graphDocument";
 import { GraphFlowHost } from "./graphHost";
 import { GraphHoverContext, useGraphHoverState } from "./graphHover";
-import { deriveCaptainStatus } from "./helpers";
+import {
+  GraphCaptainAnswerContext,
+  GraphCaptainRunIdContext,
+  GraphDocumentModeContext,
+  GraphInjectPaintContext,
+  GraphSceneContext,
+  injectPaintFromOverlay,
+} from "./graphLive";
 import type { GraphPendingDecision } from "./pendingDecisions";
 import { executionGraphCapabilities } from "./planCapabilities";
+import { projectInjectGapEdges } from "./projectFlowGraph";
 import { projectTurnGraph } from "./projectTurnGraph";
 import { buildGraphScene } from "./scene";
 import { useActFocus } from "./useActFocus";
@@ -150,7 +161,6 @@ export function GraphView({
     bbox,
     layoutReady,
     layoutError,
-    nodeHeights,
     nodeSizes,
     onNodesChange,
     groups,
@@ -313,84 +323,119 @@ export function GraphView({
     [],
   );
 
-  const captainStatus = useMemo<RunStatus | null>(
-    () =>
-      execution && captainRun
-        ? deriveCaptainStatus(execution, captainRun.id, { turnTerminal })
-        : null,
-    [execution, captainRun, turnTerminal],
-  );
-
-  const teamSynthesisPreview = useActiveExecField(
-    (rt) => rt.teamSynthesisPreview,
-  );
-  const { captainCaption: captainWaitCaption } =
-    useCoordinationWaitChrome(execution);
-  const captainSynthesisPreview = useMemo(() => {
-    if (finalAnswer || captainWaitCaption || captainStatus !== "running")
-      return "";
-    return captainSynthesisPreviewText(teamSynthesisPreview);
-  }, [finalAnswer, captainWaitCaption, captainStatus, teamSynthesisPreview]);
-
-  // Single-turn TeamGraph projection via the shared core (same one the canvas
-  // uses per expanded turn). Host-specific: GraphView omits edgePathType so edges
-  // stay smoothstep.
-  const projected = useMemo(
-    () =>
-      execution && scene
-        ? projectTurnGraph({
-            execution,
-            scene,
-            positions,
-            nodeHeights,
-            nodeSizes,
-            groups,
-            bbox,
-            actCards,
-            edges,
-            handleDirection,
-            litRunId,
-            litEndpointMessageId,
-            captainRun,
-            captainStatus,
-            finalAnswer,
-            captainSynthesisPreview,
-            captainStatusCaption: captainWaitCaption,
-            taskMessage,
-            activateNode,
-            expandedUnits,
-            onToggleUnitExpand,
-            injectOverlay,
-            layoutKind: effectiveLayoutKind,
-            onFocusAct: focusAct,
-          })
-        : null,
-    [
+  const documentFingerprint = useMemo(() => {
+    if (!execution) return "";
+    return graphDocumentFingerprint({
       execution,
-      scene,
+      expandedUnits,
+      focusedActId,
+      handleDirection,
+    });
+  }, [execution, expandedUnits, focusedActId, handleDirection]);
+
+  const shellSnapshotKey = useMemo(() => {
+    if (!layoutReady) return "";
+    return graphShellSnapshotKey({
       positions,
-      nodeHeights,
+      groups,
+      nodeSizes,
+      actCards,
+      bbox,
+      edgeIds: edges.map((e) => e.id),
+    });
+  }, [layoutReady, positions, groups, nodeSizes, actCards, bbox, edges]);
+
+  // Document projection: only re-run when structure fingerprint or shell
+  // positions change — never on streaming deltas. Live fields self-subscribe.
+  const executionRef = useRef(execution);
+  executionRef.current = execution;
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  // Document gate: fingerprint + shell snapshot — not execution identity / live fields.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gated by Document keys
+  const projected = useMemo(() => {
+    const ex = executionRef.current;
+    const sc = sceneRef.current;
+    if (!ex || !sc || !documentFingerprint) return null;
+    return projectTurnGraph({
+      execution: ex,
+      scene: sc,
+      positions,
+      nodeHeights: {},
       nodeSizes,
       groups,
       bbox,
       actCards,
       edges,
       handleDirection,
+      litRunId: null,
+      litEndpointMessageId: null,
+      captainRun,
+      captainStatus: null,
+      finalAnswer: null,
+      captainSynthesisPreview: "",
+      captainStatusCaption: null,
+      taskMessage: null,
+      activateNode: () => undefined,
+      expandedUnits,
+      onToggleUnitExpand: undefined,
+      injectOverlay: null,
+      layoutKind: effectiveLayoutKind,
+      onFocusAct: () => undefined,
+      documentShell: true,
+    });
+  }, [
+    documentFingerprint,
+    shellSnapshotKey,
+    positions,
+    nodeSizes,
+    groups,
+    bbox,
+    actCards,
+    edges,
+    handleDirection,
+    captainRun,
+    expandedUnits,
+    effectiveLayoutKind,
+  ]);
+
+  const graphActions = useMemo<GraphActionsValue>(
+    () => ({
+      activateNode,
+      toggleUnitExpand: onToggleUnitExpand,
+      focusAct,
       litRunId,
       litEndpointMessageId,
-      captainRun,
-      captainStatus,
-      finalAnswer,
-      captainSynthesisPreview,
-      captainWaitCaption,
-      taskMessage,
+      taskMessageId: taskMessage?.id ?? null,
+      finalAnswerId: finalAnswer?.id ?? null,
+      turnTerminal,
+    }),
+    [
       activateNode,
-      expandedUnits,
       onToggleUnitExpand,
-      injectOverlay,
-      effectiveLayoutKind,
       focusAct,
+      litRunId,
+      litEndpointMessageId,
+      taskMessage?.id,
+      finalAnswer?.id,
+      turnTerminal,
     ],
+  );
+
+  const injectPaint = useMemo(
+    () => injectPaintFromOverlay(injectOverlay),
+    [injectOverlay],
+  );
+
+  const injectGapEdges = useMemo(
+    () =>
+      projectInjectGapEdges({
+        injectOverlay,
+        positions,
+        nodeSizes,
+        handleDirection,
+      }),
+    [injectOverlay, positions, nodeSizes, handleDirection],
   );
 
   // 结构换坐标时短暂 morph（与画布一致）；流式内容更新不改 positions → 不触发。
@@ -411,50 +456,11 @@ export function GraphView({
     }));
   }, [projected, morphing]);
 
-  // Dev：RF DOM 相对容器裁切采样（区分「投影丢」vs「看得见但被裁」）。
-  useEffect(() => {
-    if (!isGraphTraceEnabled() || !layoutReady || fitMode !== "width") return;
-    const el = containerRef.current;
-    if (!el) return;
-    const raf = requestAnimationFrame(() => {
-      const flow = el.querySelector(".react-flow");
-      if (!flow) return;
-      const c0 = flow.getBoundingClientRect();
-      const nodes = [...el.querySelectorAll(".react-flow__node")].map(
-        (nodeEl) => {
-          const r = nodeEl.getBoundingClientRect();
-          return {
-            id: nodeEl.getAttribute("data-id") ?? "",
-            top: r.top,
-            bottom: r.bottom,
-            left: r.left,
-            right: r.right,
-          };
-        },
-      );
-      const clippedIds = nodes
-        .filter((n) => n.id && n.top < c0.bottom && n.bottom > c0.bottom + 1)
-        .map((n) => n.id);
-      const fullyInsideCount = nodes.filter(
-        (n) =>
-          n.top >= c0.top &&
-          n.bottom <= c0.bottom &&
-          n.left >= c0.left &&
-          n.right <= c0.right,
-      ).length;
-      if (clippedIds.length > 0) {
-        traceGraphDomClip({
-          rfNodeIds: nodes.map((n) => n.id).filter(Boolean),
-          clippedIds,
-          fullyInsideCount,
-          containerH: Math.round(c0.height),
-        });
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [containerRef.current, layoutReady, fitMode]);
-
-  const flowEdges = projected?.edges ?? [];
+  const docEdges = projected?.edges ?? [];
+  const flowEdges = useMemo<Edge[]>(() => {
+    if (injectGapEdges.length === 0) return docEdges;
+    return [...docEdges, ...injectGapEdges];
+  }, [docEdges, injectGapEdges]);
   const laneBands = projected?.lanes ?? [];
   const debateBands = projected?.debateStages ?? [];
 
@@ -491,41 +497,61 @@ export function GraphView({
               {layoutError ? (
                 <GraphLayoutError detail={layoutError} />
               ) : (
-                <GraphHoverContext.Provider value={hoverState}>
-                  <ReactFlow
-                    nodes={flowNodes}
-                    edges={flowEdges}
-                    nodeTypes={nodeTypes}
-                    edgeTypes={edgeTypes}
-                    onInit={onInit}
-                    onNodesChange={onNodesChange}
-                    onNodeClick={onNodeClick}
-                    onNodeMouseEnter={onNodeMouseEnter}
-                    onNodeMouseLeave={onNodeMouseLeave}
-                    onNodeContextMenu={onNodeContextMenu}
-                    onPaneContextMenu={onPaneContextMenu}
-                    onPaneClick={onPaneClick}
-                    fitView={fitMode === "view"}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    nodesFocusable={false}
-                    elementsSelectable={false}
-                    proOptions={{ hideAttribution: true }}
-                    {...interactionProps}
-                  >
-                    <Background gap={20} size={1} />
-                    <WaveLanes waves={laneBands} />
-                    <DebateStageBands bands={debateBands} />
-                  </ReactFlow>
-                  {!layoutReady && (
-                    <div
-                      className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/50"
-                      aria-hidden
-                    >
-                      <div className="h-2 w-24 animate-pulse rounded-full bg-muted" />
-                    </div>
-                  )}
-                </GraphHoverContext.Provider>
+                <GraphDocumentModeContext.Provider value={true}>
+                  <GraphActionsContext.Provider value={graphActions}>
+                    <GraphSceneContext.Provider value={scene}>
+                      <GraphCaptainRunIdContext.Provider
+                        value={captainRun?.id ?? null}
+                      >
+                        <GraphCaptainAnswerContext.Provider
+                          value={
+                            finalAnswer
+                              ? { content: finalAnswer.content }
+                              : null
+                          }
+                        >
+                          <GraphInjectPaintContext.Provider value={injectPaint}>
+                            <GraphHoverContext.Provider value={hoverState}>
+                              <ReactFlow
+                                nodes={flowNodes}
+                                edges={flowEdges}
+                                nodeTypes={nodeTypes}
+                                edgeTypes={edgeTypes}
+                                onInit={onInit}
+                                onNodesChange={onNodesChange}
+                                onNodeClick={onNodeClick}
+                                onNodeMouseEnter={onNodeMouseEnter}
+                                onNodeMouseLeave={onNodeMouseLeave}
+                                onNodeContextMenu={onNodeContextMenu}
+                                onPaneContextMenu={onPaneContextMenu}
+                                onPaneClick={onPaneClick}
+                                fitView={fitMode === "view"}
+                                nodesDraggable={false}
+                                nodesConnectable={false}
+                                nodesFocusable={false}
+                                elementsSelectable={false}
+                                proOptions={{ hideAttribution: true }}
+                                {...interactionProps}
+                              >
+                                <Background gap={20} size={1} />
+                                <WaveLanes waves={laneBands} />
+                                <DebateStageBands bands={debateBands} />
+                              </ReactFlow>
+                              {!layoutReady && (
+                                <div
+                                  className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/50"
+                                  aria-hidden
+                                >
+                                  <div className="h-2 w-24 animate-pulse rounded-full bg-muted" />
+                                </div>
+                              )}
+                            </GraphHoverContext.Provider>
+                          </GraphInjectPaintContext.Provider>
+                        </GraphCaptainAnswerContext.Provider>
+                      </GraphCaptainRunIdContext.Provider>
+                    </GraphSceneContext.Provider>
+                  </GraphActionsContext.Provider>
+                </GraphDocumentModeContext.Provider>
               )}
 
               {fitMode === "width" && overflowing && (

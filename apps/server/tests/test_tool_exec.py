@@ -445,6 +445,49 @@ def test_unwrap_nested_delegate_arguments_success_and_no_false_positive():
     assert unwrap_nested_delegate_arguments({"arguments": {"coordinate": True}}) is None
 
 
+async def test_execute_tools_salvages_handoff_bare_next_steps():
+    """handoff 脏 JSON（裸 next_steps）→ salvage → 工具照常执行，打点 tool.args_salvaged。"""
+    tracked = _CapturingArgsTool("handoff")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    bad = '{"summary":"调研完成","key_points":["a"],"next_steps": 请下游去做某事}'
+    sink = EventSink()
+    with capture_logs() as logs:
+        messages, terminal, attempts = await execute_tools(
+            [_call("c1", "handoff", bad)],
+            reg,
+            _ctx(),
+            sink,
+            run_id="r1",
+        )
+    assert attempts[0].success is True
+    assert attempts[0].parse_failure is False
+    assert tracked.seen_args is not None
+    assert tracked.seen_args["next_steps"] == "请下游去做某事"
+    assert isinstance(tracked.seen_args["next_steps"], str)
+    assert any(entry.get("event") == "tool.args_salvaged" for entry in logs)
+    assert not any(entry.get("event") == "tool.args_parse_failed" for entry in logs)
+    starts = [e for e in sink._history if e.type == EventType.TOOL_USE_START]  # noqa: SLF001
+    assert starts and starts[0].payload.get("arguments", {}).get("next_steps") == "请下游去做某事"
+
+
+async def test_execute_tools_handoff_unsalvageable_still_parse_fails():
+    tracked = _CapturingArgsTool("handoff")
+    reg = ToolRegistry()
+    reg.register(tracked)
+    messages, terminal, attempts = await execute_tools(
+        [_call("c1", "handoff", "{@@@}")],
+        reg,
+        _ctx(),
+        EventSink(),
+        run_id="r1",
+    )
+    assert terminal is None
+    assert tracked.seen_args is None
+    assert attempts[0].parse_failure is True
+    assert "不是合法 JSON" in (messages[0].content or "")
+
+
 async def test_execute_tools_unwraps_nested_delegate_arguments():
     """json.loads 成功后窄 unwrap：双包 arguments 到达工具时已是顶层 tasks。"""
     tracked = _CapturingArgsTool("delegate")
@@ -881,35 +924,11 @@ async def test_parallel_distinct_path_file_reads_not_coalesced(tmp_path: Path):
     assert "AAA" in by_id["r1"]
     assert "BBB" in by_id["r2"]
 
-async def test_prose_withheld_str_replace_miss_not_audience_deny():
-    """D2: form=prose miss must not say「请用 delegate」."""
-    from dataclasses import replace
-
-    reg = ToolRegistry()
-    # Write tools absent from registry (simulates prose withhold strip).
-    reg.register(_OkTool("file_read"))
-    ctx = replace(_ctx(), withheld_write_tools="prose")
-    messages, _terminal, attempts = await execute_tools(
-        [_call("c1", "str_replace", '{"path": "a.py", "old_string": "x", "new_string": "y"}')],
-        reg,
-        ctx,
-        EventSink(),
-        run_id="r1",
-    )
-    assert attempts[0].success is False
-    assert attempts[0].policy_failure is True
-    content = messages[0].content or ""
-    assert "仅文字" in content or "form=prose" in content
-    assert "escalate" in content
-    assert "请用 delegate" not in content
-    assert "delegate 派工" not in content
-
-
 async def test_ceo_str_replace_miss_still_audience_deny():
-    """D2 regression: CEO face without withhold stamp keeps delegate tip."""
+    """CEO 面缺写盘工具仍走 audience_deny / delegate 提示。"""
     reg = ToolRegistry()
     reg.register(_OkTool("delegate"))
-    ctx = _ctx()  # withheld_write_tools=None
+    ctx = _ctx()
     messages, _terminal, attempts = await execute_tools(
         [_call("c1", "str_replace", "{}")],
         reg,
@@ -923,25 +942,23 @@ async def test_ceo_str_replace_miss_still_audience_deny():
     assert "form=prose" not in content
 
 
-async def test_prose_allowlist_deny_no_handoff_as_write():
-    """D2: allowlist deny on write tools under prose withhold uses escalate copy."""
-    from dataclasses import replace
-
+async def test_write_allowlist_deny_no_handoff_as_write():
+    """写盘工具不在 allowlist 时说明缺授权，勿劝 handoff 正文冒充落盘。"""
     reg = ToolRegistry()
     reg.register(_OkTool("str_replace"))
-    ctx = replace(_ctx(), withheld_write_tools="prose")
     messages, _terminal, attempts = await execute_tools(
         [_call("c1", "str_replace", "{}")],
         reg,
-        ctx,
+        _ctx(),
         EventSink(),
         run_id="r1",
         allowed_tool_names=["file_read", "handoff"],  # write tool not allowed
     )
     content = messages[0].content or ""
-    assert "form=prose" in content or "仅文字" in content
+    assert "不在本 run 的允许列表" in content or "未授权" in content
     assert "产物请改经 handoff 正文回报" not in content
-    assert "请用 delegate" not in content
+    assert attempts[0].success is False
+    assert attempts[0].policy_failure is True
 
 
 async def test_captain_browser_navigate_skips_approval_gate():

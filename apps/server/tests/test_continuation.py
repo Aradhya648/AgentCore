@@ -535,14 +535,14 @@ def test_merge_continuation_tools_unrestricted_prior_stays_open():
     assert merge_continuation_tools(None, ["file_read"]) is None
 
 
-async def test_continue_from_tools_superset_is_effective_on_session():
-    """乙续派声明更大 tools → session / 续写有效面为超集。"""
+async def test_continue_from_tools_declaration_ignored_keeps_prior_session_tools():
+    """真纯丙：乙续派声明更大 tools 不再写入 plan/合并进 session；执行层亦不靠名单。"""
     store = SessionStore()
     provider = _Provider(["第一版", "续写版"])
     await _seed(store, provider)
     session = store.get("t_1")
     assert session is not None
-    # 模拟调查批只读面
+    # 模拟调查批只读面（遗留 session 字段；执行层已忽略）
     from dataclasses import replace
 
     session.spec = replace(
@@ -573,11 +573,9 @@ async def test_continue_from_tools_superset_is_effective_on_session():
         _ctx(),
     )
     assert result.success is True
+    # builder 忽略声明 → node.tools=None → merge 沿用 prior，不扩面
     effective = store.get("t_1").spec.tools
-    assert effective is not None
-    assert "test_run" in effective
-    assert "str_replace" in effective
-    assert "file_read" in effective
+    assert effective == ["file_read", "grep", "web_search"]
 
 
 async def test_continue_from_tools_subset_does_not_shrink_session():

@@ -3,6 +3,7 @@ import { toReason } from "../pathGuard";
 import type { StoredRoot } from "../roots";
 import { ensureReady, getRoot } from "../roots";
 import { opArchive } from "./archive";
+import { opDiagnostics } from "./diagnostics";
 import { opExecute } from "./exec";
 import { probeAvailableLanguages } from "./execCodec";
 import { opGrep } from "./grep";
@@ -45,6 +46,7 @@ const ORGANIZE_ALLOWED_OPS = new Set<WorkspaceOpName>([
   "copy",
   "mkdir",
   "delete",
+  "diagnostics",
 ]);
 
 const ORGANIZE_DENIED_OPS = new Set<WorkspaceOpName>([
@@ -226,6 +228,8 @@ export async function executeWorkspaceOp(
         return await opProcessStop(root, args);
       case "process_list":
         return await opProcessList(root, args);
+      case "diagnostics":
+        return await opDiagnostics(root, args);
       default:
         return opErr("WorkspaceIOError", `本地工作区未知的操作：${op}`);
     }

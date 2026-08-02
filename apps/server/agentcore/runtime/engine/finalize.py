@@ -243,13 +243,6 @@ async def force_finalize(
         debrief_from_transcript,
         files_touched_from_transcript,
     )
-    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
-
-    # files_expected催写：显式名单缺写盘时并入最小写盘集（供 offer + execute）。
-    if files_expected and not form_prose:
-        allowed_tool_names = merge_persist_write_tools(
-            allowed_tool_names, registry_names=set(tools.names)
-        )
 
     prior_brief = debrief_from_transcript(messages)
     prior_files = files_touched_from_transcript(messages)

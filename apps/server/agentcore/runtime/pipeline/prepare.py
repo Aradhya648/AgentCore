@@ -257,8 +257,7 @@ async def prepare_fresh_turn(
         board_channel=board_channel,
         desktop_channel=desktop_channel,
         workspace_channel=workspace_channel,
-        # §九.4: vision provider (QwenVL) — set VISION_API_KEY to enable; None ⇒
-        # board_read returns a clean「读图能力未配置」error (「插上即用」).
+        # §九.4: platform + VISION_* → VisionReader; else board_read clean-fails.
         vision_reader=build_vision_reader(),
         cost_sink=vision_cost_sink,
         shared_workspace=folder_id is not None,

@@ -1,4 +1,5 @@
 import { mergeEvidenceLedger } from "@/lib/evidenceLedger";
+import { isGraphPerfEnabled, markGraphPerf } from "@/services/graphPerf";
 import type {
   CoordinationWaitPayload,
   DebateNarrativeRound,
@@ -400,6 +401,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
     },
 
     recordFrames: (frames, messageId) => {
+      const perfOn = isGraphPerfEnabled();
+      const t0 = perfOn ? performance.now() : 0;
       patchExec(messageId, (cur) =>
         cur.plan && frames.length
           ? { frames: [...cur.frames, ...frames] }
@@ -421,6 +424,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => {
         )
       ) {
         get().setStatus("completed", messageId);
+      }
+      if (perfOn) {
+        markGraphPerf("flush", performance.now() - t0, {
+          batch: frames.length,
+          frames: rt.frames.length,
+          mid: messageId.slice(0, 8),
+        });
       }
     },
 

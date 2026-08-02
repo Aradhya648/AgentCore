@@ -1,5 +1,6 @@
 import { SearchField } from "@/components/ui";
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   FlaskConical,
@@ -7,6 +8,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 interface Entry {
   name: string;
@@ -131,6 +133,14 @@ export function ScenarioList({
   if (collapsed) {
     return (
       <aside className="flex w-10 shrink-0 flex-col items-center gap-3 border-r border-border py-3">
+        <Link
+          to="/"
+          className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="退出预览"
+          title="退出预览"
+        >
+          <ArrowLeft size={16} />
+        </Link>
         <button
           type="button"
           onClick={() => setCollapsed(false)}
@@ -237,6 +247,14 @@ export function ScenarioList({
   return (
     <aside className="flex w-72 shrink-0 flex-col border-r border-border">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Link
+          to="/"
+          className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label="退出预览"
+          title="退出预览"
+        >
+          <ArrowLeft size={16} />
+        </Link>
         <FlaskConical size={18} className="shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-base font-semibold text-foreground">

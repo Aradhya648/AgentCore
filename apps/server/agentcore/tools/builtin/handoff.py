@@ -23,8 +23,9 @@ carries ONLY the brief and signals the run is done — so the run-detail「输�
 Terminal by design (``ToolEffect.HANDOFF``): the worker writes its deliverable as content and calls
 ``handoff`` in the same round to finish. A terminal effect KEEPS that round's content (only prose
 before a NON-terminal tool is rolled back as narration, Fork-B) — so ``content`` == the deliverable
-and the brief rides the tool args. ``final_text`` is empty: the deliverable is already the streamed
-content, so nothing is appended to it.
+and the brief rides the tool args. ``final_text`` is normally empty (deliverable already streamed);
+when the round has 0 body chars but a non-empty brief that meets the upstream floor, ``final_text``
+carries the promoted brief so downstream still gets a readable product.
 
 Wired into the delegated worker toolset (``build_worker_registry``) and NOT into
 ``build_builtin_registry`` — so it never reaches the CEO's own toolset (``build_ceo_tool_registry``
@@ -131,9 +132,11 @@ class HandoffTool:
                 "落盘文件清单）才调用；简短自明的交付写完正文直接结束即可，不必为交而交。\n"
                 "用法：先把【交付正文】写完（或用 file_write 落盘），再在【同一轮】调用；调用即代表"
                 "本次任务【已完成】，之后不再继续。\n"
-                "简报只需几句、精炼具体：summary 一句话核心结论（必填）；key_points 下游 / 主管"
-                "最该知道的 2-4 条（具体数字 / 文件路径 / 关键决定，别空泛）；assumptions 信息不足"
-                "时你采用的关键假设（没有就省略）；next_steps 顺带给主管的后续建议（没有就省略——"
+                "简报只需几句、精炼具体——【短字段、勿塞长文】（超长易 JSON 写坏）："
+                "summary 一句话核心结论（必填，≤约 300 字）；key_points 下游 / 主管"
+                "最该知道的 2-4 条（每条≤约 120 字；具体数字 / 文件路径 / 关键决定，别空泛）；"
+                "assumptions 信息不足时你采用的关键假设（没有就省略；≤约 300 字）；"
+                "next_steps 顺带给主管的后续建议（没有就省略；≤约 300 字——"
                 "它与 escalate 不同：escalate 是『缺了它整件事会走偏、需现在有人拍板』，这里是"
                 "『我已做完、提示个后续方向』）。\n"
                 "· motion_card（可选对象字段）：仅当发现【必须对抗交锋】的核心争议、要建议开辩时"
@@ -148,25 +151,33 @@ class HandoffTool:
                 "properties": {
                     "summary": {
                         "type": "string",
-                        "description": "结论：一句话说清你这次做出了什么 / 核心结论。",
+                        "maxLength": 300,
+                        "description": (
+                            "结论：一句话说清你这次做出了什么 / 核心结论（短句，勿贴长文）。"
+                        ),
                     },
                     "key_points": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "maxItems": 4,
+                        "items": {"type": "string", "maxLength": 120},
                         "description": (
-                            "关键要点：下游或主管最该知道的 2-4 条（具体数字 / 文件路径 / "
-                            "关键决定，别空泛）。"
+                            "关键要点：下游或主管最该知道的 2-4 条短句（具体数字 / 文件路径 / "
+                            "关键决定，别空泛；勿塞长文）。"
                         ),
                     },
                     "assumptions": {
                         "type": "string",
-                        "description": "关键假设：信息不足时你采用的关键假设（没有就省略此条）。",
+                        "maxLength": 300,
+                        "description": (
+                            "关键假设：信息不足时你采用的关键假设（没有就省略此条；短述即可）。"
+                        ),
                     },
                     "next_steps": {
                         "type": "string",
+                        "maxLength": 300,
                         "description": (
                             "建议下一步：基于你这一环的发现，团队 / 用户接下来值得考虑做什么"
-                            "（没有就省略此条）。"
+                            "（没有就省略此条；短述即可）。"
                         ),
                     },
                     "motion_card": {
@@ -307,55 +318,111 @@ class HandoffTool:
             )
         # 成篇质量：有下游时禁止空交（地板 = 合同 min_length，0 则仅要求非空）。
         # 豁免认 landed_artifact_kinds 中的 prose（跨 replace 存活）；骨架/空落盘不算。
-        # 勿依赖 has_landed_files bool——经 dataclasses.replace 会丢。
+        # 同轮正文 0 字但 summary 非空：升格简报为候选正文；够地板则 success + final_text。
+        # 空 summary 不豁免。勿依赖 has_landed_files bool——经 dataclasses.replace 会丢。
+        promoted_body = ""
         if context.handoff_requires_body:
             from agentcore.runtime.runs.research_quality import (
+                promote_brief_to_deliverable,
                 upstream_body_floor_satisfied,
             )
 
             body_chars = _body_chars(context)
             floor = max(0, int(context.handoff_min_body_chars or 0))
+            kinds = context.landed_artifact_kinds
             if not upstream_body_floor_satisfied(
                 body_chars=body_chars,
-                landed_artifact_kinds=context.landed_artifact_kinds,
+                landed_artifact_kinds=kinds,
                 min_body_chars=floor,
             ):
-                kinds = context.landed_artifact_kinds or {}
-                only_skeleton = bool(kinds) and all(v == "skeleton" for v in kinds.values())
-                floor_hint = (
-                    f"至少 {floor} 字（合同 min_length）"
-                    if floor > 0
-                    else "非空正文"
-                )
-                land_hint = (
-                    "已落盘的是骨架/提纲（skeleton），不算成篇交付；请补写实质正文并 "
-                    f"file_write/file_append 成 prose，或在本轮写出{floor_hint}后再 handoff。"
-                    if only_skeleton
-                    else (
-                        f"本轮正文仅 {body_chars} 字（须{floor_hint}，"
-                        "或先落盘成篇 prose 产物后再交；骨架/空文件不算）。"
-                        "请先写完交付正文并落盘，或在本轮写出足够正文后再调用 handoff——"
-                        "禁止空壳简报进入下游任务。"
+                if body_chars == 0 and summary:
+                    candidate = promote_brief_to_deliverable(
+                        summary, arguments.get("key_points")
                     )
-                )
-                logger.info(
-                    "worker.handoff",
-                    run_id=context.run_id,
-                    has_summary=bool(summary),
-                    chars=len(summary),
-                    body_chars=body_chars,
-                    has_motion_card=card is not None,
-                    rejected="empty_body",
-                    only_skeleton=only_skeleton,
-                    min_body_chars=floor,
-                )
-                return ToolResult(
-                    tool_call_id="",
-                    success=False,
-                    output="",
-                    error=f"空交付不得交接：有下游队员依赖你的产出，但{land_hint}",
-                    contract_failure=True,
-                )
+                    if upstream_body_floor_satisfied(
+                        body_chars=len(candidate),
+                        landed_artifact_kinds=kinds,
+                        min_body_chars=floor,
+                    ):
+                        promoted_body = candidate
+                    else:
+                        kinds_map = kinds or {}
+                        only_skeleton = bool(kinds_map) and all(
+                            v == "skeleton" for v in kinds_map.values()
+                        )
+                        floor_hint = (
+                            f"至少 {floor} 字（合同 min_length）"
+                            if floor > 0
+                            else "非空正文"
+                        )
+                        land_hint = (
+                            "已落盘的是骨架/提纲（skeleton），不算成篇交付；"
+                            if only_skeleton
+                            else ""
+                        )
+                        logger.info(
+                            "worker.handoff",
+                            run_id=context.run_id,
+                            has_summary=bool(summary),
+                            chars=len(summary),
+                            body_chars=body_chars,
+                            promoted_chars=len(candidate),
+                            has_motion_card=card is not None,
+                            rejected="empty_body",
+                            only_skeleton=only_skeleton,
+                            min_body_chars=floor,
+                        )
+                        return ToolResult(
+                            tool_call_id="",
+                            success=False,
+                            output="",
+                            error=(
+                                "空交付不得交接：有下游队员依赖你的产出，但"
+                                f"{land_hint}本轮正文 0 字，交接简报升格后仍不足"
+                                f"（须{floor_hint}）。"
+                                "请补写实质正文或加长 summary / key_points 后再 handoff。"
+                            ),
+                            contract_failure=True,
+                        )
+                else:
+                    kinds_map = kinds or {}
+                    only_skeleton = bool(kinds_map) and all(
+                        v == "skeleton" for v in kinds_map.values()
+                    )
+                    floor_hint = (
+                        f"至少 {floor} 字（合同 min_length）"
+                        if floor > 0
+                        else "非空正文"
+                    )
+                    land_hint = (
+                        "已落盘的是骨架/提纲（skeleton），不算成篇交付；请补写实质正文并 "
+                        f"file_write/file_append 成 prose，或在本轮写出{floor_hint}后再 handoff。"
+                        if only_skeleton
+                        else (
+                            f"本轮正文仅 {body_chars} 字（须{floor_hint}，"
+                            "或先落盘成篇 prose 产物后再交；骨架/空文件不算）。"
+                            "请先写完交付正文并落盘，或在本轮写出足够正文后再调用 handoff——"
+                            "禁止空壳简报进入下游任务。"
+                        )
+                    )
+                    logger.info(
+                        "worker.handoff",
+                        run_id=context.run_id,
+                        has_summary=bool(summary),
+                        chars=len(summary),
+                        body_chars=body_chars,
+                        has_motion_card=card is not None,
+                        rejected="empty_body",
+                        only_skeleton=only_skeleton,
+                        min_body_chars=floor,
+                    )
+                    return ToolResult(
+                        tool_call_id="",
+                        success=False,
+                        output="",
+                        error=f"空交付不得交接：有下游队员依赖你的产出，但{land_hint}",
+                        contract_failure=True,
+                    )
         logger.info(
             "worker.handoff",
             run_id=context.run_id,
@@ -363,16 +430,16 @@ class HandoffTool:
             chars=len(summary),
             body_chars=_body_chars(context),
             has_motion_card=card is not None,
+            promoted_body=bool(promoted_body),
         )
-        # Terminal (HANDOFF): the deliverable is already the run's streamed content, so this
-        # carries NO final_text (nothing to append). The structured brief is read off THIS call's
-        # arguments by serialize.debrief_from_transcript — the tool only signals「done + brief
-        # submitted」. Its output is never fed back to the model (the loop ends here); it lands in
-        # the transcript as a plain tool result for a later 续写 replay.
+        # Terminal (HANDOFF): 有真实正文时 final_text 为空（交付已在 streamed content）。
+        # 同轮 0 字且简报升格成功时，final_text=候选正文，供引擎并入下游可读产出。
+        # The structured brief is still read off THIS call's arguments by
+        # serialize.debrief_from_transcript.
         return ToolResult(
             tool_call_id="",
             success=True,
             output="已收尾并提交交接简报。",
             effect=ToolEffect.HANDOFF,
-            final_text="",
+            final_text=promoted_body,
         )

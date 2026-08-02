@@ -1,3 +1,4 @@
+import { isGraphPerfEnabled, markGraphPerf } from "@/services/graphPerf";
 import type { GraphLayout } from "@/stores/graph";
 import type { Edge, Node } from "@xyflow/react";
 import type { ActCardLayout } from "./actLod";
@@ -33,6 +34,8 @@ export interface ProjectedTurnGraph {
 export function projectTurnGraph(
   input: ProjectTurnGraphInput,
 ): ProjectedTurnGraph {
+  const perfOn = isGraphPerfEnabled();
+  const t0 = perfOn ? performance.now() : 0;
   const {
     edges: graphEdges,
     injectOverlay,
@@ -52,6 +55,7 @@ export function projectTurnGraph(
           actCards,
           base.handleDirection,
           onFocusAct,
+          base.documentShell === true,
         )
       : [];
   const nodes = cardNodes.length > 0 ? [...runNodes, ...cardNodes] : runNodes;
@@ -72,5 +76,19 @@ export function projectTurnGraph(
     layoutKind,
   );
 
-  return { nodes, edges, lanes, debateStages };
+  const out = { nodes, edges, lanes, debateStages };
+  if (perfOn) {
+    let animated = 0;
+    for (const e of edges) {
+      const data = e.data as { animated?: boolean } | undefined;
+      if (data?.animated || e.animated) animated += 1;
+    }
+    markGraphPerf("project", performance.now() - t0, {
+      nodes: nodes.length,
+      edges: edges.length,
+      animated,
+      runs: base.execution.runs.length,
+    });
+  }
+  return out;
 }

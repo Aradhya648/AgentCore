@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from agentcore.tools.sandbox.protocol import ExecutionRequest, ExecutionResult
 
@@ -385,6 +385,19 @@ class WorkspaceBackend(Protocol):
 
     def start_code_index_maintenance(self) -> None:
         """Kick background index build/refresh (coalesced, non-blocking)."""
+        ...
+
+    async def diagnostics(self, paths: list[str]) -> dict[str, Any]:
+        """Language-service diagnostics for TS/JS paths (inner verify loop).
+
+        Returns ``{status: "ok"|"unavailable", reason?: str, diagnostics: [...]}``
+        where each diagnostic is
+        ``{path, line, column, severity, message, code?}``.
+
+        Local backends route to the desktop language service; cloud
+        ``ServerWorkspace`` returns ``unavailable`` honestly (never fakes a full
+        ``tsc``). Read-only — never sets ``dirty``.
+        """
         ...
 
     async def execute(self, req: ExecutionRequest) -> ExecutionResult:

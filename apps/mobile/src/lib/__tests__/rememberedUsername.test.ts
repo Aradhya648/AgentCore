@@ -1,11 +1,11 @@
-// @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
 import {
   REMEMBERED_USERNAME_KEY,
   clearRememberedUsername,
   getRememberedUsername,
   setRememberedUsername,
 } from "@/lib/rememberedUsername";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(() => {
   localStorage.removeItem(REMEMBERED_USERNAME_KEY);
@@ -34,7 +34,8 @@ describe("rememberedUsername", () => {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       expect(key).toBe(REMEMBERED_USERNAME_KEY);
-      expect(localStorage.getItem(key!)).not.toMatch(/password/i);
+      if (key == null) continue;
+      expect(localStorage.getItem(key)).not.toMatch(/password/i);
     }
   });
 

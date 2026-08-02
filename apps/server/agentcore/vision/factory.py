@@ -16,14 +16,21 @@ logger = get_logger(__name__)
 
 
 def build_vision_reader(settings: Settings | None = None) -> VisionReader | None:
-    """Return a :class:`VisionReader` iff a vision provider is configured, else ``None``.
+    """Return a :class:`VisionReader` iff platform vision is enabled, else ``None``.
 
-    ``None`` is the default posture (no ``VISION_API_KEY``): ``board_read`` then returns a
-    clean「读图能力未配置」error. Setting the key flips it on with no other code change
-    (§九.4). The only provider today is Qwen-VL (DashScope OpenAI-compatible endpoint).
+    Gates (all required):
+
+    - ``billing_mode=platform`` — BYOK deployments never enable 识图 (no platform quota).
+    - non-empty ``VISION_API_KEY`` — empty → ``board_read`` clean「读图能力未配置」.
+
+    The HTTP shape is OpenAI-compatible multimodal (``image_url`` data URL); the
+    concrete class remains ``QwenVLReader`` regardless of ``VISION_MODEL`` (default
+    ``kimi-k2.5`` on the operator relay).
     """
     s = settings if settings is not None else _default_settings
-    if not s.vision_api_key:
+    if getattr(s, "billing_mode", "byok") != "platform":
+        return None
+    if not s.vision_api_key or not (s.vision_base_url or "").strip():
         return None
     logger.info("vision.reader_built", model=s.vision_model)
     return QwenVLReader(

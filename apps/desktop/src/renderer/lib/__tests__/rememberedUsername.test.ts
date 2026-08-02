@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import {
+  UI_STORAGE_PREFIX,
   __clearMemoryUiStorageForTests,
   __setUiStorageBackendForTests,
   uiGet,
-  UI_STORAGE_PREFIX,
 } from "@/lib/uiStorage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  loadRememberedUsername,
   REMEMBERED_USERNAME_KEY,
+  loadRememberedUsername,
   saveRememberedUsername,
 } from "../rememberedUsername";
 

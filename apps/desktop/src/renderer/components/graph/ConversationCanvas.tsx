@@ -8,8 +8,9 @@ import {
 import { ExecutionScopeContext, useActiveExecField } from "@/stores/execution";
 import { useSidePanelStore } from "@/stores/sidePanel";
 import { Background, Panel, ReactFlow, ReactFlowProvider } from "@xyflow/react";
+import type { EdgeTypes } from "@xyflow/react";
 import { ArrowUp, Loader2, Network } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CanvasCommandBar } from "./CanvasCommandBar";
 import { CanvasPlaybackControls } from "./CanvasPlaybackControls";
 import { CanvasTurnRail } from "./CanvasTurnRail";
@@ -23,7 +24,15 @@ import { SimpleTurnNode } from "./SimpleTurnNode";
 import { TurnGroupNode } from "./TurnGroupNode";
 import { TurnSummaryNode } from "./TurnSummaryNode";
 import { WaveLanes } from "./WaveLanes";
-import { nodeTypes as dagNodeTypes, edgeTypes } from "./constants";
+import {
+  CanvasDocumentProviders,
+  withCanvasEdgeTurnScope,
+  withCanvasTurnScope,
+} from "./canvasDocumentHost";
+import {
+  edgeTypes as dagEdgeTypes,
+  nodeTypes as dagNodeTypes,
+} from "./constants";
 import { GraphHoverContext } from "./graphHover";
 import { namespaceId, stripNamespace } from "./ids";
 import type { GraphPendingDecision } from "./pendingDecisions";
@@ -47,11 +56,19 @@ import { useGraphPendingDecisions } from "./useGraphPendingDecisions";
  */
 
 const canvasNodeTypes = {
-  ...dagNodeTypes,
+  agent: withCanvasTurnScope(dagNodeTypes.agent),
+  userInput: withCanvasTurnScope(dagNodeTypes.userInput),
+  captain: withCanvasTurnScope(dagNodeTypes.captain),
+  subTeamGroup: dagNodeTypes.subTeamGroup,
+  actSummary: withCanvasTurnScope(dagNodeTypes.actSummary),
   turnGroup: TurnGroupNode,
   teamTurn: TurnSummaryNode,
   simpleTurn: SimpleTurnNode,
 };
+
+const canvasEdgeTypes = {
+  step: withCanvasEdgeTurnScope(dagEdgeTypes.step),
+} as EdgeTypes;
 
 function ConversationCanvasInner() {
   const generating = useActiveGenerating();
@@ -268,6 +285,15 @@ function ConversationCanvasInner() {
   const menuNodeBare =
     flow.menuNodeId != null ? stripNamespace(flow.menuNodeId) : null;
 
+  const scopeBag = useMemo(
+    () => ({
+      projectedByTurn: flow.projectedByTurn,
+      graphActionsForTurn: flow.graphActionsForTurn,
+      fallbackActions: flow.graphActions,
+    }),
+    [flow.projectedByTurn, flow.graphActionsForTurn, flow.graphActions],
+  );
+
   return (
     <ExecutionScopeContext.Provider value={effectiveFocus}>
       <div className="relative flex min-w-0 flex-1 flex-col">
@@ -286,73 +312,83 @@ function ConversationCanvasInner() {
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div className="relative h-full w-full">
-                  <GraphHoverContext.Provider value={flow.hoverState}>
-                    <ReactFlow
-                      nodes={flow.nodes}
-                      edges={flow.edges}
-                      nodeTypes={canvasNodeTypes}
-                      edgeTypes={edgeTypes}
-                      onInit={onInit}
-                      onNodesChange={flow.onNodesChange}
-                      onNodeClick={onFlowNodeClick}
-                      onNodeDoubleClick={onNodeDoubleClick}
-                      onNodeMouseEnter={onNodeMouseEnter}
-                      onNodeMouseLeave={onNodeMouseLeave}
-                      onNodeContextMenu={onNodeContextMenu}
-                      onPaneContextMenu={onPaneContextMenu}
-                      onMove={onMove}
-                      nodesDraggable={false}
-                      nodesConnectable={false}
-                      nodesFocusable={false}
-                      elementsSelectable={false}
-                      zoomOnDoubleClick={false}
-                      minZoom={0.15}
-                      maxZoom={1.5}
-                      proOptions={{ hideAttribution: true }}
-                    >
-                      <Background gap={20} size={1} />
-                      {showGraphChrome && <WaveLanes waves={flow.waves} />}
-                      {showGraphChrome && (
-                        <DebateStageBands bands={flow.debateBands} />
-                      )}
-                      {hasMoreBefore && (
-                        <Panel position="top-center">
-                          <button
-                            type="button"
-                            onClick={requestOlder}
-                            disabled={loadingOlder}
-                            className="flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
-                          >
-                            {loadingOlder ? (
-                              <>
-                                <Loader2 size={12} className="animate-spin" />
-                                载入更早…
-                              </>
-                            ) : (
-                              <>
-                                <ArrowUp size={12} />
-                                更早
-                              </>
-                            )}
-                          </button>
+                  <CanvasDocumentProviders
+                    scopeBag={scopeBag}
+                    injectPaint={flow.injectPaint}
+                    finalAnswer={
+                      flow.finalAnswer
+                        ? { content: flow.finalAnswer.content }
+                        : null
+                    }
+                  >
+                    <GraphHoverContext.Provider value={flow.hoverState}>
+                      <ReactFlow
+                        nodes={flow.nodes}
+                        edges={flow.edges}
+                        nodeTypes={canvasNodeTypes}
+                        edgeTypes={canvasEdgeTypes}
+                        onInit={onInit}
+                        onNodesChange={flow.onNodesChange}
+                        onNodeClick={onFlowNodeClick}
+                        onNodeDoubleClick={onNodeDoubleClick}
+                        onNodeMouseEnter={onNodeMouseEnter}
+                        onNodeMouseLeave={onNodeMouseLeave}
+                        onNodeContextMenu={onNodeContextMenu}
+                        onPaneContextMenu={onPaneContextMenu}
+                        onMove={onMove}
+                        nodesDraggable={false}
+                        nodesConnectable={false}
+                        nodesFocusable={false}
+                        elementsSelectable={false}
+                        zoomOnDoubleClick={false}
+                        minZoom={0.15}
+                        maxZoom={1.5}
+                        proOptions={{ hideAttribution: true }}
+                      >
+                        <Background gap={20} size={1} />
+                        {showGraphChrome && <WaveLanes waves={flow.waves} />}
+                        {showGraphChrome && (
+                          <DebateStageBands bands={flow.debateBands} />
+                        )}
+                        {hasMoreBefore && (
+                          <Panel position="top-center">
+                            <button
+                              type="button"
+                              onClick={requestOlder}
+                              disabled={loadingOlder}
+                              className="flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
+                            >
+                              {loadingOlder ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  载入更早…
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowUp size={12} />
+                                  更早
+                                </>
+                              )}
+                            </button>
+                          </Panel>
+                        )}
+                        <Panel position="bottom-left">
+                          <div className="flex flex-col gap-2">
+                            {showGraphChrome && <PlaybackIfFrames />}
+                            <CanvasZoomControls
+                              onZoomIn={() =>
+                                rfRef.current?.zoomIn({ duration: 200 })
+                              }
+                              onZoomOut={() =>
+                                rfRef.current?.zoomOut({ duration: 200 })
+                              }
+                              onFit={fitViewAll}
+                            />
+                          </div>
                         </Panel>
-                      )}
-                      <Panel position="bottom-left">
-                        <div className="flex flex-col gap-2">
-                          {showGraphChrome && <PlaybackIfFrames />}
-                          <CanvasZoomControls
-                            onZoomIn={() =>
-                              rfRef.current?.zoomIn({ duration: 200 })
-                            }
-                            onZoomOut={() =>
-                              rfRef.current?.zoomOut({ duration: 200 })
-                            }
-                            onFit={fitViewAll}
-                          />
-                        </div>
-                      </Panel>
-                    </ReactFlow>
-                  </GraphHoverContext.Provider>
+                      </ReactFlow>
+                    </GraphHoverContext.Provider>
+                  </CanvasDocumentProviders>
 
                   {showGraphChrome && (
                     <GraphToolbar

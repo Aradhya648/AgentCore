@@ -98,6 +98,7 @@ def test_read_only_builtins_are_shared_with_ceo():
         "file_list",
         "grep",
         "code_search",
+        "code_diagnostics",
         "git",
     ):
         assert name in entries

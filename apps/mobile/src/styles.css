@@ -990,6 +990,32 @@ button.link {
   font-size: var(--text-xs);
 }
 
+/* Inner-loop type diagnostics — muted, distinct from tool-incomplete budget banner. */
+.tool-diagnostics {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 12%, transparent);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.tool-diagnostics-title {
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.tool-diagnostics-row {
+  margin-top: 2px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--foreground);
+}
+
+.tool-diagnostics-code {
+  color: color-mix(in oklch, var(--muted) 70%, transparent);
+}
+
 .tool-body {
   padding: 8px 12px;
   border-top: 1px solid var(--border);

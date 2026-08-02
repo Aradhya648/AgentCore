@@ -16,7 +16,6 @@ from agentcore.runtime.debate import (
 from agentcore.runtime.debate.constants import (
     CLOSING_LENGTH_HINT,
     CX_LENGTH_HINT,
-    DEBATER_TOOLS,
     FORM_LABELS,
     LENGTH_HINT,
     QUICK_DEBATER_HINT,
@@ -334,7 +333,7 @@ def debater_task(
         "task": research_task,
         "objective": f"代表「{side.name}」就「{focus}」立论",
         "system_prompt_supplement": side_system(config, side),
-        "tools": list(DEBATER_TOOLS),
+        # 真纯丙·H4：不再注入系统只读 tools 名单；默认全开相关工具面。
         "group": f"debate:{config.form.value}",
         "round": round_no,
         "research_then_draft": True,

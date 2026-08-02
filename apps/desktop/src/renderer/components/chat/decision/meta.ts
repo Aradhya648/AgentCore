@@ -166,7 +166,7 @@ export function askResolvedOutcome(
 type TeamResolvedRow = { label: string; icon: LucideIcon };
 
 export type TeamPrimitiveMeta = {
-  /** Inline pending marker + resume header prefix (「等你确认 · 确认后才会…」). */
+  /** Inline pending marker only（「等你确认 · 确认后才会…」）；拍板卡头不再复用。 */
   activeCaption: string;
   resumeLead: string;
   resumeCta: string;

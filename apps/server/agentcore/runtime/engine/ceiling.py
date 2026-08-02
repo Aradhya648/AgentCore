@@ -108,17 +108,11 @@ async def ceiling_finalize(
     On-track ``token_budget`` still stamps ``cutoff_reason_sink`` so delivery_status
     / CEO gaps stay honest (不标 DEGRADED、不自动 replan).
     """
-    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
-
     # Hard-ceiling termination: the token backstop broke the loop, or max_rounds
     # exhausted. Always force-finalize (杜绝死循环); route the finish by run health so an
     # on-track worker delivers its work while a thrashing one is flagged. 据审计: the
     # signal is SURFACED, not auto-actioned — there is no「升级→CEO 自动重分解」闭环; the
     # CEO may voluntarily replan off this signal.
-    if files_expected and not form_prose:
-        allowed_tool_names = merge_persist_write_tools(
-            allowed_tool_names, registry_names=set(tools.names)
-        )
     rounds_done = round_idx if ceiling_reason == "token_budget" else profile.max_rounds
     thrashing = role == "worker" and controller.is_thrashing()
     logger.warning(

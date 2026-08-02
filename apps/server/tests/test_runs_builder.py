@@ -365,13 +365,14 @@ def test_dag_cycle_is_error():
     assert any("cycle" in e for e in errs)
 
 
-def test_tools_filtered_by_allowlist():
+def test_tools_declaration_ignored_true_pure_c():
+    """真纯丙：CEO/入参填 tools 不再写入 RunSpec 白名单。"""
     plan, _ = build_run_plan(
         [{"role": "A", "task": "a", "tools": ["web_search", "ghost"]}],
         id_prefix="t",
         valid_tools={"web_search"},
     )
-    assert plan.nodes[0].tools == ["web_search"]
+    assert plan.nodes[0].tools is None
 
 
 def test_omitted_tools_means_no_restriction():
@@ -386,8 +387,7 @@ def test_omitted_tools_means_no_restriction():
 
 
 def test_all_invalid_tools_falls_back_to_no_restriction():
-    # A task naming only unknown tools (typo / hallucinated name) filters to empty —
-    # which must fall back to None (all tools), never [] (no tools).
+    # 真纯丙：任意声明（含未知名）一律忽略 → None。
     plan, _ = build_run_plan(
         [{"role": "A", "task": "a", "tools": ["ghost", "phantom"]}],
         id_prefix="t",

@@ -253,6 +253,8 @@ def _build_context_blocks(
     blocks.append(ContextBlock(channel="task", heading="你的任务", body=spec.task))
     from agentcore.runtime.runs.worker_budget import (
         DIRECTED_SEARCH_DISCIPLINE,
+        VERIFY_INNER_DISCIPLINE,
+        VERIFY_POLICY_INNER,
         is_directed_search_role,
     )
 
@@ -262,6 +264,14 @@ def _build_context_blocks(
                 channel="task",
                 heading="检索纪律",
                 body=DIRECTED_SEARCH_DISCIPLINE,
+            )
+        )
+    if (spec.verify_policy or "").strip().lower() == VERIFY_POLICY_INNER:
+        blocks.append(
+            ContextBlock(
+                channel="task",
+                heading="验证范围",
+                body=VERIFY_INNER_DISCIPLINE,
             )
         )
     deliverable_text = describe_deliverable(deliverable or spec.deliverable)
@@ -554,19 +564,28 @@ def _dep_context_blocks(
     Order follows ``depends_on``. COMPLETED deps inject a product. FAILED /
     SKIPPED / CANCELLED / missing deps inject an **absence** annotation (reason
     + role) so lenient fan-in summarizers know which upstreams are missing —
-    never consume a non-completed body as an upstream deliverable."""
+    never consume a non-completed body as an upstream deliverable.
+    COMPLETED + 空 content 但 debrief.summary 在 → 升格简报为 body，不当前置缺席。"""
     # mode ∈ {"pointer", "summarize", "pass_through"}
     # (dep_id, label, clean_content, files, mode, author_summary)
+    from agentcore.runtime.runs.research_quality import promote_brief_to_deliverable
+
     deps: list[tuple[str, str, str, list[str], str, str]] = []
     absence_blocks: list[ContextBlock] = []
     for dep_id in depends_on:
         state = completed.get(dep_id)
         dep_spec = plan.by_id(dep_id)
         label = dep_spec.role if dep_spec and dep_spec.role else dep_id
+        author_summary = ""
+        key_points: object = None
+        if state and state.debrief:
+            author_summary = str((state.debrief or {}).get("summary") or "").strip()
+            key_points = (state.debrief or {}).get("key_points")
+        has_brief = bool(author_summary)
         if (
             not state
             or state.phase is not RunPhase.COMPLETED
-            or (not state.content and not state.files_touched)
+            or (not state.content and not state.files_touched and not has_brief)
         ):
             absence_blocks.append(
                 ContextBlock(
@@ -584,8 +603,10 @@ def _dep_context_blocks(
         # 完工交接简报: the content is already the pure deliverable (the brief rides the run's
         # structured ``debrief``, submitted via the handoff tool — never appended to the prose), so
         # the body sizes on the deliverable alone and the author's own 结论 can LEAD the block.
-        clean = state.content
-        author_summary = (state.debrief or {}).get("summary", "") if state.debrief else ""
+        # 同轮 0 字仅简报：升格为下游可读 body（可再带 author_summary lead）。
+        clean = state.content or ""
+        if not clean.strip() and has_brief:
+            clean = promote_brief_to_deliverable(author_summary, key_points)
         if state.files_touched:
             mode = "pointer"
         elif dep_spec and dep_spec.policy.result_handling == "summarize":

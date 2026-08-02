@@ -199,12 +199,13 @@ async def test_blocking_escalate_stays_user_without_coordination():
 
 @pytest.mark.asyncio
 async def test_ownership_conflict_escalate_stays_user_under_coordination():
-    """写权冲突直达用户（与 browser_login 同属例外），即使协调会话活跃。"""
+    """写权冲突且锁主仍在跑 → 直达用户（与 browser_login 同属例外）。"""
     clear_active_coordination()
     session = CoordinationSession(execution_id="e-own-u", total_workers=2)
     set_active_coordination(session)
     ledger = session.ensure_file_ownership()
     ledger.declare("site/index.html", "assemble", frozenset())
+    session._running_workers["assemble"] = "组装"
     seen: list[tuple[str, object]] = []
 
     async def _request(q, a, questions, kind, awaiting="user", **kwargs):
@@ -226,6 +227,40 @@ async def test_ownership_conflict_escalate_stays_user_under_coordination():
         assert seen == [("user", ["site/index.html"])]
     finally:
         clear_active_coordination("e-own-u")
+        clear_active_coordination()
+
+
+@pytest.mark.asyncio
+async def test_completed_owner_ownership_escalate_goes_to_ceo():
+    """锁主已完成：协调活跃时不弹用户移交卡，改走主管裁决。"""
+    clear_active_coordination()
+    session = CoordinationSession(execution_id="e-own-done", total_workers=2)
+    set_active_coordination(session)
+    ledger = session.ensure_file_ownership()
+    ledger.declare("trip-plan/transport-stay.md", "transport-stay", frozenset())
+    ledger.mark_written("trip-plan/transport-stay.md")
+    session.completed_run_ids.add("transport-stay")
+    seen: list[tuple[str, object]] = []
+
+    async def _request(q, a, questions, kind, awaiting="user", **kwargs):
+        seen.append((awaiting, kwargs.get("ownership_paths")))
+        return EscalationOutcome(status="resolved", answer="同座续派接手")
+
+    channel = EscalationChannel(armed=True, request=_request)
+    try:
+        result = await EscalateTool().execute(
+            {
+                "question": "写入冲突：`trip-plan/transport-stay.md` 已归队友负责",
+                "assumption": "等主管同座续派",
+                "blocking": True,
+            },
+            _ctx(execution_id="e-own-done", escalation=channel, run_id="transport-stay-v2"),
+        )
+        assert result.success is True
+        assert "主管就你的升级问题裁决" in result.output
+        assert seen == [("ceo", None)]
+    finally:
+        clear_active_coordination("e-own-done")
         clear_active_coordination()
 
 

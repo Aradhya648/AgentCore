@@ -192,6 +192,7 @@ def test_zero_files_gap_and_write_pass_feedback():
         "只有文字", Deliverable(requires_files=True), files_written=0
     )
     assert v.ok
+    assert any("本队员本波未交卷" in w for w in v.warnings)
     assert any("未把产物写入工作区" in w for w in v.warnings)
     assert not is_zero_files_gap(v)
     # format_write_pass_feedback 仍可对遗留 hard verdict 拼文案（防御保留）。
@@ -368,7 +369,7 @@ def test_json_file_channel_without_contents_still_warns_existence():
 
 
 def test_requires_files_soft_when_none_written():
-    """甲⁺：requires_files ∧ 零落盘 → soft warning，不 fail。"""
+    """甲⁺：requires_files ∧ 零落盘 → soft warning，不 fail；定案 B 标本队员本波未交卷。"""
     from agentcore.runtime.runs.contract import zero_files_gap_message
 
     v = check_contract("我把整份代码贴在这里", RunContract(requires_files=True), files_written=0)
@@ -376,8 +377,10 @@ def test_requires_files_soft_when_none_written():
     assert not v.failures
     assert any("工作区" in w for w in v.warnings)
     assert any("粘在回复正文" in w for w in v.warnings)
+    assert any("本队员本波未交卷" in w for w in v.warnings)
     # Default attribution = paste framing (no landing_failure_kind).
     assert zero_files_gap_message() in v.warnings
+    assert not is_zero_files_gap(v)
 
 
 def test_requires_files_zero_disk_attributes_channel_dead_not_paste():

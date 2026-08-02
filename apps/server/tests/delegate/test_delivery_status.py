@@ -218,8 +218,8 @@ def test_blocked_with_criteria_gap_and_bind_action_on_cloud():
     assert "未完成" in payload["summary"]
 
 
-def test_zero_landing_worker_and_criteria_merge_to_one_gap():
-    # 甲⁺：同一零落盘谓词合并为一条 files_not_landed soft note（notes，不 blocked）。
+def test_zero_landing_worker_keeps_role_soft_gap():
+    # 定案 B：per-worker soft「本队员本波未交卷」；批次 criteria soft 不盖掉角色；notes 不 blocked。
     from agentcore.runtime.runs.serialize import format_file_landing_tools_slash
     from agentcore.runtime.runs.types import Deliverable
 
@@ -238,8 +238,9 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
             delivery_gaps=[
                 {
                     "description": (
-                        "未把产物写入工作区：交付物须用 file_write / str_replace / "
-                        "file_append 或 code_execute / file_copy 落盘，而非粘在回复正文里"
+                        "本队员本波未交卷：未把产物写入工作区：交付物须用 file_write / "
+                        "str_replace / file_append 或 code_execute / file_copy 落盘，"
+                        "而非粘在回复正文里"
                     ),
                     "severity": "warning",
                     "reason": "files_not_landed",
@@ -256,13 +257,71 @@ def test_zero_landing_worker_and_criteria_merge_to_one_gap():
     )
     assert payload is not None
     assert payload["state"] == "notes"
-    assert len(payload["gaps"]) == 1
-    gap = payload["gaps"][0]
-    assert gap["role"] == "验收"
-    assert gap["reason"] == "files_not_landed"
+    assert payload["state"] != "blocked"
+    zero_gaps = [g for g in payload["gaps"] if g.get("reason") == "files_not_landed"]
+    assert len(zero_gaps) == 1
+    gap = zero_gaps[0]
+    assert gap["role"] == "执行工程师"
     assert gap["severity"] == "warning"
-    assert "本批未见落盘" in gap["description"]
-    assert "file_write" in gap["description"] or "落盘" in gap["description"]
+    assert "本队员本波未交卷" in gap["description"]
+    assert "未把产物写入工作区" in gap["description"]
+    # Batch criteria soft must not replace the worker-attributed row.
+    assert not any(
+        g.get("role") == "验收" and g.get("reason") == "files_not_landed"
+        for g in payload["gaps"]
+    )
+
+
+def test_zero_landing_mixed_batch_attributes_empty_worker_only():
+    """一人落盘、一人空转 → 仅空转队员 soft 可见；整场 notes，不 hard fail。"""
+    from agentcore.runtime.runs.types import Deliverable
+
+    plan = _plan(
+        RunSpec(
+            run_id="ok",
+            task="写 A",
+            role="修码员",
+            deliverable=Deliverable(form="files", requires_files=True),
+        ),
+        RunSpec(
+            run_id="empty",
+            task="写 B",
+            role="前端工程师",
+            deliverable=Deliverable(form="files", requires_files=True),
+        ),
+    )
+    results = {
+        "ok": RunState(
+            phase=RunPhase.COMPLETED,
+            content="done",
+            files_touched=["a.ts"],
+            file_acceptance=_accepted("a.ts"),
+        ),
+        "empty": RunState(
+            phase=RunPhase.COMPLETED,
+            content="还在读",
+            delivery_gaps=[
+                {
+                    "description": (
+                        "本队员本波未交卷：未把产物写入工作区：交付物须用 "
+                        "file_write 落盘，而非粘在回复正文里"
+                    ),
+                    "severity": "warning",
+                    "reason": "files_not_landed",
+                }
+            ],
+        ),
+    }
+    payload = build_delivery_status(plan, results, execution_id="e-mixed-wave")
+    assert payload is not None
+    assert payload["state"] == "notes"
+    assert "a.ts" in payload["delivered_files"]
+    zero_gaps = [g for g in payload["gaps"] if g.get("reason") == "files_not_landed"]
+    assert len(zero_gaps) == 1
+    assert zero_gaps[0]["role"] == "前端工程师"
+    assert "本队员本波未交卷" in zero_gaps[0]["description"]
+    assert zero_gaps[0]["severity"] == "warning"
+    assert not any(g.get("role") == "修码员" for g in zero_gaps)
 
 
 def test_zero_landing_gap_attributes_channel_dead_from_transcript():
@@ -304,8 +363,8 @@ def test_zero_landing_gap_attributes_channel_dead_from_transcript():
             phase=RunPhase.FAILED,
             content="",
             error=(
-                "未把产物写入工作区：写盘通道不可用（local workspace channel dead / "
-                "活性挂起），落盘工具已失败——请恢复工作区通道后重试，"
+                "本队员本波未交卷：未把产物写入工作区：写盘通道不可用（local workspace "
+                "channel dead / 活性挂起），落盘工具已失败——请恢复工作区通道后重试，"
                 "勿改用正文粘贴冒充落盘"
             ),
             transcript=transcript,
@@ -316,10 +375,11 @@ def test_zero_landing_gap_attributes_channel_dead_from_transcript():
     gap = payload["gaps"][0]
     assert gap["reason"] == "files_not_landed"
     assert gap["severity"] == "warning"
+    assert gap["role"] == "工程师"
     assert payload["state"] == "notes"
+    assert "本队员本波未交卷" in gap["description"]
     assert "写盘通道不可用" in gap["description"]
     assert "粘在回复正文" not in gap["description"]
-    assert "本批未见落盘" in gap["description"]
 
 
 def test_zero_landing_gap_attributes_write_failed_from_transcript():
@@ -358,7 +418,9 @@ def test_zero_landing_gap_attributes_write_failed_from_transcript():
         "w1": RunState(
             phase=RunPhase.FAILED,
             content="试过了",
-            error="未把产物写入工作区：已尝试写盘但未成功落盘（工具失败）",
+            error=(
+                "本队员本波未交卷：未把产物写入工作区：已尝试写盘但未成功落盘（工具失败）"
+            ),
             transcript=transcript,
         )
     }
@@ -367,9 +429,10 @@ def test_zero_landing_gap_attributes_write_failed_from_transcript():
     gap = payload["gaps"][0]
     assert gap["reason"] == "files_not_landed"
     assert gap["severity"] == "warning"
+    assert gap["role"] == "工程师"
     assert payload["state"] == "notes"
+    assert "本队员本波未交卷" in gap["description"]
     assert "已尝试写盘但未成功" in gap["description"]
-    assert "本批未见落盘" in gap["description"]
     assert "而非粘在回复正文" in gap["description"] or "粘在回复正文" not in gap[
         "description"
     ]

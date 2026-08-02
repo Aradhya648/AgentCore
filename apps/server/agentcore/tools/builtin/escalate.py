@@ -312,10 +312,15 @@ class EscalateTool:
                 question=question,
                 execution_id=context.execution_id,
                 write_ancestors=context.write_ancestors,
+                write_coordinator=context.write_coordinator,
             )
-            ownership_conflict = bool(ownership_hints.get("ownership_paths"))
+            ownership_paths = ownership_hints.get("ownership_paths")
+            # 用户写权卡仅锁主仍在跑；已完成占位靠同座续派/declare 接手，不直达用户移交。
+            user_ownership_card = bool(ownership_paths) and (
+                ownership_hints.get("owner_status") == "running"
+            )
             awaiting = "user"
-            if not browser_login and not ownership_conflict:
+            if not browser_login and not user_ownership_card:
                 try:
                     from agentcore.runtime.coordination.session import active_coordination
 
@@ -331,8 +336,12 @@ class EscalateTool:
                 kind,
                 awaiting,
                 browser_login=browser_login,
-                ownership_paths=ownership_hints.get("ownership_paths"),
-                lock_owner_run_id=str(ownership_hints.get("lock_owner_run_id") or ""),
+                ownership_paths=ownership_paths if user_ownership_card else None,
+                lock_owner_run_id=(
+                    str(ownership_hints.get("lock_owner_run_id") or "")
+                    if user_ownership_card
+                    else ""
+                ),
             )
             if outcome.status != "degraded":
                 return escalate_tool_result(
@@ -361,6 +370,7 @@ class EscalateTool:
                 question=question,
                 execution_id=context.execution_id,
                 write_ancestors=context.write_ancestors,
+                write_coordinator=context.write_coordinator,
             )
             post_escalation_to_coordination(
                 run_id=context.run_id,

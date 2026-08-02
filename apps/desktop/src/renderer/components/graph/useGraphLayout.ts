@@ -9,6 +9,7 @@ import {
 } from "@/lib/elk-layout";
 import type { ElkGraphLayout } from "@/lib/graph-layout-utils";
 import { computeLayoutHints } from "@/lib/layoutHints";
+import { isGraphPerfEnabled, markGraphPerf } from "@/services/graphPerf";
 import {
   isGraphTraceEnabled,
   traceGraphLayoutOk,
@@ -24,6 +25,7 @@ import {
   defaultFocusedActId,
 } from "./actLod";
 import { INPUT_ID } from "./constants";
+import { graphStructureKey } from "./graphDocument";
 import {
   type GraphFoldInfo,
   type SubTeam,
@@ -176,13 +178,15 @@ export function useGraphLayout(
     return `${struct}::${expandKey}::acts=${actsKey}::focus=${focusedActId ?? ""}`;
   }, [execution, expandedUnits, focusedActId]);
 
-  // Single structural IR for projection + bands. Rebuilt on structure / expand
-  // change (execution identity captures late-bound continuation / act fields the
-  // structural key does not, matching the prior subTeams/foldInfo memos).
+  // Single structural IR for projection + bands. Rebuild only on structure /
+  // expand / act-focus change — never on streaming deltas (SceneAct progress is
+  // Live-derived in Document mode; topology fields stay stable).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: structuralKey encodes expand + focus + topology
   const scene = useMemo<GraphScene | null>(() => {
-    if (!execution) return null;
-    return buildGraphScene(execution, { inputId: INPUT_ID, expandedUnits });
-  }, [execution, expandedUnits]);
+    const ex = executionRef.current;
+    if (!ex || !structuralKey) return null;
+    return buildGraphScene(ex, { inputId: INPUT_ID, expandedUnits });
+  }, [structuralKey]);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
   const subTeams = scene?.subTeams ?? EMPTY_SUBTEAMS;
@@ -280,9 +284,18 @@ export function useGraphLayout(
       const sceneNow =
         sceneRef.current ??
         buildGraphScene(exec, { inputId: INPUT_ID, expandedUnits });
+      const perfOn = isGraphPerfEnabled();
+      const t0 = perfOn ? performance.now() : 0;
       computeActLodLayout(exec, sceneNow, focusedActId, layoutKind, fitMode)
-        .then((res) =>
-          onOk(
+        .then((res) => {
+          if (perfOn) {
+            markGraphPerf("elk", performance.now() - t0, {
+              mode: "actLod",
+              nodes: Object.keys(res.positions).length,
+              gen,
+            });
+          }
+          return onOk(
             res.positions,
             res.edges,
             res.bbox.width,
@@ -290,8 +303,8 @@ export function useGraphLayout(
             res.nodeSizes,
             res.groups,
             res.cards,
-          ),
-        )
+          );
+        })
         .catch(onErr);
       return () => {
         cancelled = true;
@@ -310,6 +323,8 @@ export function useGraphLayout(
     const sizeMap = sizeMapForNodes(nodeIds);
     const elkLayout = layoutKind as ElkGraphLayout;
     const nodeSpacing = nodeSpacingForFitMode(fitMode);
+    const perfOn = isGraphPerfEnabled();
+    const t0 = perfOn ? performance.now() : 0;
     computeLayout(
       nodeIds,
       rawEdges,
@@ -323,8 +338,15 @@ export function useGraphLayout(
       sizeMap,
       hints,
     )
-      .then((result) =>
-        onOk(
+      .then((result) => {
+        if (perfOn) {
+          markGraphPerf("elk", performance.now() - t0, {
+            mode: "single",
+            nodes: nodeIds.length,
+            gen,
+          });
+        }
+        return onOk(
           result.positions,
           rawEdges,
           result.width,
@@ -332,8 +354,8 @@ export function useGraphLayout(
           sizeMap,
           result.groups,
           [],
-        ),
-      )
+        );
+      })
       .catch(onErr);
     return () => {
       cancelled = true;
@@ -447,6 +469,8 @@ export function useMultiTurnLayouts(
             actFocusChoices.get(t.turnId),
           );
           try {
+            const perfOn = isGraphPerfEnabled();
+            const t0 = perfOn ? performance.now() : 0;
             const res = await computeActLodLayout(
               t.execution,
               scene,
@@ -454,6 +478,13 @@ export function useMultiTurnLayouts(
               layoutKind,
               fitMode,
             );
+            if (perfOn) {
+              markGraphPerf("elk", performance.now() - t0, {
+                mode: "canvasActLod",
+                turn: t.turnId.slice(0, 8),
+                nodes: Object.keys(res.positions).length,
+              });
+            }
             if (cancelled || gen !== genRef.current) return;
             next[t.turnId] = {
               positions: res.positions,
@@ -490,6 +521,8 @@ export function useMultiTurnLayouts(
         const sizeMap = sizeMapForNodes(nodeIds);
 
         try {
+          const perfOn = isGraphPerfEnabled();
+          const t0 = perfOn ? performance.now() : 0;
           const result = await computeLayout(
             nodeIds,
             rawEdges,
@@ -500,6 +533,13 @@ export function useMultiTurnLayouts(
             sizeMap,
             scene.layoutHints,
           );
+          if (perfOn) {
+            markGraphPerf("elk", performance.now() - t0, {
+              mode: "canvas",
+              turn: t.turnId.slice(0, 8),
+              nodes: nodeIds.length,
+            });
+          }
           if (cancelled || gen !== genRef.current) return;
           next[t.turnId] = {
             positions: result.positions,
@@ -582,24 +622,5 @@ export function useMultiTurnLayouts(
   return { layouts, onNodesChange };
 }
 
-/**
- * Structural fingerprint for ELK re-layout. Content/streaming fields are
- * intentionally excluded so delta floods do not tear down the graph.
- */
-export function graphStructureKey(
-  runs: ReadonlyArray<{
-    id: string;
-    dependsOn: readonly string[];
-    parentRunId?: string | null;
-    replacesRunId?: string | null;
-  }>,
-): string {
-  return runs
-    .map(
-      (s) =>
-        `${s.id}:${s.dependsOn.join(",")}:${s.parentRunId ?? ""}:${s.replacesRunId ?? ""}`,
-    )
-    .join("|");
-}
-
+export { graphStructureKey } from "./graphDocument";
 export { expandedUnitsFromFold, sizeMapForNodes as buildNodeSizeMap };

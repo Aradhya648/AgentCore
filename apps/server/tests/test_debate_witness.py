@@ -1,4 +1,4 @@
-"""批 D1 · 证人模式：点名判定、窄续写、台账登记、无 session 零行为。"""
+"""批 D1 · 证人模式：点名判定、席位续写、台账登记、无 session 零行为。"""
 
 from __future__ import annotations
 
@@ -93,7 +93,8 @@ def test_probe_finds_lens_sessions_sorted():
     assert [s.run_id for s in found] == ["lens_0", "lens_1"]
 
 
-def test_fork_witness_session_readonly_and_recall_independent():
+def test_fork_witness_session_full_tools_and_recall_independent():
+    """真纯丙·H4：证人席位不再注入只读 tools 箱；recall 独立于透镜。"""
     lens = _lens_session()
     lens.recall_count = 2
     seat = fork_witness_session(
@@ -101,8 +102,7 @@ def test_fork_witness_session_readonly_and_recall_independent():
     )
     assert seat.run_id == "mod_wit_lens_0"
     assert seat.recall_count == 0
-    assert "write_file" not in (seat.spec.tools or [])
-    assert "file_read" in (seat.spec.tools or [])
+    assert seat.spec.tools is None
     assert seat.spec.group == "debate:witness"
     assert seat.transcript == lens.transcript
     # 透镜原 session 不被改写

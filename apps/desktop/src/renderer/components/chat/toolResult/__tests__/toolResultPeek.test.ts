@@ -134,6 +134,53 @@ describe("toolResultPeek", () => {
       toolResultPeek(data({ toolName: "grep", result: "match line\nmore" })),
     ).toBe("match line");
   });
+
+  it("summarizes code_diagnostics as N 个类型错误", () => {
+    expect(
+      toolResultPeek(
+        data({
+          toolName: "str_replace",
+          args: { path: "a.ts", old_string: "x", new_string: "y" },
+          display: {
+            kind: "code_diagnostics",
+            status: "ok",
+            diagnostics: [
+              {
+                path: "a.ts",
+                line: 1,
+                column: 1,
+                severity: "error",
+                message: "boom",
+              },
+              {
+                path: "a.ts",
+                line: 2,
+                column: 1,
+                severity: "error",
+                message: "boom2",
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe("2 个类型错误");
+  });
+
+  it("keeps 已写入 path when diagnostics are clean", () => {
+    expect(
+      toolResultPeek(
+        data({
+          toolName: "file_write",
+          args: { path: "a.ts", content: "x" },
+          display: {
+            kind: "code_diagnostics",
+            status: "ok",
+            diagnostics: [],
+          },
+        }),
+      ),
+    ).toBe("已写入 a.ts");
+  });
 });
 
 describe("hasToolResultBody", () => {

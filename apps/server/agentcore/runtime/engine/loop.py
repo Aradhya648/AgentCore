@@ -263,7 +263,7 @@ async def react_loop(
 
         if is_read_url_retired(run_id):
             disabled_tools.add("read_url")
-    # B·收尾窗口：预算软顶 / 超时预警后收窄到落盘+handoff（不改硬顶语义）。
+    # B·收尾窗口：预算软顶 / 超时预警后收窄到落盘+诊断+handoff（不改硬顶语义）。
     wind_down_active = False
     wind_down_reason = ""
     wind_down_effective_allowed: list[str] | None = None
@@ -271,40 +271,19 @@ async def react_loop(
     wind_down_breach_count = 0
     wind_down_breach_pending_nudge = False
     wind_down_breach_nudge_text = ""
+    # 交文件久读无写收窄（与 token/timeout wind_down 解耦；可先于预算窗生效）。
+    delivery_idle_narrow_active = False
     # 检索预算临界（剩 ≤2）一次性 reflection，缓解同轮 fan-out 超订。
     retrieval_critical_warned = False
-    # Mutable allowlist: files_expected催写路径可并入最小写盘集（prose registry 无写 → no-op）。
+    # Mutable allowlist: light-repair / delivery-idle / wind_down may narrow it.
     live_allowed: list[str] | None = (
         list(allowed_tool_names) if allowed_tool_names is not None else None
     )
-    persist_write_granted = False
 
     def _effective_allowed() -> list[str] | None:
         if wind_down_effective_allowed is not None:
             return wind_down_effective_allowed
         return live_allowed
-
-    def _grant_persist_writes(reason: str) -> None:
-        """files_expected催写：显式名单缺写盘时并入最小写盘集。"""
-        nonlocal live_allowed, tool_defs, persist_write_granted
-        if persist_write_granted or form_prose or not files_expected:
-            return
-        from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
-
-        prior = list(live_allowed) if live_allowed is not None else None
-        merged = merge_persist_write_tools(
-            live_allowed, registry_names=set(tools.names)
-        )
-        persist_write_granted = True
-        if merged is not None and merged != live_allowed:
-            live_allowed = merged
-            tool_defs = resolve_openai_tool_defs(tools, live_allowed, disabled_tools)
-            logger.info(
-                "engine.persist_write_grant",
-                reason=reason,
-                run_id=run_id,
-                added=[n for n in merged if prior is None or n not in prior],
-            )
 
     controller: LoopController | None = None
 
@@ -413,8 +392,6 @@ async def react_loop(
         wind_down_active = True
         wind_down_reason = reason
         available = set(tools.names)
-        # 收尾也是催写路径：files_expected 且名单缺写盘时先并入再收窄。
-        _grant_persist_writes(f"wind_down:{reason}")
         keep_file_read = worker_keeps_file_read_in_wind_down(
             available=available, allowed=live_allowed
         )
@@ -452,6 +429,44 @@ async def react_loop(
         from agentcore.runtime.runs.run_phase_emit import emit_run_phase
 
         emit_run_phase(sink, run_id, agent_id, "winding_down")
+
+    def _apply_delivery_idle_narrow() -> None:
+        """Narrow to write/诊断/handoff/必要读 after delivery-idle ladder — not wind_down.
+
+        Reuses :func:`narrow_tools_for_wind_down` whitelist. Does **not** emit
+        ``engine.wind_down_enter`` / winding_down phase (budget wind_down stays
+        independent). If budget wind_down already active, surface is already
+        narrowed — no-op on allowlist.
+        """
+        nonlocal delivery_idle_narrow_active, live_allowed, tool_defs
+        if delivery_idle_narrow_active or role != "worker":
+            return
+        delivery_idle_narrow_active = True
+        if wind_down_active:
+            return
+        from agentcore.runtime.runs.cutoff import (
+            narrow_tools_for_wind_down,
+            worker_keeps_file_read_in_wind_down,
+        )
+
+        available = set(tools.names)
+        keep_file_read = worker_keeps_file_read_in_wind_down(
+            available=available, allowed=live_allowed
+        )
+        narrowed = narrow_tools_for_wind_down(
+            available,
+            allowed=live_allowed,
+            keep_file_read=keep_file_read,
+        )
+        live_allowed = narrowed
+        tool_defs = _resolve_tool_defs()
+        logger.info(
+            "engine.delivery_idle_narrow_apply",
+            run_id=run_id,
+            role=role,
+            allowed_tools=narrowed,
+            keep_file_read=keep_file_read,
+        )
 
     def _consume_timeout_wind_down_pending() -> bool:
         """Consume timeout wind-down from hard-timeout guard and/or coordination session.
@@ -1055,6 +1070,15 @@ async def react_loop(
                         total_usage = tool_round.total_usage
                         if tool_round.tool_defs_changed:
                             tool_defs = tool_round.tool_defs
+                        # Delivery-idle tool narrow (files_expected久读无写): reuse
+                        # wind_down whitelist, but keep a separate reason/event from
+                        # token/timeout wind_down so budgets stay orthogonal.
+                        if (
+                            role == "worker"
+                            and controller is not None
+                            and controller.take_delivery_idle_narrow_apply()
+                        ):
+                            _apply_delivery_idle_narrow()
                         if wind_down_breach_pending_nudge:
                             from agentcore.runtime.engine.directive import Continue
                             from agentcore.runtime.runs.cutoff import (
@@ -1124,6 +1148,13 @@ async def react_loop(
             finish_guard_reworks = applied.finish_guard_reworks
             if applied.tool_defs_changed:
                 tool_defs = applied.tool_defs
+            # Finalize-path govern may also latch delivery-idle narrow.
+            if (
+                role == "worker"
+                and controller is not None
+                and controller.take_delivery_idle_narrow_apply()
+            ):
+                _apply_delivery_idle_narrow()
             # Close the post-TIMEOUT grace round so the next entry force-cancels.
             if role == "worker" and run_id:
                 from agentcore.runtime.runs.timeout_hard import (

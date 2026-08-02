@@ -7,8 +7,8 @@ import {
   TURN_GROUP_PAD,
 } from "./TurnGroupNode";
 import type { TurnSummaryData } from "./TurnSummaryNode";
-import { namespaceId, parseNamespacedId } from "./ids";
-import type { WaveBand } from "./scene";
+import { namespaceId } from "./ids";
+import type { GraphScene, WaveBand } from "./scene";
 import {
   GAP_Y,
   SIMPLE_NODE_HEIGHT,
@@ -22,13 +22,16 @@ import { layoutStructureSig } from "./useLayoutMorph";
 const TURN_GROUP_FALLBACK_W = 760;
 const TURN_GROUP_FALLBACK_H = 470;
 
-/** One turn's projected DAG (from {@link projectTurnGraph}) + its patch map. */
+/** One turn's Document shell projection (Live faces self-subscribe). */
 export interface CanvasTurnProjection {
   layoutNodes: Node[];
-  presentData: Map<string, Node["data"]>;
   edges: Edge[];
   lanes: WaveBand[];
   debateStages: WaveBand[];
+  /** Gate key — reuse this projection when equal across streaming deltas. */
+  documentGateKey: string;
+  scene: GraphScene;
+  captainRunId: string | null;
 }
 
 export interface GroupOrigin {
@@ -268,11 +271,13 @@ export function buildTurnSpine({
   };
 }
 
-/** Patch live presentation data onto layout-stable spine nodes. */
+/**
+ * Thin Live patch for spine chrome only (turnGroup / teamTurn / simpleTurn).
+ * Nested DAG Document shells are never rewritten — faces self-subscribe.
+ */
 export function patchSpineNodes(
   layoutNodes: Node[],
   turns: TurnItem[],
-  projectedByTurn: Map<string, CanvasTurnProjection>,
 ): Node[] {
   const turnById = new Map(turns.map((t) => [t.id, t]));
   return layoutNodes.map((n) => {
@@ -351,13 +356,8 @@ export function patchSpineNodes(
         } satisfies SimpleTurnData,
       };
     }
-    // Nested DAG child — patch from that turn's presentation map.
-    const parsed = parseNamespacedId(n.id);
-    if (!parsed) return n;
-    const present = projectedByTurn.get(parsed.turnId)?.presentData;
-    const freshData = present?.get(parsed.bare);
-    if (!freshData || freshData === n.data) return n;
-    return { ...n, data: freshData };
+    // Nested Document shell — identity stable; Live faces subscribe themselves.
+    return n;
   });
 }
 
@@ -398,13 +398,16 @@ export function offsetBandsToGroup(
   }));
 }
 
-/** Spine memo invalidation key — turn identity + status-bearing summary fields. */
+/**
+ * Spine structure key — turn identity / kind / notes footprint only.
+ * Streaming status & decision counts are thin-patched via {@link patchSpineNodes};
+ * including them here would thrash nested Document shell refs.
+ */
 export function spineInvalidationKey(turns: TurnItem[]): string {
   return turns
     .map((t) => {
       const notes = t.exec?.teamNotes?.length ?? 0;
-      const status = t.exec?.status ?? "";
-      return `${t.id}:${t.kind}:${t.pendingDecisions}:${t.recoverable ? 1 : 0}:${notes}:${status}`;
+      return `${t.id}:${t.kind}:${notes}`;
     })
     .join("|");
 }

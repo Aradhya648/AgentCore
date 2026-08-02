@@ -1,10 +1,6 @@
 /**
- * Conversation-canvas flow: composes the shared single-turn TeamGraph core
- * ({@link projectTurnGraph} + morph / hover / keyboard hooks) across every
- * expanded turn, then stacks them into one ReactFlow store via the canvas spine
- * ({@link buildTurnSpine} et al). Only the multi-turn orchestration (fold state,
- * turn seeding, act focus per turn, spine composition) lives here now; the graph
- * rendering itself is the same core GraphView uses.
+ * Conversation-canvas flow: Document shells per expanded turn (gated like GraphView)
+ * stacked on the canvas spine; Live faces / inject paint self-subscribe.
  */
 
 import {
@@ -13,7 +9,11 @@ import {
 } from "@/components/chat/ParallelTimeline";
 import { useTurnAudit } from "@/hooks/useTurnAudit";
 import { resolveEffectiveGraphLayout } from "@/lib/graph-layout-utils";
-import { useConversationStore } from "@/stores/conversation";
+import {
+  isTerminalPhase,
+  useActiveTurnPhase,
+  useConversationStore,
+} from "@/stores/conversation";
 import {
   type Execution,
   isDebate,
@@ -24,10 +24,12 @@ import {
 import { useConversationFold, useGraphStore } from "@/stores/graph";
 import { type EndpointKind, useSidePanelStore } from "@/stores/sidePanel";
 import { turnDetailPath } from "@/stores/ui";
-import type { NodeChange } from "@xyflow/react";
+import type { Edge, NodeChange } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 import {
+  type CanvasTurnProjection,
   buildSpineEdges,
   buildTurnSpine,
   offsetBandsToGroup,
@@ -35,11 +37,17 @@ import {
   spineInvalidationKey,
   spineMorphSig,
 } from "./canvasSpine";
-import { buildCanvasTurnProjections } from "./canvasTurnProjection";
+import {
+  buildCanvasTurnProjections,
+  canvasTurnDocumentGateKey,
+} from "./canvasTurnProjection";
+import type { GraphActionsValue } from "./graphActions";
 import { useGraphHoverState } from "./graphHover";
+import { type GraphInjectPaint, injectPaintFromOverlay } from "./graphLive";
 import { computeGraphFold } from "./helpers";
 import { namespaceId, parseActCardId, parseNamespacedId } from "./ids";
 import { executionGraphCapabilities } from "./planCapabilities";
+import { projectInjectGapEdges } from "./projectFlowGraph";
 import type { TurnItem } from "./useCanvasTurns";
 import { useGraphDrillIn } from "./useGraphDrillIn";
 import { useGraphInjectFlow } from "./useGraphInjectFlow";
@@ -56,6 +64,8 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
   const navigate = useNavigate();
   const focusedExec = useMessageExecution(effectiveFocus);
   const conversationId = useConversationStore((s) => s.currentConversationId);
+  const turnPhase = useActiveTurnPhase();
+  const turnTerminal = isTerminalPhase(turnPhase);
   const caps = executionGraphCapabilities(focusedExec);
   const { data: turnAudit } = useTurnAudit(
     caps.auditInject ? conversationId : null,
@@ -78,7 +88,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
   const parallelAvailable = !!focusedExec && hasParallelTimeline(focusedExec);
   const effectiveLayoutKind = resolveEffectiveGraphLayout(layoutKind);
 
-  // Seed default expanded turns (newest first, cap 3) once per conversation.
   useEffect(() => {
     if (!conversationId) return;
     const teamIdsNewestFirst = [...turns]
@@ -89,8 +98,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     ensureDefaultExpandedTurns(conversationId, teamIdsNewestFirst);
   }, [conversationId, turns, ensureDefaultExpandedTurns]);
 
-  // When a brand-new latest team turn appears, expand it (LRU). Does not
-  // re-expand a turn the user just collapsed.
   const lastAutoExpandedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!conversationId) return;
@@ -116,8 +123,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     [fold.collapsedSubtrees],
   );
 
-  // 幕级 LOD（批 R2）：每回合的聚焦幕选择（UI 态）。undefined = 跟随实时默认
-  // （进行中自动聚焦活跃幕、完成态整链折叠为卡）。点某幕卡 → 聚焦该幕。
   const [actFocusByTurn, setActFocusByTurn] = useState<
     Map<string, string | null | undefined>
   >(() => new Map());
@@ -129,18 +134,25 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     });
   }, []);
 
+  // Expanded turns: subscribe each runtime by id (not whole byId table).
+  const expandedTurnIds = fold.expandedTurns;
+  const expandedRuntimes = useExecutionStore(
+    useShallow((s) => expandedTurnIds.map((id) => s.byId[id])),
+  );
   const expandedTurnInputs = useMemo(() => {
     const out: { turnId: string; execution: Execution }[] = [];
-    for (const id of fold.expandedTurns) {
-      const t = turns.find((x) => x.id === id);
-      if (t?.kind === "team" && t.exec) {
-        out.push({ turnId: id, execution: t.exec });
-      }
-    }
+    const turnKind = new Map(turns.map((t) => [t.id, t]));
+    expandedTurnIds.forEach((turnId, i) => {
+      const rt = expandedRuntimes[i];
+      const t = turnKind.get(turnId);
+      if (t?.kind !== "team" || !rt) return;
+      const execution = projectRuntime(rt);
+      if (!execution) return;
+      out.push({ turnId, execution });
+    });
     return out;
-  }, [fold.expandedTurns, turns]);
+  }, [expandedRuntimes, expandedTurnIds, turns]);
 
-  // Seed newly discovered foldable parents as collapsed by default.
   useEffect(() => {
     if (!conversationId) return;
     for (const { execution } of expandedTurnInputs) {
@@ -273,9 +285,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
 
   const [menuNodeId, setMenuNodeId] = useState<string | null>(null);
 
-  const execById = useExecutionStore((s) => s.byId);
-
-  // 辩论回合最大化 → view=debate（与 StatusStrip「打开辩论室」/ 右坞深链一致）。
   const maximizeTurn = useCallback(
     (turnId: string) => {
       if (!conversationId) return;
@@ -287,68 +296,88 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     [conversationId, navigate],
   );
 
-  // Project each expanded turn's DAG turn-locally via the shared core.
-  const projectedByTurn = useMemo(
-    () =>
-      buildCanvasTurnProjections(expandedTurnInputs, turnLayouts, {
-        effectiveFocus,
-        collapsedSubtrees,
-        execById,
-        handleDirection,
-        edgePathType,
-        litRunId,
-        litEndpointMessageId,
-        finalAnswer,
-        taskMessage,
-        activateNode,
-        onToggleUnitExpand,
-        injectOverlay,
-        layoutKind: effectiveLayoutKind,
-        focusActForTurn,
-      }),
-    [
-      expandedTurnInputs,
-      turnLayouts,
+  const projectionCtx = useMemo(
+    () => ({
       collapsedSubtrees,
       handleDirection,
       edgePathType,
-      effectiveFocus,
+      layoutKind: effectiveLayoutKind,
+      actFocusByTurn,
+    }),
+    [
+      collapsedSubtrees,
+      handleDirection,
+      edgePathType,
       effectiveLayoutKind,
-      litRunId,
-      litEndpointMessageId,
-      finalAnswer,
-      taskMessage,
-      activateNode,
-      onToggleUnitExpand,
-      injectOverlay,
-      execById,
-      focusActForTurn,
+      actFocusByTurn,
     ],
   );
 
-  // Morph: brief CSS transition when any expanded turn's layout structure moves.
+  // Document gate: only structure + shell coords — never streaming live fields.
+  const documentGateKey = useMemo(
+    () =>
+      expandedTurnInputs
+        .map(({ turnId, execution }) => {
+          const slice = turnLayouts[turnId] ?? {
+            layoutReady: false,
+            bbox: null,
+            scene: null,
+            positions: {},
+            groups: [],
+            nodeSizes: {},
+            actCards: [],
+            edges: [],
+          };
+          return canvasTurnDocumentGateKey(
+            turnId,
+            execution,
+            slice as (typeof turnLayouts)[string],
+            projectionCtx,
+          );
+        })
+        .join("||"),
+    [expandedTurnInputs, turnLayouts, projectionCtx],
+  );
+
+  const projectedRef = useRef<Map<string, CanvasTurnProjection>>(new Map());
+  const gateRef = useRef("");
+  const inputsRef = useRef(expandedTurnInputs);
+  inputsRef.current = expandedTurnInputs;
+  const layoutsRef = useRef(turnLayouts);
+  layoutsRef.current = turnLayouts;
+
+  const projectedByTurn = useMemo(() => {
+    const next = buildCanvasTurnProjections(
+      inputsRef.current,
+      layoutsRef.current,
+      projectionCtx,
+      projectedRef.current,
+      gateRef.current,
+      documentGateKey,
+    );
+    projectedRef.current = next;
+    gateRef.current = documentGateKey;
+    return next;
+  }, [documentGateKey, projectionCtx]);
+
   const layoutSig = useMemo(
     () => spineMorphSig(expandedTurnInputs, turnLayouts),
     [expandedTurnInputs, turnLayouts],
   );
   const morphing = useLayoutMorph(layoutSig);
 
-  // Activate a canvas node id (namespaced): act card → focus; non-focus turn →
-  // open its run detail; focus turn → drill in.
   const activateCanvasNode = useCallback(
     (nodeId: string) => {
       if (turns.some((t) => t.id === nodeId)) return;
       const parsed = parseNamespacedId(nodeId);
       const turnId = parsed ? parsed.turnId : effectiveFocus;
       const raw = parsed ? parsed.bare : nodeId;
-      // 幕摘要卡：点击聚焦该回合该幕（唯一聚焦幕），不走节点钻取。
       const actId = parseActCardId(raw);
       if (actId && turnId) {
         focusActForTurn(turnId, actId);
         return;
       }
       if (turnId && turnId !== effectiveFocus) {
-        // Activate within non-focus expanded turn: open run detail there.
         const t = turns.find((x) => x.id === turnId);
         if (t?.exec) {
           const run = t.exec.runs.find((r) => r.id === raw);
@@ -362,7 +391,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     [activateNode, turns, effectiveFocus, showRunDetail, focusActForTurn],
   );
 
-  // Keyboard navigation among agent nodes in the focused turn.
   const navigableNodeIds = useMemo(() => {
     if (!effectiveFocus) return [] as string[];
     const proj = projectedByTurn.get(effectiveFocus);
@@ -411,6 +439,7 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
       turnSpineKey,
       expandedKey,
       projectedReadyKey,
+      documentGateKey,
       effectiveFocus,
       projectedByTurn,
       turnLayouts,
@@ -422,16 +451,56 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     ]);
 
   const nodes = useMemo(
-    () => patchSpineNodes(layoutNodes, turns, projectedByTurn),
-    [layoutNodes, turns, projectedByTurn],
+    () => patchSpineNodes(layoutNodes, turns),
+    [layoutNodes, turns],
   );
 
-  const edges = useMemo(
-    () => buildSpineEdges(layoutEdges, projectedByTurn),
-    [layoutEdges, projectedByTurn],
-  );
+  // Document edges + Live inject gap overlay (namespaced; never runs ELK).
+  const injectGapEdges = useMemo(() => {
+    if (!effectiveFocus || !focusedLayout) return [] as Edge[];
+    const bare = projectInjectGapEdges({
+      injectOverlay,
+      positions: focusedLayout.positions,
+      nodeSizes: focusedLayout.nodeSizes,
+      handleDirection,
+      edgePathType,
+    });
+    return bare.map((e) => ({
+      ...e,
+      id: namespaceId(effectiveFocus, e.id),
+      source: namespaceId(effectiveFocus, e.source),
+      target: namespaceId(effectiveFocus, e.target),
+    }));
+  }, [
+    effectiveFocus,
+    focusedLayout,
+    injectOverlay,
+    handleDirection,
+    edgePathType,
+  ]);
 
-  // Hover: inject keep-bright is namespaced to the focused turn's node ids.
+  const edges = useMemo(() => {
+    const doc = buildSpineEdges(layoutEdges, projectedByTurn);
+    if (injectGapEdges.length === 0) return doc;
+    return [...doc, ...injectGapEdges];
+  }, [layoutEdges, projectedByTurn, injectGapEdges]);
+
+  const injectPaint = useMemo((): GraphInjectPaint => {
+    const paint = injectPaintFromOverlay(injectOverlay);
+    if (!paint || !effectiveFocus) return paint;
+    return {
+      highlightEdgeIds: new Set(
+        [...paint.highlightEdgeIds].map((id) =>
+          namespaceId(effectiveFocus, id),
+        ),
+      ),
+      focusedEdgeIds: new Set(
+        [...paint.focusedEdgeIds].map((id) => namespaceId(effectiveFocus, id)),
+      ),
+      dimUnrelatedEdges: paint.dimUnrelatedEdges,
+    };
+  }, [injectOverlay, effectiveFocus]);
+
   const injectRelatedIds = useMemo(() => {
     const injectRelated = injectOverlay?.dimUnrelatedEdges
       ? injectOverlay.relatedNodeIds
@@ -464,7 +533,6 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     [focusedProjection, focusedGroupOrigin],
   );
 
-  // Reset transient hover / menu / keyboard focus when the focus target changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on focus change only
   useEffect(() => {
     setHoveredNodeId(null);
@@ -476,6 +544,63 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
   const layoutReady =
     !effectiveFocus || !focusedExec || (focusedSlice?.layoutReady ?? false);
   const layoutError = focusedSlice?.layoutError ?? null;
+
+  const graphActions = useMemo<GraphActionsValue>(
+    () => ({
+      activateNode: activateCanvasNode,
+      toggleUnitExpand: onToggleUnitExpand,
+      focusAct: (actId: string) => {
+        if (effectiveFocus) focusActForTurn(effectiveFocus, actId);
+      },
+      litRunId,
+      litEndpointMessageId,
+      taskMessageId: taskMessage?.id ?? null,
+      finalAnswerId: finalAnswer?.id ?? null,
+      turnTerminal,
+    }),
+    [
+      activateCanvasNode,
+      onToggleUnitExpand,
+      effectiveFocus,
+      focusActForTurn,
+      litRunId,
+      litEndpointMessageId,
+      taskMessage?.id,
+      finalAnswer?.id,
+      turnTerminal,
+    ],
+  );
+
+  /** Per-turn GraphActions — activate/focusAct namespaced to that turn. */
+  const graphActionsForTurn = useCallback(
+    (turnId: string): GraphActionsValue => ({
+      activateNode: (id: string) => {
+        const bare = parseNamespacedId(id)?.bare ?? id;
+        activateCanvasNode(namespaceId(turnId, bare));
+      },
+      toggleUnitExpand: onToggleUnitExpand,
+      focusAct: (actId: string) => focusActForTurn(turnId, actId),
+      litRunId: turnId === effectiveFocus ? litRunId : null,
+      litEndpointMessageId:
+        turnId === effectiveFocus ? litEndpointMessageId : null,
+      taskMessageId:
+        turnId === effectiveFocus ? (taskMessage?.id ?? null) : null,
+      finalAnswerId:
+        turnId === effectiveFocus ? (finalAnswer?.id ?? null) : null,
+      turnTerminal: turnId === effectiveFocus ? turnTerminal : false,
+    }),
+    [
+      activateCanvasNode,
+      onToggleUnitExpand,
+      focusActForTurn,
+      effectiveFocus,
+      litRunId,
+      litEndpointMessageId,
+      taskMessage?.id,
+      finalAnswer?.id,
+      turnTerminal,
+    ],
+  );
 
   return {
     nodes,
@@ -495,6 +620,7 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     showAuditInjectFlow,
     setShowAuditInjectFlow,
     injectOverlay,
+    injectPaint,
     hoverState,
     hoveredNodeId,
     setHoveredNodeId,
@@ -511,5 +637,9 @@ export function useCanvasFlow({ turns, effectiveFocus }: UseCanvasFlowOptions) {
     handleKeyboardNav,
     keyboardFocusId,
     focusActForTurn,
+    graphActions,
+    graphActionsForTurn,
+    projectedByTurn,
+    effectiveFocus,
   };
 }

@@ -248,7 +248,7 @@ ask 确认，禁自拟）。\
 批次默认 code_verified）；【已有多角调查/审查批、用户确认按结论修】→ 手写 tasks + 对各\
 调查 run 设 `continue_from_run_id`（**填现场根**＝wire `continues_run_id` / 该作者首次冷开\
 的 run_id；图上续派链末端勿填——引擎虽会别名溯根，优先填根）；换 title≠换职能、不必冷开新人；\
-可声明超集 `tools` 只增不减——只读调查面不够则 merge 扩面或冷开验证员）；\
+队员默认全开相关工具面，不必填 `tools`；只读调查不够验码则冷开验证员或在 task 点名验码）；
 **禁止**再套 `repair_code` 冷开新三角色。\
 **禁止**把 `playbook=none` 当修码默认、禁止 none+单人满轮巡读；worker 触顶打转后\
 **禁止**换马甲从零再读，应同人续派 / 收窄目标或 escalate。\
@@ -320,8 +320,8 @@ ask_user_* / delegate_checkpoint，勿叠多张仪式卡。
 
 【执行 / 运行 / 打开】对照 `<workspace_context>` 能力行；跑通测试·编译验证用 \
 `completion_criteria={{"type":"code_verified","verify_command":"…"}}`（写清怎么算修好）；\
-修码批：fix worker 默认窄检（单文件/包内/改动相关），全量 typecheck/build/`tsc -b` \
-仅验收员；禁止多名 fix worker 三路并行全仓 tsc；\
+修码批：内环用 code_diagnostics / 写盘回执诊断自检；外环 test_run 仅验收员；\
+禁止修码 worker 跑全量 typecheck/build/`tsc -b` / test_run；\
 意图梯度（勿混）：①「跑起来 / 打开项目看一下 / 纯启服·重启·看活」且 `terminal=已装配` → \
 **你自己** `terminal` 启服并报 URL 收工（**【禁止】**为此 `delegate` 验证员/browser；\
 勿再派 `runtime_ready` 批；**禁止**把「跑起来看」默认为必须 `browser_navigate`）；\

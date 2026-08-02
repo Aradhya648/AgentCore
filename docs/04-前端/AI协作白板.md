@@ -39,10 +39,10 @@ skip_if:
 |---|---|
 | 后端 | 又一个 run+SSE 客户端；发现改编排器 → 停（绊线） |
 | 协议 | 复用现有 run fold；组件层不进 conformance |
-| 读图 | `board_read` CLIENT_TOOL；视觉子调用 `role=vision` 独立入账；空 key 干净失败 |
+| 读图 | `board_read` CLIENT_TOOL；视觉子调用 `role=vision` 独立入账；仅 `billing_mode=platform` + `VISION_API_KEY`/`VISION_BASE_URL` 启用（默认 `kimi-k2.5`）；BYOK 不启用；空配置干净失败 |
 | 产物 | 文本卡先行；`@` 回工作区待文件信号；迭代空间留痕 |
 
-⏳ 唯一缺口：配 `VISION_API_KEY` 端到端实跑验收（默认 `qwen-vl-max`）。
+平台识图（`kimi-k2.5` + curated 价卡 + `board_read` 实调用）已在本地验收通过；桌面画布前台栅格化仍依赖打开白板的真实 CLIENT_TOOL 回填。
 
 ## 风险护栏
 

@@ -36,7 +36,7 @@ Dogfood 入槽（出包后）：仓库根 `python evals/dogfood/fill_from_pack.p
 
 生产：本地无命中且像线上 → `pnpm sync:logs`（读 `deploy/.env.deploy.local` 的 `DEPLOY_SSH_*`；从 api 容器 `LOG_FILE` 所在 volume 拉 JSONL，并在容器内跑 DB export）后 `--export-dir ../../logs/prod-export`（可再 `--pack`）。勿再用 `AGENTCORE_SSH` / `$AGENTCORE_HOME/logs`（已退役）。
 
-**线上巡检工作台**（本地、gitignore）：你指定时间段/ID → sync 后**先失败榜再会话**全量审阅 → `ok` 只记 `logs/reviews/index.md`，有问题建 `logs/reviews/cases/` 并提优化方案，**等人拍板再改代码**。约定见 `logs/reviews/README.md`。与 dogfood 正交。
+**线上巡检工作台**（本地、gitignore）：你指定时间段/ID → sync 后**先失败榜再会话**全量审阅 → `ok` 只记 `logs/reviews/index.md`，有问题建 `logs/reviews/cases/` 并提优化方案，**等人拍板再改代码**。约定见 `logs/reviews/README.md`。开案/修码前先读 **`logs/reviews/STATUS.md`**（本地已修/已部署/观察一览，防重复开案）。与 dogfood 正交。
 
 → 详解：[对话日志分析指南](/docs/05-平台与运维/对话日志分析指南.md)
 

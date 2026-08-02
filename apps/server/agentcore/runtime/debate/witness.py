@@ -5,7 +5,8 @@
 - 图锚：在辩论幕内声明证人席位节点；答问用席位 session（fork 自透镜 transcript），
   ``continues_run_id`` 指席位根（辩论幕内），避免把辩论拍挂到幕1 透镜节点。
 - 点名：主持人质询 beat 内 LLM 判定（只问事实性问题）；失败/超时不阻塞主流程。
-- 续写：窄 ``continue_run`` + 只读工具集；不递增透镜 ``recall_count``（豁免 CEO 续派额度）。
+- 续写：窄 ``continue_run``；工具面默认全开，只读纪律靠提示自觉；不递增透镜
+  ``recall_count``（豁免 CEO 续派额度）。
 - 台账：答问登记进场级 ``EvidenceLedger``（``side_key=witness:{key}``）。
 """
 
@@ -20,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 
 from agentcore.core.logging import get_logger
 from agentcore.runtime.costing import ROLE_ARENA
-from agentcore.runtime.debate.constants import WITNESS_TOOLS
 from agentcore.runtime.debate.cross_exam_parse import (
     build_cross_exam_exchanges,
     parse_cross_exam_response,
@@ -140,10 +140,9 @@ def fork_witness_session(
     moderator_run_id: str,
     depth: int,
 ) -> RunSession:
-    """自透镜 fork 席位 session：共享现场记忆，独立 recall，只读工具集。"""
+    """自透镜 fork 席位 session：共享现场记忆，独立 recall；工具面不收窄。"""
     from agentcore.runtime.runs.session import RunSession
 
-    tools = [t for t in WITNESS_TOOLS]
     spec = replace(
         lens.spec,
         run_id=seat_run_id,
@@ -154,7 +153,8 @@ def fork_witness_session(
             f"（{lens_label_from_session(lens)}透镜·幕1 调研现场记忆）。"
         ),
         parent_run_id=moderator_run_id,
-        tools=tools,
+        # 真纯丙·H4：不再注入 WITNESS_TOOLS 只读箱；默认全开（仍受写盘授权）。
+        tools=None,
         stance="",
         group=WITNESS_GROUP,
         round=0,
@@ -325,7 +325,7 @@ def witness_answer_feedback(
         "你不占辩席、不写辩词，只根据幕1 调研现场记忆回答主持人的【事实性问题】。\n\n"
         "纪律：\n"
         "- 只答事实：时间线 / 主体 / 条款原文 / 已查到来源；不知就说不知，禁止编造；\n"
-        "- 可用只读工具（检索 / 读文件）核对，禁止写盘 / handoff / 委派；\n"
+        "- 可检索 / 读文件核对；职责是答事实，勿写盘 / handoff / 委派；\n"
         "- 不要站队、不要评价辩手策略、不要写立论。\n\n"
         f"问题列表（共 {n} 条）：\n{numbered}"
     )

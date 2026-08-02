@@ -168,11 +168,13 @@ def build_workspace_context(
                 "勿引导用户去设置改模式。"
             )
     else:
+        # desktop_online=False covers missing header, unknown surface, and true
+        # non-desktop clients — never accuse a device form (Web/手机) by default.
         desktop_line = (
-            "客户端通道：桌面端不在线（当前为 Web / 移动端等非桌面会话）——"
-            "打开本地项目、本机文件夹绑定、区外目录授权均须使用官方桌面客户端，"
-            "当前会话无法履约；请引导用户前往 https://fashitianxia.xyz/download "
-            "下载安装桌面端后再操作；"
+            "客户端通道：桌面回填通道未连接——"
+            "打开本地项目、本机文件夹绑定、区外目录授权均须官方桌面客户端且通道已连接，"
+            "当前会话无法履约；请引导用户在桌面客户端打开本对话，或前往 "
+            "https://fashitianxia.xyz/download 下载安装桌面端后再操作；"
             "勿发 grant_* / bind_local_folder / open_local_project 选项卡冒充可授权。"
         )
         grant_line = (

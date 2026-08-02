@@ -85,9 +85,10 @@ class Deliverable:
     required_sections: list[str] = field(default_factory=list)
     must_contain: list[str] = field(default_factory=list)
     min_length: int = 0
-    # Structured deliverable form: ``prose`` = text body only (no write tools);
-    # ``files`` = must land via file_write (implies ``requires_files``). Omit =
-    # worker follows the legacy two-way identity guidance and decides itself.
+    # Structured deliverable form: ``prose`` = text body only (tools still assembled;
+    # identity asks the worker not to land files); ``files`` = must land via
+    # file_write (implies ``requires_files``). Omit = worker follows the legacy
+    # two-way identity guidance and decides itself.
     form: Literal["prose", "files"] | None = None
     # Deliverable-landed postcondition: when True, the run must have called a
     # file-writing tool (file_write / file_append / str_replace / file_move /
@@ -214,13 +215,8 @@ class RunSpec:
     evidence_ledger_check: bool = False
     # 辩论方键（登记 evidence_ledger.side_key）；非辩手恒空。
     side_key: str = ""
-    # Allowed-tools restriction for this worker, or ``None`` = no restriction (the
-    # worker is offered ALL team tools). ``None`` is the fail-safe default: a task
-    # that omits ``tools`` must not be silently stranded tool-less. The engine reads
-    # an empty list as "offer no tools", which turns a worker with a file/exec
-    # deliverable into a text-only agent (the empty-workspace + CEO-hallucinates-
-    # success bug), so builder._tools never emits ``[]``. A non-empty list opts the
-    # worker into least-privilege (the named, allow-list-intersected tools).
+    # 真纯丙：历史上曾作 allow-list；builder 现忽略入参 tools，executor 亦不再用本字段
+    # 收窄（``allowed_tools=None``）。字段保留兼容旧 session / 序列化；新派发恒为 ``None``。
     tools: list[str] | None = None
     # Explicit per-node model override (真·多模型辩手). Empty = resolve the model from
     # the turn's ProfileSet (the default for ALL ordinary workers). When set, the
@@ -303,6 +299,11 @@ class RunSpec:
     # ``""`` = 默认调研；``"debate_evidence"`` = 庭前取证员 / 辩手 speech research
     # （weak 档与商城/词典/医院百科硬剔）。经 task payload → builder → ToolContext。
     search_policy: str = ""
+    # Per-run verify posture (结构化信号，禁止靠 task 文案猜)。
+    # ``""`` = 默认可跑外环 test_run；``"inner"`` = 调查/审查姿态：禁全仓
+    # typecheck/build（改用 code_diagnostics / browser；验收员外环另派）。
+    # Builder 对审查类角色默认回填；CEO 可显式传 ``outer`` 覆盖。
+    verify_policy: str = ""
     # Worker 累计 token 硬顶（统一 backstop）：``None`` = 未解析（手工 / 测试 → 执行器
     # 回落 ``settings.engine_worker_token_ceiling``）；经 ``apply_worker_budgets`` 后为
     # 显式回填值。辩论 ``research_then_draft`` 与普通 worker 共用此顶。

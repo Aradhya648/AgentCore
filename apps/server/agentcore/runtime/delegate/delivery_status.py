@@ -19,9 +19,10 @@ notes/warning 备注，不整单硬失败、不拖文件 rejected。甲⁺：真
 CEO finish；写盘通道挂仍可在备注里诚实归因。
 同图已有 continue_from / replaces 补派已跑时，收掉并排「计划收口时跳过」。
 
-用户面零落盘缺口合并为一种 ``files_not_landed``（契约层与批次 ``files_written`` 同源谓词，
-不再并列为两条；甲⁺ 起为 warning/notes）；CEO / 工具结果仍可保留分层原文。发射时写入回合
-:data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，禁止与对账矛盾的假完成。
+用户面零落盘缺口投影为 ``files_not_landed`` soft（甲⁺：warning/notes，不挡整批）：
+有队员归因时按角色保留「本队员本波未交卷」（定案 B）；仅批次谓词时仍可落「本批未见落盘」。
+发射时写入回合 :data:`current_delivery_verdict`，供 CEO ``finish_guard`` 对照终答，
+禁止与对账矛盾的假完成。
 
 挂在 drive 的各收尾路径旁路（正常终态 / 验收未满足 / 部分失败 stash / replan(stop)），
 永不抛错；纯 prose 成功批次（无落盘文件、无缺口）保持无声，不发事件。
@@ -63,10 +64,12 @@ _PLAN_CUTOFF_SKIP_DESC = "未执行（计划收口时跳过）"
 
 # Per-worker contract + batch files_written criteria share this predicate.
 _ZERO_LANDING_MARKERS = (
+    "本队员本波未交卷",
     "未把产物写入工作区",
     "尚无 worker 将产物写入工作区",
     "本批未见落盘",
 )
+_BATCH_ACCEPTANCE_ROLE = "验收"
 
 
 @dataclass(frozen=True)
@@ -403,7 +406,7 @@ def _landing_failure_kind_from_results(results: dict[str, RunState]) -> str | No
 
 
 def _files_not_landed_gap(results: dict[str, RunState]) -> dict[str, Any]:
-    """Single user-facing soft note for zero workspace landing (契约 + 批次合并投影).
+    """Batch-only soft note when no worker-attributed zero-landing row exists.
 
     甲⁺：severity=warning → state=notes，不挡整批 / CEO finish。
     """
@@ -429,7 +432,39 @@ def _files_not_landed_gap(results: dict[str, RunState]) -> dict[str, Any]:
         tools = format_file_landing_tools_slash()
         text = f"本批未见落盘（须用 {tools} 落盘）"
     return {
-        "role": "验收",
+        "role": _BATCH_ACCEPTANCE_ROLE,
+        "description": text,
+        "reason": REASON_FILES_NOT_LANDED,
+        "severity": "warning",
+    }
+
+
+def _member_files_not_landed_gap(
+    role: str,
+    source: dict[str, Any],
+    results: dict[str, RunState],
+) -> dict[str, Any]:
+    """Per-worker soft tip: 本队员本波未交卷（定案 B · 终态可见性）.
+
+    Keeps ``severity=warning`` / ``files_not_landed`` so CEO can see *who*
+    skipped landing without flipping the batch to blocked / criteria_unmet.
+    """
+    raw = str(source.get("description") or "").strip()
+    # Strip FAILED node wrapper so the soft tip stays notes, not「未完成（失败）」.
+    if raw.startswith("未完成（失败：") and raw.endswith("）"):
+        raw = raw[len("未完成（失败：") : -1].strip()
+    if "本队员本波未交卷" in raw:
+        text = raw
+    elif "未把产物写入工作区" in raw:
+        text = f"本队员本波未交卷：{raw}"
+    else:
+        # Fallback: rebuild from aggregate attribution (role may lack contract copy).
+        failure_kind = _landing_failure_kind_from_results(results)
+        from agentcore.runtime.runs.contract import zero_files_gap_message
+
+        text = zero_files_gap_message(landing_failure_kind=failure_kind)
+    return {
+        "role": role,
         "description": text,
         "reason": REASON_FILES_NOT_LANDED,
         "severity": "warning",
@@ -440,17 +475,32 @@ def _project_user_gaps(
     raw_gaps: list[dict[str, Any]],
     results: dict[str, RunState],
 ) -> list[dict[str, Any]]:
-    """Collapse duplicate zero-landing rows into one ``files_not_landed`` gap."""
-    zero: list[dict[str, Any]] = []
+    """Project zero-landing rows to soft ``files_not_landed`` (per-worker when possible).
+
+    定案 B：有队员角色归因时按人保留「本队员本波未交卷」；仅批次谓词时合并为
+    一条「本批未见落盘」。甲⁺：一律 warning，不挡整批。
+    """
+    zero_by_role: dict[str, dict[str, Any]] = {}
+    role_order: list[str] = []
     other: list[dict[str, Any]] = []
     for gap in raw_gaps:
         text = str(gap.get("description") or "")
         if _is_zero_landing_text(text):
-            zero.append(gap)
+            role = str(gap.get("role") or "").strip() or _BATCH_ACCEPTANCE_ROLE
+            if role not in zero_by_role:
+                zero_by_role[role] = gap
+                role_order.append(role)
         else:
             other.append(gap)
-    if not zero:
+    if not zero_by_role:
         return other
+    worker_roles = [r for r in role_order if r != _BATCH_ACCEPTANCE_ROLE]
+    if worker_roles:
+        projected = [
+            _member_files_not_landed_gap(role, zero_by_role[role], results)
+            for role in worker_roles
+        ]
+        return [*projected, *other]
     return [_files_not_landed_gap(results), *other]
 
 
@@ -590,7 +640,7 @@ def build_delivery_status(
             raw_gaps.append(_annotate_gap("验收", text))
     # ③ 失败 / 未执行 / 取消的计划节点（热修已接手的取消节点不算缺口）。
     raw_gaps.extend(_node_gaps(plan, results))
-    # 用户面：零落盘（worker 契约 + 批次 files_written）合并为一条 files_not_landed。
+    # 用户面：零落盘按队员 soft 投影（本队员本波未交卷）；仅批次谓词时合并。
     gaps = _project_user_gaps(raw_gaps, results)[:_MAX_GAPS]
     # 刀1 / 方案 A：有 accepted 落盘时 degraded_handoff 降为 warning 备注。
     gaps = _soften_landed_degraded_gaps(gaps, files_landed=bool(delivered))

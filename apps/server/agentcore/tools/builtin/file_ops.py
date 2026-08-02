@@ -23,6 +23,7 @@ from agentcore.tools.builtin.code_integrity import (
     code_structure_rejection,
     is_brace_code_path,
 )
+from agentcore.tools.builtin.write_diagnostics import attach_write_diagnostics
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
 from agentcore.tools.registration import (
     AUDIENCE_BOTH,
@@ -396,6 +397,18 @@ def _mark_landed_files(
     coordinator = context.write_coordinator
     if coordinator is not None:
         coordinator.mark_written(path_key)
+    # Successful disk land → sibling verify cache is stale (typecheck/build).
+    # Must run before kind early-returns (prose lock) — the file already changed.
+    eid = (getattr(context, "execution_id", None) or "").strip()
+    if eid:
+        try:
+            from agentcore.runtime.coordination.session import active_coordination
+
+            session = active_coordination(eid)
+            if session is not None and session.active:
+                session.invalidate_verify_cache(reason="landed")
+        except Exception:  # noqa: BLE001
+            pass
     author = (context.agent_id or "").strip()
     if author:
         context.landed_artifact_authors.setdefault(path_key, author)
@@ -1578,12 +1591,13 @@ class FileWriteTool:
                 )
                 output += nudge
         _mark_landed_files(context, path_key, kind=kind)
-        return ToolResult(
+        result = ToolResult(
             tool_call_id="",
             success=True,
             output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
+        return await attach_write_diagnostics(result, context=context, path=rel_path)
 
 
 class FileAppendTool:
@@ -1748,12 +1762,13 @@ class FileAppendTool:
         if rename_note:
             output = f"{output}\n{rename_note}"
         _mark_landed_files(context, path_key, kind=kind)
-        return ToolResult(
+        result = ToolResult(
             tool_call_id="",
             success=True,
             output=output,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
+        return await attach_write_diagnostics(result, context=context, path=rel_path)
 
 
 class FileListTool:
@@ -2087,13 +2102,14 @@ class StrReplaceTool:
             )
         _mark_landed_files(context, rel_path)
         rename_suffix = f"。{rename_note}" if rename_note else ""
-        return ToolResult(
+        result = ToolResult(
             tool_call_id="",
             success=True,
             output=f"已在 {rel_path} 替换 {outcome.count} 处{loc}{echo}{rename_suffix}",
             duration_ms=int((time.monotonic() - start) * 1000),
             metadata={"replacements": outcome.count},
         )
+        return await attach_write_diagnostics(result, context=context, path=rel_path)
 
 
 class WriteSectionTool:

@@ -12,10 +12,7 @@ from agentcore.runtime.delegate.completion import (
 )
 from agentcore.runtime.runs.builder import build_run_plan
 from agentcore.runtime.runs.contract import describe_deliverable
-from agentcore.runtime.runs.executor_identities import (
-    PROSE_WITHHELD_WRITE_TOOLS,
-    build_worker_identity,
-)
+from agentcore.runtime.runs.executor_identities import build_worker_identity
 from agentcore.runtime.runs.types import Deliverable
 from agentcore.tools.builtin.delegate.schema import (
     DELEGATE_DESCRIPTION,
@@ -205,9 +202,8 @@ def test_schema_exposes_form_enum():
     cf = props_task["continue_from_run_id"]["description"]
     assert "同人" in cf or "续派" in cf
     assert "调查" in cf or "改稿" in cf
-    assert "tools" in props_task
-    tools_desc = props_task["tools"]["description"]
-    assert "只增不减" in tools_desc or "超集" in tools_desc
+    # 真纯丙：CEO schema 不再提供 tools 白名单开关。
+    assert "tools" not in props_task
     mc = props["must_contain"]
     assert "软提醒" in mc.get("description", "") or "短主题词" in mc.get("description", "")
     assert "细" in mc.get("description", "")  # 勿塞细枚举/细清单
@@ -343,15 +339,8 @@ def test_mixed_batch_allows_files_written():
     assert validate_completion_against_forms("files_written", plan) is None
 
 
-def test_prose_withheld_write_tools_constant():
-    assert set(PROSE_WITHHELD_WRITE_TOOLS) == {
-        "file_write",
-        "file_append",
-        "str_replace",
-    }
-
-
-async def test_prose_worker_not_offered_write_tools():
+async def test_prose_worker_still_offered_write_tools():
+    """真纯丙·H2：form=prose 仍装配写盘工具；identity 仍提示正文交付。"""
     from agentcore.runtime.events import EventSink
     from agentcore.runtime.runs.executor import build_agent_executor
     from agentcore.runtime.runs.types import RunPhase
@@ -383,9 +372,9 @@ async def test_prose_worker_not_offered_write_tools():
     res = await WaveScheduler().run(plan, executor)
     assert res["t_1"].phase is RunPhase.COMPLETED
     offered = set(provider.offered[0])
-    assert "file_write" not in offered
-    assert "file_append" not in offered
-    assert "str_replace" not in offered
+    assert "file_write" in offered
+    assert "file_append" in offered
+    assert "str_replace" in offered
     assert "file_read" in offered
     assert "code_execute" in offered
 

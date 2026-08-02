@@ -320,6 +320,69 @@ def test_conflict_message_distinguishes_declared_vs_written():
     assert "已成功写入" in written
     assert "已完成" in written
     assert "后端补齐" in written
+    assert "auto-replaces" in written or "同座位" in written
+    assert "移交写权" in written
+    assert "不要 escalate" in written
+    assert "transfer_ownership" not in written
+
+
+def test_claim_denial_feeds_ownership_hints_without_error_verbatim():
+    """Paraphrased escalate questions still get ownership_paths from claim denials."""
+    from agentcore.workspace.write_claims import (
+        ownership_escalation_hints,
+        parse_ownership_conflict_paths,
+    )
+
+    c = WriteCoordinator()
+    assert c.claim("src/ui/ReasoningGraph.tsx", "del_old", frozenset()) is None
+    assert c.claim("src/game/GameScene.ts", "del_old", frozenset()) is None
+    assert c.claim("src/ui/ReasoningGraph.tsx", "del_new", frozenset()) == "del_old"
+    assert c.claim("src/game/GameScene.ts", "del_new", frozenset()) == "del_old"
+    assert c.denied_paths_for("del_new") == [
+        "src/ui/ReasoningGraph.tsx",
+        "src/game/GameScene.ts",
+    ]
+
+    paraphrased = (
+        "子任务续跑时产出路径被上一 run 占位锁占用："
+        "src/ui/ReasoningGraph.tsx、src/game/GameScene.ts 均报已归队友负责"
+    )
+    assert parse_ownership_conflict_paths(paraphrased) == []
+
+    hints = ownership_escalation_hints(
+        escalator_run_id="del_new",
+        question=paraphrased,
+        write_coordinator=c,
+    )
+    assert hints["ownership_paths"] == [
+        "src/ui/ReasoningGraph.tsx",
+        "src/game/GameScene.ts",
+    ]
+    assert hints["lock_owner_run_id"] == "del_old"
+
+    c.transfer("src/ui/ReasoningGraph.tsx", "del_new")
+    c.transfer("src/game/GameScene.ts", "del_new")
+    after = ownership_escalation_hints(
+        escalator_run_id="del_new",
+        question=paraphrased,
+        write_coordinator=c,
+    )
+    assert after == {}
+
+
+def test_ownership_hints_still_parse_verbatim_conflict_error():
+    from agentcore.workspace.write_claims import ownership_escalation_hints
+
+    c = WriteCoordinator()
+    assert c.claim("site/index.html", "owner", frozenset()) is None
+    question = "写入冲突：`site/index.html` 已归队友负责（仅派发占位）"
+    hints = ownership_escalation_hints(
+        escalator_run_id="other",
+        question=question,
+        write_coordinator=c,
+    )
+    assert hints["ownership_paths"] == ["site/index.html"]
+    assert hints["lock_owner_run_id"] == "owner"
 
 
 def test_ancestors_include_nested_parent_run_id():

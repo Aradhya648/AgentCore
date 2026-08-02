@@ -225,18 +225,13 @@ def should_skip_contract_retry_for_budget(
 def _narrow_for_light_repair(
     worker_tools: Any,
     allowed_tools: list[str] | None,
-    *,
-    grant_write_tools: bool = False,
 ) -> tuple[Any, list[str]]:
     """Strip investigation tools for a format-only light repair pass.
 
-    When ``grant_write_tools`` (files_expected write_pass / light 修盘), an explicit
-    allowlist missing persist writes gets the minimal write set merged in so
-    feedback「请用 file_write」is executable. prose withhold already stripped writes
-    from the registry → merge is a no-op.
+    Unrestricted (``None``) → explicit light-repair allow-list ∩ registry.
+    Explicit lists are intersected with :data:`_LIGHT_REPAIR_TOOL_NAMES` (already
+    includes persist writes). 真纯丙后不再有「名单缺写盘 → 补写」半成品。
     """
-    from agentcore.runtime.runs.worker_budget import merge_persist_write_tools
-
     withhold = tuple(
         sorted(
             RETRIEVAL_TOOL_NAMES
@@ -256,12 +251,6 @@ def _narrow_for_light_repair(
     narrowed_allowed = [t for t in allowed_tools if t in _LIGHT_REPAIR_TOOL_NAMES]
     if HANDOFF_TOOL_NAME not in narrowed_allowed:
         narrowed_allowed = [*narrowed_allowed, HANDOFF_TOOL_NAME]
-    if grant_write_tools:
-        present = {s.name for s in narrowed_registry.list_all()}
-        narrowed_allowed = (
-            merge_persist_write_tools(narrowed_allowed, registry_names=present)
-            or narrowed_allowed
-        )
     return narrowed_registry, narrowed_allowed
 
 
@@ -425,6 +414,8 @@ async def execute_agent_node(
             ),
             # Debate evidence posture: structured run signal → web_search filter.
             search_policy=spec.search_policy or "",
+            # Investigate/review posture: refuse outer typecheck/build on test_run.
+            verify_policy=spec.verify_policy or "",
             # 成篇交接：有下游时禁止空交；地板 = 合同 min_length（0 → 仅非空）。
             handoff_requires_body=node_has_dependents(env.plan, spec.run_id),
             handoff_min_body_chars=(
@@ -435,9 +426,8 @@ async def execute_agent_node(
         )
         # 阶段2 嵌套子任务: hand this worker delegation tools when opted in.
         worker_tools = env.tools
-        # spec.tools is None for an unrestricted worker → react_loop offers all
-        # team tools (the fail-safe default); a non-empty list restricts to those.
-        allowed_tools = spec.tools
+        # 真纯丙：不再用 spec.tools 做 allow-list；默认全开相关工具面。
+        allowed_tools = None
         # A worker may nest a sub-team purely by tree position: any depth below the
         # cap is a captain (delegation is on by default); depth-2 sub-workers are
         # leaves because the executor withholds the delegate tools here.
@@ -452,12 +442,8 @@ async def execute_agent_node(
             # (受监督子计划 B 去特例). Its turn-end dispose runs in the finally below.
             lead_subteam = env.delegate_factory(spec.run_id, spec.depth)
             worker_tools = _registry_with(env.tools, *lead_subteam.tools)
-            # Unrestricted (None) stays None — the new tools now live in worker_tools,
-            # so "offer all" already includes them. A restricted list must explicitly
-            # gain their names (delegate + replan) to keep them callable.
-            allowed_tools = (
-                None if spec.tools is None else [*spec.tools, *lead_subteam.tool_names]
-            )
+            # allowed_tools stays None — "offer all" already includes lead_subteam
+            # tools now living in worker_tools.
         # Topology-split handoff wording + deliverable.form: DAG is known at identity
         # build — upstream nodes get imperative「必须 handoff」; leaves get conditional
         # 「有增量才写」. form=prose/files selects the landing block (omit = legacy).
@@ -476,19 +462,7 @@ async def execute_agent_node(
         )
         if not env.collaboration:
             identity = identity.replace(_WORKER_TEAM_NOTE_POLICY, "").replace("\n\n\n", "\n\n")
-        # form=prose: withhold write tools (hard constraint — not just prompt).
-        if deliverable_form == "prose":
-            from agentcore.runtime.runs.executor_identities import (
-                PROSE_WITHHELD_WRITE_TOOLS,
-            )
-
-            worker_tools = _registry_without(
-                worker_tools, *PROSE_WITHHELD_WRITE_TOOLS
-            )
-            if allowed_tools is not None:
-                withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
-                allowed_tools = [t for t in allowed_tools if t not in withheld]
-            tool_ctx = replace(tool_ctx, withheld_write_tools="prose")
+        # 真纯丙·H2：form=prose 不再硬卸写盘工具；形态靠 identity 提示自觉守岗。
         # Short-round repair posture tool strip retired (no-op kept for compat).
         # CEO / repair_code may still stamp max_rounds; tools stay full surface.
         files_expected = _files_expected(deliverable)
@@ -757,7 +731,6 @@ async def execute_agent_node(
                 pass_tools, pass_allowed = _narrow_for_light_repair(
                     worker_tools,
                     allowed_tools,
-                    grant_write_tools=files_expected,
                 )
                 light_mode = False
             use_rtd = (
@@ -836,10 +809,17 @@ async def execute_agent_node(
             # Handoff-only / tool-only correction passes often stream no prose —
             # keep the prior non-empty body so contract checks and the terminal
             # RunState still see the already-qualified product.
-            if (content or "").strip():
-                retained_content = content
+            # Promote path: handoff may put a brief into final_text when round
+            # body_chars==0; that must not wipe retained prior prose on a
+            # handoff-only light_repair pass.
+            streamed = "".join(streamed_content).strip()
+            if streamed:
+                retained_content = content if (content or "").strip() else streamed
             elif retained_content:
                 content = retained_content
+            elif (content or "").strip():
+                # No prior body: accept this pass (incl. promoted brief as sole product).
+                retained_content = content
             # files_written backs the contract's requires_files gate; workspace_paths
             # reconciles declarative artifacts against the live workspace (+ this
             # run's own writes). Handoff gate: nodes with downstream dependents must
@@ -1505,7 +1485,9 @@ async def execute_agent_node(
         # 成篇质量：有下游 + 相对合同未满足且无成篇 prose 落盘 → 失败（与 handoff 同口径）。
         # 认 tool_ctx.landed_artifact_kinds（跨 replace 存活）；勿用 has_landed_files /
         # 泛 files_touched（骨架落盘会误豁免）。地板只认 deliverable.min_length。
+        # 正文空但 debrief.summary 在 → 先升格再验地板（与 handoff promote 同口径）。
         from agentcore.runtime.runs.research_quality import (
+            promote_brief_to_deliverable,
             upstream_body_floor_satisfied,
         )
 
@@ -1515,6 +1497,19 @@ async def execute_agent_node(
             if deliverable is not None and int(deliverable.min_length or 0) > 0
             else 0
         )
+        if body_chars == 0 and debrief:
+            brief_summary = str((debrief or {}).get("summary") or "").strip()
+            if brief_summary:
+                candidate = promote_brief_to_deliverable(
+                    brief_summary, (debrief or {}).get("key_points")
+                )
+                if upstream_body_floor_satisfied(
+                    body_chars=len(candidate),
+                    landed_artifact_kinds=tool_ctx.landed_artifact_kinds,
+                    min_body_chars=floor,
+                ):
+                    content = candidate
+                    body_chars = len(candidate)
         if node_has_dependents(env.plan, spec.run_id) and not upstream_body_floor_satisfied(
             body_chars=body_chars,
             landed_artifact_kinds=tool_ctx.landed_artifact_kinds,

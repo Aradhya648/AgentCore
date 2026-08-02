@@ -37,6 +37,7 @@ __all__ = [
     "ModelSelection",
     "ProviderPurpose",
     "platform_llm_credentials",
+    "platform_wire_model",
     "resolve_account_default_model",
     "resolve_account_worker_selection",
     "resolve_background_user_fallback",
@@ -108,9 +109,10 @@ def platform_llm_credentials(model: str | None = None) -> LLMCredentials | None:
     ``model`` selects a per-model override (运营中转「一 key 一模型」, 成本配额与计费
     §〇·六 F3): when the id has an entry in ``platform_model_credentials`` its api_key /
     base_url win (each missing field falls back to the shared default), and the returned
-    ``default_model`` is that model. A no-arg call is unchanged — the shared
-    ``platform_api_key`` / ``platform_base_url`` with ``default_model=platform_model``.
-    Returns ``None`` when no usable key resolves for this model (override nor default).
+    ``default_model`` is that **catalog** model (not ``upstream_model``). A no-arg call is
+    unchanged — the shared ``platform_api_key`` / ``platform_base_url`` with
+    ``default_model=platform_model``. Returns ``None`` when no usable key resolves for
+    this model (override nor default).
     """
     entry: dict[str, str] = {}
     if model:
@@ -127,6 +129,20 @@ def platform_llm_credentials(model: str | None = None) -> LLMCredentials | None:
         default_model=model or settings.platform_model,
         source="platform",
     )
+
+
+def platform_wire_model(model: str) -> str:
+    """Catalog id → id sent to the platform upstream (optional ``upstream_model`` override).
+
+    Lookup uses the catalog id; billing / profiles keep the catalog id. Only the HTTP
+    ``model`` field is remapped (see ``PlatformProvider``).
+    """
+    mid = (model or "").strip()
+    if not mid:
+        return mid
+    entry = parse_platform_model_credentials(settings.platform_model_credentials).get(mid, {})
+    upstream = (entry.get("upstream_model") or "").strip()
+    return upstream or mid
 
 
 # --- provider row helpers ----------------------------------------------------

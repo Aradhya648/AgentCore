@@ -585,6 +585,61 @@ def test_collect_worker_gaps_surfaces_warnings_and_degraded_handoff():
     assert "无需审计" in block
 
 
+def test_zero_landing_soft_visible_per_worker_not_criteria_unmet():
+    """定案 B：零落盘 → per-worker soft 可见；不 binding / 不 criteria_unmet。"""
+    from agentcore.runtime.runs.contract import zero_files_gap_message
+
+    plan = RunPlan(
+        nodes=[
+            RunSpec(
+                run_id="landed",
+                role="修码员",
+                task="改后端",
+                deliverable=Deliverable(form="files", requires_files=True),
+            ),
+            RunSpec(
+                run_id="empty",
+                role="前端工程师",
+                task="改前端",
+                deliverable=Deliverable(form="files", requires_files=True),
+            ),
+        ]
+    )
+    tip = zero_files_gap_message()
+    results = {
+        "landed": _run(files=["svc.py"]),
+        "empty": RunState(
+            phase=RunPhase.COMPLETED,
+            content="还在读",
+            delivery_gaps=[
+                {
+                    "description": tip,
+                    "severity": "warning",
+                    "reason": "files_not_landed",
+                }
+            ],
+        ),
+    }
+    # Per-worker soft gap surfaces who skipped landing.
+    by_worker = collect_worker_gaps(plan, results)
+    assert len(by_worker) == 1
+    label, rows = by_worker[0]
+    assert label == "前端工程师"
+    assert any("本队员本波未交卷" in r["description"] for r in rows)
+    assert all(r.get("severity") == "warning" for r in rows)
+    ceo_block = format_worker_gaps_block(by_worker)
+    assert "前端工程师" in ceo_block
+    assert "本队员本波未交卷" in ceo_block
+    assert "修码员" not in ceo_block
+
+    # Batch files_written: someone landed → no soft tip, never binding.
+    criteria = parse_completion_criteria("files_written")
+    ok, binding, soft = check_delegate_completion(criteria, results)
+    assert ok
+    assert binding == []
+    assert not any("本批未见落盘" in n for n in soft)
+
+
 def test_format_worker_gaps_audit_off_token_budget_tip():
     gaps = [
         (
@@ -686,6 +741,7 @@ def test_format_resolved_acceptance_echo_variants():
 
 
 def test_should_inject_batch_acceptance_scopes_to_exec_files_nodes():
+    """真纯丙：code_verified 不再按 tools 白名单收窄；有 criteria 即注入。"""
     criteria = CompletionCriteria(kind="code_verified")
     files_unrestricted = RunSpec(
         run_id="w1",
@@ -699,13 +755,13 @@ def test_should_inject_batch_acceptance_scopes_to_exec_files_nodes():
         deliverable=Deliverable(form="files"),
         tools=["file_write", "code_execute"],
     )
-    files_no_exec = RunSpec(
+    files_narrow_tools = RunSpec(
         run_id="w3",
         task="只写文件",
         deliverable=Deliverable(form="files"),
         tools=["file_write", "file_read"],
     )
-    # E2：code_verified 的验证员常 form=prose，但仍须看见批次验收线（持执行工具时）。
+    # E2：验证员常 form=prose，亦须看见批次验收线。
     prose_with_exec = RunSpec(
         run_id="w4",
         task="验证修补",
@@ -718,7 +774,7 @@ def test_should_inject_batch_acceptance_scopes_to_exec_files_nodes():
         deliverable=Deliverable(form="prose"),
         tools=None,
     )
-    prose_no_exec = RunSpec(
+    prose_narrow_tools = RunSpec(
         run_id="w6",
         task="调研",
         deliverable=Deliverable(form="prose"),
@@ -726,10 +782,10 @@ def test_should_inject_batch_acceptance_scopes_to_exec_files_nodes():
     )
     assert should_inject_batch_acceptance(files_unrestricted, criteria)
     assert should_inject_batch_acceptance(files_exec, criteria)
-    assert not should_inject_batch_acceptance(files_no_exec, criteria)
+    assert should_inject_batch_acceptance(files_narrow_tools, criteria)
     assert should_inject_batch_acceptance(prose_with_exec, criteria)
     assert should_inject_batch_acceptance(prose_unrestricted, criteria)
-    assert not should_inject_batch_acceptance(prose_no_exec, criteria)
+    assert should_inject_batch_acceptance(prose_narrow_tools, criteria)
     assert not should_inject_batch_acceptance(files_unrestricted, None)
     line = format_batch_acceptance_for_worker(criteria)
     assert "本批验收：code_verified" in line
@@ -966,6 +1022,7 @@ def test_kind_fit_allows_runtime_ready_on_start_task():
 
 
 def test_should_inject_runtime_ready_without_files_form():
+    """真纯丙：runtime_ready 对窄 tools / prose 同伴同样注入验收线。"""
     criteria = CompletionCriteria(kind="runtime_ready")
     starter = RunSpec(
         run_id="w1",
@@ -973,14 +1030,14 @@ def test_should_inject_runtime_ready_without_files_form():
         deliverable=None,
         tools=["terminal", "file_read"],
     )
-    prose_no_exec = RunSpec(
+    prose_peer = RunSpec(
         run_id="w2",
         task="旁观",
         deliverable=Deliverable(form="prose"),
         tools=["file_read"],
     )
     assert should_inject_batch_acceptance(starter, criteria)
-    assert not should_inject_batch_acceptance(prose_no_exec, criteria)
+    assert should_inject_batch_acceptance(prose_peer, criteria)
     line = format_batch_acceptance_for_worker(criteria)
     assert "runtime_ready" in line
     assert "wait_for" in line

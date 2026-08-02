@@ -1,76 +1,108 @@
 /**
- * Canvas per-turn projection — runs the shared single-turn TeamGraph core
- * ({@link projectTurnGraph}) for every expanded turn, resolving each turn's
- * focus-conditional present state (lit / activate targets, CEO coordination-wait
- * & synthesis captions). Turn-local output; {@link buildTurnSpine} stacks it.
+ * Canvas per-turn Document projection — shared {@link projectTurnGraph} with
+ * `documentShell: true`. Live faces / inject paint self-subscribe; this only
+ * emits structure + shell coordinates.
  */
 
-import {
-  captainSynthesisPreviewText,
-  coordinationWaitCaptainCaption,
-  waitingWorkerRoles,
-} from "@/components/chat/teamSynthesisPhase";
-import type { InjectGraphOverlay } from "@/lib/causalInject";
-import type { Execution, ExecutionRuntime } from "@/stores/execution";
+import type { Execution } from "@/stores/execution";
 import type { GraphLayout } from "@/stores/graph";
-import type { Node } from "@xyflow/react";
 import type { CanvasTurnProjection } from "./canvasSpine";
-import { deriveCaptainStatus } from "./helpers";
+import {
+  graphDocumentFingerprint,
+  graphShellSnapshotKey,
+} from "./graphDocument";
 import { projectTurnGraph } from "./projectTurnGraph";
 import { type TurnLayoutSlice, expandedUnitsFromFold } from "./useGraphLayout";
 
-export interface CanvasProjectionContext {
-  effectiveFocus: string | null;
+export interface CanvasDocumentProjectionContext {
   collapsedSubtrees: ReadonlySet<string>;
-  execById: Record<string, ExecutionRuntime>;
   handleDirection: "horizontal" | "vertical";
   edgePathType: "smoothstep" | "bezier";
-  litRunId: string | null;
-  litEndpointMessageId: string | null;
-  finalAnswer: { id: string; content: string } | null;
-  taskMessage: { id: string } | null;
-  activateNode: (id: string) => void;
-  onToggleUnitExpand: (unitId: string) => void;
-  injectOverlay: InjectGraphOverlay | null;
   layoutKind: GraphLayout;
-  focusActForTurn: (turnId: string, actId: string) => void;
+  /** Per-turn act focus (undefined = follow live default). */
+  actFocusByTurn: ReadonlyMap<string, string | null | undefined>;
 }
 
-/** Project every ready expanded turn's DAG turn-locally, keyed by turn id. */
+/** Document gate key for one expanded turn (structure + shell coords). */
+export function canvasTurnDocumentGateKey(
+  turnId: string,
+  execution: Execution,
+  slice: TurnLayoutSlice,
+  ctx: Pick<
+    CanvasDocumentProjectionContext,
+    "collapsedSubtrees" | "handleDirection" | "edgePathType" | "actFocusByTurn"
+  >,
+): string {
+  if (!slice.layoutReady || !slice.bbox || !slice.scene)
+    return `${turnId}:pending`;
+  const expandedUnits = expandedUnitsFromFold(
+    execution.runs,
+    ctx.collapsedSubtrees,
+  );
+  const focusedActId = ctx.actFocusByTurn.get(turnId);
+  const fp = graphDocumentFingerprint({
+    execution,
+    expandedUnits,
+    focusedActId,
+    handleDirection: ctx.handleDirection,
+    edgePathType: ctx.edgePathType,
+  });
+  const shell = graphShellSnapshotKey({
+    positions: slice.positions,
+    groups: slice.groups,
+    nodeSizes: slice.nodeSizes,
+    actCards: slice.actCards,
+    bbox: slice.bbox,
+    edgeIds: slice.edges.map((e) => e.id),
+  });
+  return `${turnId}::${fp}::${shell}`;
+}
+
+/**
+ * Project every ready expanded turn as Document shells.
+ * Caller must gate with {@link canvasTurnDocumentGateKey} so streaming deltas
+ * reuse prior Map entries / node refs.
+ */
 export function buildCanvasTurnProjections(
   expandedTurnInputs: { turnId: string; execution: Execution }[],
   turnLayouts: Record<string, TurnLayoutSlice>,
-  ctx: CanvasProjectionContext,
+  ctx: CanvasDocumentProjectionContext,
+  previous?: Map<string, CanvasTurnProjection>,
+  previousGateKey?: string,
+  nextGateKey?: string,
 ): Map<string, CanvasTurnProjection> {
+  // Whole-canvas gate hit → reuse prior Map identity (stable RF child refs).
+  if (
+    previous &&
+    previousGateKey != null &&
+    nextGateKey != null &&
+    previousGateKey === nextGateKey
+  ) {
+    return previous;
+  }
+
   const out = new Map<string, CanvasTurnProjection>();
   for (const { turnId, execution } of expandedTurnInputs) {
     const slice = turnLayouts[turnId];
     if (!slice?.layoutReady || !slice.bbox || !slice.scene) continue;
+
+    const gate = canvasTurnDocumentGateKey(turnId, execution, slice, ctx);
+    const prev = previous?.get(turnId);
+    if (prev && prev.documentGateKey === gate) {
+      out.set(turnId, prev);
+      continue;
+    }
+
     const expandedUnits = expandedUnitsFromFold(
       execution.runs,
       ctx.collapsedSubtrees,
     );
     const captain = execution.runs.find((r) => r.kind === "captain") ?? null;
-    const capStatus = captain
-      ? deriveCaptainStatus(execution, captain.id)
-      : null;
-    const isFocus = turnId === ctx.effectiveFocus;
-    const focusAnswer = isFocus ? ctx.finalAnswer : null;
-    const waitCaption = coordinationWaitCaptainCaption(
-      ctx.execById[turnId]?.coordinationWait ?? null,
-      { waitingRoles: waitingWorkerRoles(execution) },
-    );
-    const synthPreview =
-      !focusAnswer && !waitCaption && capStatus === "running"
-        ? captainSynthesisPreviewText(
-            ctx.execById[turnId]?.teamSynthesisPreview ?? null,
-          )
-        : "";
     const projected = projectTurnGraph({
       execution,
       scene: slice.scene,
       positions: slice.positions,
-      nodeHeights: slice.nodeHeights,
+      nodeHeights: {},
       nodeSizes: slice.nodeSizes,
       groups: slice.groups,
       bbox: slice.bbox,
@@ -78,30 +110,30 @@ export function buildCanvasTurnProjections(
       edges: slice.edges,
       handleDirection: ctx.handleDirection,
       edgePathType: ctx.edgePathType,
-      litRunId: isFocus ? ctx.litRunId : null,
-      litEndpointMessageId: isFocus ? ctx.litEndpointMessageId : null,
+      litRunId: null,
+      litEndpointMessageId: null,
       captainRun: captain,
-      captainStatus: capStatus,
-      finalAnswer: focusAnswer,
-      captainSynthesisPreview: synthPreview,
-      captainStatusCaption: waitCaption,
-      taskMessage: isFocus ? ctx.taskMessage : null,
-      activateNode: isFocus ? ctx.activateNode : () => undefined,
+      captainStatus: null,
+      finalAnswer: null,
+      captainSynthesisPreview: "",
+      captainStatusCaption: null,
+      taskMessage: null,
+      activateNode: () => undefined,
       expandedUnits,
-      onToggleUnitExpand: ctx.onToggleUnitExpand,
-      injectOverlay: isFocus ? ctx.injectOverlay : null,
+      onToggleUnitExpand: undefined,
+      injectOverlay: null,
       layoutKind: ctx.layoutKind,
-      onFocusAct: (actId) => ctx.focusActForTurn(turnId, actId),
+      onFocusAct: () => undefined,
+      documentShell: true,
     });
-    const present = new Map<string, Node["data"]>(
-      projected.nodes.map((n) => [n.id, n.data]),
-    );
     out.set(turnId, {
       layoutNodes: projected.nodes,
-      presentData: present,
       edges: projected.edges,
       lanes: projected.lanes,
       debateStages: projected.debateStages,
+      documentGateKey: gate,
+      scene: slice.scene,
+      captainRunId: captain?.id ?? null,
     });
   }
   return out;

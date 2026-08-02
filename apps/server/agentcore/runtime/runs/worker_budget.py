@@ -1,6 +1,6 @@
 """派单时为 worker 回填统一 token 顶与墙钟超时 backstop.
 
-全局 ``engine_worker_token_ceiling``（默认 2M）与统一墙钟 600s 是防失控安全阀，
+全局 ``engine_worker_token_ceiling``（默认 4M）与统一墙钟 1200s 是防失控安全阀，
 **不做**按任务规格的四档启发式分档。CEO 显式 ``timeout_ms`` / 预置 ``token_ceiling``
 恒优先（已写入则不动）。
 
@@ -11,7 +11,6 @@ delegate 复杂度改写等复用——与本模块的统一 token/超时 backst
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -22,48 +21,40 @@ __all__ = [
     "DIRECTED_SEARCH_DISCIPLINE",
     "DIRECTED_SEARCH_TOOL_NAMES",
     "LIGHT_REPAIR_MAX_ROUNDS",
-    "PERSIST_WRITE_TOOL_NAMES",
+    "VERIFY_POLICY_INNER",
+    "VERIFY_POLICY_OUTER",
+    "VERIFY_INNER_DISCIPLINE",
     "WORKER_TIMEOUT_BACKSTOP_S",
     "apply_directed_search_tools",
     "apply_directed_search_tools_to_specs",
     "apply_light_round_budgets",
+    "apply_verify_policies",
+    "apply_verify_policies_to_specs",
     "apply_worker_budgets",
     "apply_worker_budgets_to_specs",
     "blocks_light_complexity",
     "ensure_directed_search_tools",
     "is_deep_deliverable",
     "is_directed_search_role",
+    "is_outer_verify_role",
     "is_research_root",
     "is_short_write_posture",
-    "merge_persist_write_tools",
     "resolve_prose_idle_finalize_rounds",
     "should_enable_prose_idle",
     "should_enable_zero_write",
     "should_tighten_verify_exec_thrash",
 ]
 
-# 统一墙钟 backstop（原 deep 档值）；CEO 显式 timeout_ms 恒优先。
-WORKER_TIMEOUT_BACKSTOP_S = 600
+# 统一墙钟 backstop；CEO 显式 timeout_ms 恒优先。
+WORKER_TIMEOUT_BACKSTOP_S = 1200
 
 # Short ReAct ceiling constant (repair_code playbook / CEO explicit caps).
 # ``complexity_hint=light`` no longer stamps this — see :func:`apply_light_round_budgets`.
 # Distinct from contract ``light_repair`` (format-only pass inside executor_node).
 LIGHT_REPAIR_MAX_ROUNDS = 6
 
-# Minimal write set for files_expected 催写补授权 (align light-repair / wind_down persist).
-# prose withhold strips these from the registry → merge is a no-op.
-PERSIST_WRITE_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        "file_write",
-        "file_append",
-        "str_replace",
-        "write_section",
-    }
-)
-
 # 审查 / 调查类 worker：定向检索工具（复用现有 grep / code_search，不新造）。
-# CEO 若手搓 least-privilege 成 ``file_list``+``file_read``，builder 会补回这些工具，
-# 避免整文件通读烧穿 token（真实 trace：4-worker 代码审查 51×file_read、零 grep）。
+# 真纯丙后执行层忽略 tasks[].tools 收窄；本集合仍供审查角色提示纪律与兼容补回。
 DIRECTED_SEARCH_TOOL_NAMES: frozenset[str] = frozenset({"grep", "code_search"})
 
 DIRECTED_SEARCH_DISCIPLINE = (
@@ -85,6 +76,25 @@ _DIRECTED_SEARCH_ROLE_MARKERS: tuple[str, ...] = (
     "investigate",
     "inspector",
     "survey",
+)
+
+# verify_policy：调查/审查默认 inner；验收/外环角色不自动打标。
+VERIFY_POLICY_INNER = "inner"
+VERIFY_POLICY_OUTER = "outer"
+VERIFY_INNER_DISCIPLINE = (
+    "【验证范围】本队员为调查/审查姿态（verify_policy=inner）："
+    "禁止全仓 typecheck / build / `tsc -b`（勿用 test_run 烧分钟级预算「再确认」）。"
+    "修码自检用内环 code_diagnostics；运行时 blank-page / 挂载问题优先 browser 与入口链路阅读；"
+    "外环全量验绿请 escalate 或交验收员。"
+)
+_OUTER_VERIFY_ROLE_MARKERS: tuple[str, ...] = (
+    "验收",
+    "验证员",
+    "外环",
+    "verify",
+    "acceptance",
+    "typecheck",
+    "qa lead",
 )
 
 # 成篇门槛：派单时已知的 min_length（字）。≥ 此值视作成篇报告信号。
@@ -140,29 +150,6 @@ def is_short_write_posture(*, max_rounds: int | None) -> bool:
     return max_rounds is not None and max_rounds > 0
 
 
-def merge_persist_write_tools(
-    allowed: list[str] | None,
-    *,
-    registry_names: Collection[str],
-) -> list[str] | None:
-    """Explicit allowlist missing write tools → merge minimal persist write set.
-
-    ``None`` (unrestricted) unchanged. Only adds names present in ``registry_names``
-    so ``form=prose`` withhold (writes stripped from registry) stays a no-op.
-    """
-    if allowed is None:
-        return None
-    have = set(allowed)
-    extras = [
-        name
-        for name in sorted(PERSIST_WRITE_TOOL_NAMES)
-        if name in registry_names and name not in have
-    ]
-    if not extras:
-        return allowed
-    return [*allowed, *extras]
-
-
 def should_enable_zero_write(
     *,
     files_expected: bool,
@@ -174,8 +161,8 @@ def should_enable_zero_write(
 
     Product: do not nudge/finalize solely because landing files are still zero
     after N investigation rounds (standard or short/light). Delivery pressure
-    stays on round/token ceilings + user stop; ``files_expected`` write_pass still
-    **grants** persist tools when needed (seam B via :func:`merge_persist_write_tools`).
+    stays on round/token ceilings + user stop. 真纯丙后不再有「白名单缺写盘 →
+    补写工具」半成品路径。
 
     Call-site kwargs retained for compatibility. Prose idle ladder is also retired
     (:func:`should_enable_prose_idle` always false).
@@ -247,6 +234,32 @@ def is_directed_search_role(role: str) -> bool:
     if not r:
         return False
     return any(marker in r for marker in _DIRECTED_SEARCH_ROLE_MARKERS)
+
+
+def is_outer_verify_role(role: str) -> bool:
+    """True when the role is acceptance / outer-loop verify (do not auto-stamp inner)."""
+    r = (role or "").strip().lower()
+    if not r:
+        return False
+    return any(marker in r for marker in _OUTER_VERIFY_ROLE_MARKERS)
+
+
+def apply_verify_policies(plan: RunPlan) -> None:
+    """Stamp ``verify_policy=inner`` on review/investigation seats (unless explicit)."""
+    apply_verify_policies_to_specs(plan.nodes)
+
+
+def apply_verify_policies_to_specs(specs: list[RunSpec]) -> None:
+    """Same as :func:`apply_verify_policies` for a replan ``add`` batch."""
+    for spec in specs:
+        raw = (spec.verify_policy or "").strip().lower()
+        if raw in (VERIFY_POLICY_INNER, VERIFY_POLICY_OUTER):
+            spec.verify_policy = raw
+            continue
+        if is_outer_verify_role(spec.role):
+            continue
+        if is_directed_search_role(spec.role):
+            spec.verify_policy = VERIFY_POLICY_INNER
 
 
 def ensure_directed_search_tools(
@@ -364,4 +377,4 @@ def _settings_default_token_ceiling() -> int:
             return ceiling
     except Exception:  # noqa: BLE001 — settings optional in unit stubs
         pass
-    return 2_000_000
+    return 4_000_000

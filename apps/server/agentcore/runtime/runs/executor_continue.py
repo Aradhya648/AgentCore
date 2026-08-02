@@ -288,18 +288,8 @@ async def _continue_run_scoped(
         messages = _strip_historical_reasoning(session.transcript)
         citations: list[dict] = []
         worker_tools = tools
-        allowed_tools = spec.tools
-        if spec.deliverable is not None and spec.deliverable.form == "prose":
-            from agentcore.runtime.runs.executor_identities import (
-                PROSE_WITHHELD_WRITE_TOOLS,
-            )
-            from agentcore.runtime.runs.executor_shared import _registry_without
-
-            worker_tools = _registry_without(tools, *PROSE_WITHHELD_WRITE_TOOLS)
-            if allowed_tools is not None:
-                withheld = set(PROSE_WITHHELD_WRITE_TOOLS)
-                allowed_tools = [t for t in allowed_tools if t not in withheld]
-            tool_ctx = replace(tool_ctx, withheld_write_tools="prose")
+        # 真纯丙：续派也不再靠 spec.tools 白名单收窄；H2：prose 不再硬卸写盘。
+        allowed_tools = None
         if spec.retrieval_budget == 0:
             from agentcore.runtime.runs.executor_shared import _registry_without
 

@@ -34,7 +34,7 @@ def _format_ownership_escalation_hint(payload: dict) -> str:
     )
     status_label = {
         "running": "进行中",
-        "completed": "已完成仍占位",
+        "completed": "已完成（账本仍记名；同座续派/declare 可接手）",
         "unknown": "状态未知",
     }.get(str(status), "")
     bits = [f"文件归属：{path_bit}（{kind_label}"]
@@ -43,7 +43,12 @@ def _format_ownership_escalation_hint(payload: dict) -> str:
     bits[0] += "）"
     if lock_owner:
         bits.append(f"锁主=`{lock_owner}`")
-    if nested is True:
+    if str(status) == "completed":
+        bits.append(
+            "锁主已完成——用同座位 replan/append（auto-replaces）接手，"
+            "勿让用户点「移交写权」"
+        )
+    elif nested is True:
         bits.append(
             "升级方疑似锁主的【嵌套子队】——"
             "优先 transfer_ownership=true 路径级移交，勿误判为遗留 worker"

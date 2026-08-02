@@ -212,11 +212,8 @@ def test_research_report_fans_out_one_researcher_per_angle_then_outline_then_wri
     assert "法条" in by_id["research_1"]["task"]
     assert "read_url" in by_id["review"]["task"]
     assert "法条" in by_id["review"]["task"]
-    # 审校工具面含定向检索 + 检索纪律（勿退化成只 file_list/file_read）。
-    review_tools = by_id["review"]["tools"]
-    assert "grep" in review_tools
-    assert "code_search" in review_tools
-    assert "file_read" in review_tools
+    # 真纯丙：审校不再靠显式 tools 名单；定向检索纪律写在 task 正文。
+    assert "tools" not in by_id["review"]
     assert "检索纪律" in by_id["review"]["task"]
     assert "grep" in by_id["review"]["task"]
     assert "code_search" in by_id["review"]["task"]
@@ -273,10 +270,10 @@ def test_research_report_review_explicit_wall_clock_survives_build():
     by_role = {n.role: n for n in plan.nodes}
     # review 有上游；墙钟显式 300s；token 顶走统一 backstop。
     assert by_role["学术审校员"].policy.timeout_s == 300
-    assert by_role["学术审校员"].token_ceiling == 2_000_000
-    # 提纲同为依赖上游的节点、未显式声明墙钟 → 统一 backstop 600s / 2M。
+    assert by_role["学术审校员"].token_ceiling == 4_000_000
+    # 提纲同为依赖上游的节点、未显式声明墙钟 → 统一 backstop 1200s / 4M。
     assert by_role["提纲编辑"].policy.timeout_s == WORKER_TIMEOUT_BACKSTOP_S
-    assert by_role["提纲编辑"].token_ceiling == 2_000_000
+    assert by_role["提纲编辑"].token_ceiling == 4_000_000
 
 
 def test_research_report_requires_topic():
@@ -445,10 +442,16 @@ def test_repair_code_diagnose_patch_verify_shape():
     assert by_id["patch"]["max_rounds"] == 6
     assert by_id["patch"]["deliverable"]["requires_files"] is True
     assert "src/app.ts" in by_id["patch"]["deliverable"]["artifacts"]
-    assert "file_list" not in by_id["diagnose"]["tools"]
-    assert "str_replace" in by_id["patch"]["tools"]
+    # 真纯丙：repair_* 不再靠显式 tools 名单收窄；纪律写在 task 正文。
+    assert "tools" not in by_id["diagnose"]
+    assert "tools" not in by_id["patch"]
+    assert "tools" not in by_id["verify"]
+    assert "code_diagnostics" in by_id["patch"]["task"]
+    assert "test_run" in by_id["verify"]["task"]
     assert "npx tsc -b" in by_id["verify"]["task"]
     assert "纯 prose" in by_id["verify"]["task"]
+    assert "禁止在本步改文件" in by_id["diagnose"]["task"]
+    assert "str_replace" in by_id["patch"]["task"]
     from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
 
     assert by_id["diagnose"]["deliverable"]["min_length"] == MIN_UPSTREAM_BODY_CHARS

@@ -23,6 +23,7 @@ from agentcore.runtime.runs.research_quality import (
     deliverable_signals_long_form,
     has_landed_prose_artifact,
     plan_signals_long_form_audit,
+    promote_brief_to_deliverable,
     upstream_body_floor_satisfied,
 )
 from agentcore.runtime.runs.types import Deliverable, RunPhase, RunSpec, RunState
@@ -232,6 +233,69 @@ def test_upstream_body_floor_predicate():
     )
 
 
+def test_promote_brief_to_deliverable():
+    assert promote_brief_to_deliverable("") == ""
+    assert promote_brief_to_deliverable("  ") == ""
+    assert promote_brief_to_deliverable("核心结论") == "核心结论"
+    body = promote_brief_to_deliverable("核心结论", ["要点甲", "要点乙"])
+    assert body.startswith("核心结论")
+    assert "- 要点甲" in body
+    assert "- 要点乙" in body
+    # Empty / blank points ignored; lone string tolerated.
+    assert promote_brief_to_deliverable("结论", ["", "  "]) == "结论"
+    assert promote_brief_to_deliverable("结论", "单条要点") == "结论\n\n- 单条要点"
+
+
+@pytest.mark.asyncio
+async def test_handoff_promotes_brief_when_empty_body_min0(tmp_path: Path):
+    """有下游 + min=0 + 正文 0 字 + 非空 summary → 升格成功，final_text 含 summary。"""
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=0,
+        round_content_chars=0,
+    )
+    result = await HandoffTool().execute(
+        {"summary": "Greeter 问好", "key_points": ["已完成打招呼"]},
+        ctx,
+    )
+    assert result.success is True
+    assert "Greeter 问好" in (result.final_text or "")
+    assert "已完成打招呼" in (result.final_text or "")
+
+
+@pytest.mark.asyncio
+async def test_handoff_rejects_promoted_brief_below_floor(tmp_path: Path):
+    """地板>0 且升格正文仍短于地板 → 仍拒。"""
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+        round_content_chars=0,
+    )
+    result = await HandoffTool().execute({"summary": "太短"}, ctx)
+    assert result.success is False
+    assert "空交付不得交接" in (result.error or "")
+    assert result.contract_failure is True
+    assert not (result.final_text or "")
+
+
+@pytest.mark.asyncio
+async def test_handoff_promotes_brief_when_meets_floor(tmp_path: Path):
+    """地板>0 但升格正文够长 → success，final_text 为升格正文。"""
+    summary = "调研结论：" + ("要点充分。" * 20)
+    assert len(summary) >= MIN_UPSTREAM_BODY_CHARS
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=MIN_UPSTREAM_BODY_CHARS,
+        round_content_chars=0,
+    )
+    result = await HandoffTool().execute({"summary": summary}, ctx)
+    assert result.success is True
+    assert (result.final_text or "") == summary
+
+
 @pytest.mark.asyncio
 async def test_handoff_rejects_empty_body_when_required(tmp_path: Path):
     ctx = _ctx(
@@ -245,6 +309,53 @@ async def test_handoff_rejects_empty_body_when_required(tmp_path: Path):
     assert "空交付不得交接" in (result.error or "")
     assert "prose" in (result.error or "")
     assert result.contract_failure is True
+
+
+@pytest.mark.asyncio
+async def test_handoff_rejects_empty_summary_when_body_zero(tmp_path: Path):
+    """空 summary 不豁免：正文 0 + 无 summary → 仍拒。"""
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=0,
+        round_content_chars=0,
+    )
+    result = await HandoffTool().execute({"summary": "   "}, ctx)
+    assert result.success is False
+    assert "空交付不得交接" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_handoff_real_body_keeps_empty_final_text(tmp_path: Path):
+    """有真实正文时 final_text 仍为空串（不升格覆盖）。"""
+    ctx = _ctx(
+        tmp_path,
+        handoff_requires_body=True,
+        handoff_min_body_chars=0,
+        round_content_chars=19,
+    )
+    result = await HandoffTool().execute({"summary": "Greeter 问好"}, ctx)
+    assert result.success is True
+    assert (result.final_text or "") == ""
+
+
+def test_handoff_schema_brief_field_bounds():
+    """B2：summary/assumptions/next_steps maxLength；key_points maxItems+item maxLength。"""
+    schema = HandoffTool().schema.parameters
+    props = schema["properties"]
+    assert props["summary"]["maxLength"] == 300
+    assert props["assumptions"]["maxLength"] == 300
+    assert props["next_steps"]["maxLength"] == 300
+    assert props["key_points"]["maxItems"] == 4
+    assert props["key_points"]["items"]["maxLength"] == 120
+    # motion_card structure untouched (still required keys).
+    assert "motion_card" in props
+    assert set(props["motion_card"]["required"]) == {
+        "motion",
+        "sides",
+        "fact_pointers",
+        "rationale",
+    }
 
 
 @pytest.mark.asyncio

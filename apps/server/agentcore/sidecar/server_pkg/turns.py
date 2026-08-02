@@ -138,6 +138,11 @@ class TurnExecutionMixin:
                 ):
                     from agentcore.sidecar import server as sidecar_server
 
+                    # Sidecar is spawned only by the desktop Electron host. Pass
+                    # platform=desktop so prepare builds DesktopClientChannel and
+                    # MCP/Host discover over the existing ClientTool fulfill path
+                    # (docs/06-规划/本机引擎MCP-Host回填接通定案.md P0). Never infer
+                    # desktop_online from location=local.
                     result = await sidecar_server.run_chat_pipeline(
                         conversation_id=conversation_id,
                         user_message=user_message,
@@ -151,6 +156,7 @@ class TurnExecutionMixin:
                         suspension_saver=saver,
                         suspension_deleter=deleter,
                         message_id=message_id,
+                        x_client_platform="desktop",
                     )
                     # Pillar D1: keep sink open while a detached background drive is
                     # still live so run_completed / execution_completed reach the UI
@@ -389,6 +395,8 @@ class TurnExecutionMixin:
                         suspension_saver=saver,
                         suspension_deleter=deleter,
                         permission_axes=self._permission_axes,
+                        # Same desktop channel as fresh turns — omit ⇒ resume drops MCP/Host.
+                        x_client_platform="desktop",
                     )
                     # Same D1 hold as _run_turn: delay close while detached drive lives.
                     from agentcore.runtime.coordination import await_live_detached_drive

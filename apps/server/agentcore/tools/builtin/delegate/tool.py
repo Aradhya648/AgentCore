@@ -669,7 +669,7 @@ class DelegateTool:
             plan_signals_long_form_audit,
         )
 
-        # 乙续派：新 task.tools 只增不减 merge 进现场，供后续能力闸与 continue_run 共用。
+        # 真纯丙：续派 tools 声明已忽略；merge 保留兼容旧 session 字段（执行层不收窄）。
         await apply_continuation_tool_merges(plan, self)
 
         batch_includes_review = (
@@ -1385,6 +1385,19 @@ class DelegateTool:
         ids_before = {n.run_id for n in sup.plan.nodes}
         errors = apply_replan(self, sup.plan, sup.completed, binds, steers, adds)
         if errors:
+            # Seat/artifact rejects share append's message family — surface verbatim.
+            if len(errors) == 1 and str(errors[0]).startswith("【队员追加已拒绝"):
+                logger.info("replan.rejected", errors=errors, via="seat_admit")
+                from agentcore.core.types import ToolEffect
+
+                return ToolResult(
+                    tool_call_id="",
+                    success=False,
+                    output="",
+                    error=str(errors[0]),
+                    effect=ToolEffect.CONTINUE,
+                    contract_failure=True,
+                )
             msg = "replan 无效：" + "；".join(errors)
             logger.info("replan.rejected", errors=errors)
             return ToolResult(tool_call_id="", success=False, output="", error=msg)

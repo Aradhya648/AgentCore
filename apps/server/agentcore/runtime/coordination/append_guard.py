@@ -7,20 +7,23 @@ claims the same **seat** (normalized role-name equality) is rejected.
 equality only. Shared job suffixes / CJK prefixes / edit distance do **not**
 merge seats (痛点调研员 ≠ 定价调研员; 前端工程师 ≠ 测试工程师).
 
-**Vacated seats**: FAILED / CANCELLED / SKIPPED terminals free their seat.
-A new node with the same seat and no incomplete same-seat peer is auto-filled
-with ``replaces_run_id`` (file lock transfer + downstream depends_on rewrite via
-the existing replaces pipeline). Successfully COMPLETED seats stay occupied
-until explicit ``replaces_run_id`` / ``force``.
+**Seat reclaim**: FAILED / CANCELLED / SKIPPED (vacated) **and** successfully
+COMPLETED same-seat terminals auto-fill ``replaces_run_id`` when a new node
+reclaims the seat with no incomplete same-seat peer (file lock transfer +
+depends_on rewrite via the existing replaces pipeline). Still-running holders
+keep the seat; overlap still rejects.
 
-**C3 file side**: deliverable artifacts consult the session ownership ledger
-(including completed owners). ``has_incomplete_nodes`` no longer short-circuits
-file checks — all_completed still blocks racing a held final path unless
-``replaces_run_id`` / ``continue_from_run_id`` / ancestor / ``force`` transfers.
-Role-only overlap still requires incomplete live nodes.
+**C3 file side**: deliverable artifacts consult the session ownership ledger.
+**Completed** holders of a declared path are **not** append-rejected — dispatch
+``declare_plan_artifacts`` handoffs those paths to the new node (审校→修订 /
+同岗位补派). Still-running / incomplete holders keep blocking. Role-only
+overlap still requires incomplete live nodes.
 
 Same-batch sibling artifact crosses are rejected at dispatch (name the pair),
 **before** durable ``run_plan`` emit (admit → commit → execute).
+
+``replan.adds`` on an active coordination live plan reuses the same admit
+(``admit_added_nodes``) + ``declare_plan_artifacts`` path as append merge.
 
 Ownership keys are **concrete file** ``artifacts`` only — directory prefixes /
 ``artifact_dir`` / globs are acceptance coverage, never exclusive claims.
@@ -93,30 +96,39 @@ def apply_vacated_seat_replaces(
     completed_run_ids: set[str] | frozenset[str] | None = None,
     vacated_run_ids: set[str] | frozenset[str] | None = None,
 ) -> list[tuple[str, str]]:
-    """Auto-fill ``replaces_run_id`` when a new node reclaims a vacated seat.
+    """Auto-fill ``replaces_run_id`` when a new node reclaims a free seat.
 
-    Vacated = FAILED / CANCELLED / SKIPPED (caller supplies ``vacated_run_ids``).
-    Requires exact seat match and no incomplete same-seat peer on the live graph.
-    Explicit ``replaces_run_id`` / ``continue_from_run_id`` are left untouched.
-    Mutates matching new nodes in place; returns ``(new_run_id, old_run_id)`` pairs.
+    Free seat = vacated (FAILED / CANCELLED / SKIPPED) **or** successfully
+    COMPLETED same-seat with no incomplete peer. Vacated candidates win over
+    successful-complete when both exist for a seat. Explicit ``replaces_run_id``
+    / ``continue_from_run_id`` are left untouched. Mutates matching new nodes;
+    returns ``(new_run_id, old_run_id)`` pairs.
     """
     if live_plan is None or not new_plan.nodes:
         return []
     vacated = {str(x).strip() for x in (vacated_run_ids or ()) if str(x).strip()}
-    if not vacated:
+    done = {str(x).strip() for x in (completed_run_ids or ()) if str(x).strip()}
+    if not vacated and not done:
         return []
-    done = set(completed_run_ids or ())
 
     incomplete_seats: set[str] = set()
     vacated_by_seat: dict[str, list[Any]] = {}
+    completed_by_seat: dict[str, list[Any]] = {}
     for live in live_plan.nodes:
         seat = _norm_role(_node_role(live))
         if not seat:
             continue
-        if live.run_id not in done:
+        rid = (live.run_id or "").strip()
+        if not rid:
+            continue
+        if rid not in done:
             incomplete_seats.add(seat)
-        elif live.run_id in vacated:
+        elif rid in vacated:
             vacated_by_seat.setdefault(seat, []).append(live)
+        else:
+            # Successfully COMPLETED (token ceiling, normal finish, …) — same-seat
+            # 续派/补派 inherits write locks without requiring explicit replaces.
+            completed_by_seat.setdefault(seat, []).append(live)
 
     applied: list[tuple[str, str]] = []
     for nn in new_plan.nodes:
@@ -127,15 +139,17 @@ def apply_vacated_seat_replaces(
         seat = _norm_role(_node_role(nn))
         if not seat or seat in incomplete_seats:
             continue
-        candidates = vacated_by_seat.get(seat) or []
+        # Prefer vacated (failed seat) over successful-complete for the same seat.
+        pool = vacated_by_seat if seat in vacated_by_seat else completed_by_seat
+        candidates = pool.get(seat) or []
         if not candidates:
             continue
-        # Most recent vacated holder of this seat (plan order).
+        # Most recent holder of this seat (plan order).
         old = candidates.pop()
         nn.replaces_run_id = old.run_id
         applied.append((nn.run_id, old.run_id))
         if not candidates:
-            vacated_by_seat.pop(seat, None)
+            pool.pop(seat, None)
     return applied
 
 
@@ -280,6 +294,8 @@ def find_append_overlaps(
                 break
 
         # --- File overlaps ---
+        # Completed holders are not append-rejected: declare_plan_artifacts will
+        # dispatch_handoff those paths. Still-running owners keep blocking.
         file_hit_id: str | None = None
         file_hit_role = ""
         if v2 and n_files and ownership is not None:
@@ -288,6 +304,8 @@ def find_append_overlaps(
                 if owner is None:
                     continue
                 if owner == nn.run_id or owner in n_anc:
+                    continue
+                if owner in done:
                     continue
                 file_hit_id = owner
                 live_node = live_by_id.get(owner)
@@ -356,6 +374,50 @@ def find_append_overlaps(
                 )
             )
     return hits
+
+
+def admit_added_nodes(
+    new_plan: RunPlan,
+    live_plan: RunPlan | None,
+    *,
+    completed_run_ids: set[str] | frozenset[str] | None = None,
+    vacated_run_ids: set[str] | frozenset[str] | None = None,
+    ownership: WriteCoordinator | None = None,
+    force: bool = False,
+    total_workers: int | None = None,
+) -> str | None:
+    """Seat reclaim + overlap gate shared by append merge and ``replan.adds``.
+
+    Mutates ``new_plan`` nodes (auto-fills ``replaces_run_id`` for free seats).
+    Returns the append-family reject message, or ``None`` when admitted.
+    ``force`` still applies vacated-seat replaces but skips overlap rejection.
+    """
+    apply_vacated_seat_replaces(
+        new_plan,
+        live_plan,
+        completed_run_ids=completed_run_ids,
+        vacated_run_ids=vacated_run_ids,
+    )
+    if force:
+        return None
+    overlaps = find_append_overlaps(
+        new_plan,
+        live_plan,
+        completed_run_ids=completed_run_ids,
+        ownership=ownership,
+    )
+    if not overlaps:
+        return None
+    completed_k = len(set(completed_run_ids or ()))
+    if total_workers is not None:
+        total = int(total_workers)
+    elif live_plan is not None:
+        total = len(live_plan.nodes)
+    else:
+        total = 0
+    return append_overlap_reject_message(
+        overlaps, completed=completed_k, total=total
+    )
 
 
 def append_overlap_reject_message(

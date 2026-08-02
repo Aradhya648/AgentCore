@@ -16,6 +16,7 @@ from agentcore.llm.pricing import (
     PLATFORM_GPT_4O,
     PLATFORM_RELAY_GLM_52,
     PLATFORM_RELAY_GROK_45,
+    PLATFORM_RELAY_KIMI_K25,
     cache_savings,
     calculate_cost,
     has_curated_pricing,
@@ -223,10 +224,25 @@ def test_non_deepseek_usd_curated_still_withdrawn():
     assert not has_curated_pricing(PLATFORM_RELAY_GROK_45)
     assert not has_curated_pricing("qwen-vl-max")
     assert has_curated_pricing(PLATFORM_RELAY_GLM_52)
+    assert has_curated_pricing("glm-5.2-jiu")
     assert has_curated_pricing(DOUBAO_SEED_TURBO)
+    assert has_curated_pricing(PLATFORM_RELAY_KIMI_K25)
 
 
-def test_glm_52_bigmodel_cny_list_price():
+def test_kimi_k25_relay_vision_cny_list_price():
+    """kimi-k2.5 curated = relay effective ¥0.8 / ¥4 / ¥21 — vision role pricing."""
+    usage = _usage(
+        input_tokens=2_000_000,
+        cache_hit_tokens=1_000_000,
+        cache_miss_tokens=1_000_000,
+        output_tokens=1_000_000,
+    )
+    cost = calculate_cost(PLATFORM_RELAY_KIMI_K25, usage, credential_source="platform")
+    assert cost.cached == 800_000_000  # ¥0.8
+    assert cost.input == 800_000_000 + 4_000_000_000  # hit + miss ¥4
+    assert cost.output == 21_000_000_000  # ¥21
+    assert cost.total == cost.input + cost.output
+    assert cost.pricing_source == "curated"
     """glm-5.2 curated = bigmodel.cn ¥2 / ¥8 / ¥28 — not FX-from-USD."""
     usage = _usage(
         input_tokens=2_000_000,

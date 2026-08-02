@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agentcore.core.errors import InferenceTokenExpiredError, LLMAuthError
+from agentcore.core.errors import (
+    InferenceTokenExpiredError,
+    LLMAuthError,
+    LLMInsufficientBalanceError,
+)
 from agentcore.llm.call_fence import ObservingLLMProvider
 from agentcore.llm.errors import error_context_from
 from agentcore.llm.provider.protocol import LLMMessage, LLMRequest, LLMResponse, TokenUsage
@@ -61,6 +65,44 @@ def test_mark_and_raise_short_circuits_same_turn():
             raise_if_turn_auth_dead()
         assert ei.value.details.get("short_circuited") is True
         assert ei.value.details.get("credential_source") == "user"
+    finally:
+        reset_turn_auth_dead(token)
+
+
+def test_insufficient_balance_latches_and_preserves_error_class():
+    token = bind_turn_auth_dead()
+    try:
+        assert mark_turn_auth_dead(LLMInsufficientBalanceError()) is True
+        assert is_turn_auth_dead()
+        assert mark_turn_auth_dead(LLMInsufficientBalanceError()) is False
+        with pytest.raises(LLMInsufficientBalanceError) as ei:
+            raise_if_turn_auth_dead()
+        assert ei.value.details.get("short_circuited") is True
+        assert "余额" in (ei.value.message or "")
+        assert type(ei.value) is LLMInsufficientBalanceError
+        assert ei.value.code == LLMInsufficientBalanceError.code
+    finally:
+        reset_turn_auth_dead(token)
+
+
+@pytest.mark.asyncio
+async def test_observing_provider_marks_balance_and_short_circuits():
+    inner = MagicMock()
+    inner.name = "user"
+    inner.complete = AsyncMock(side_effect=LLMInsufficientBalanceError())
+    fence = ObservingLLMProvider(inner)
+
+    token = bind_turn_auth_dead()
+    try:
+        with pytest.raises(LLMInsufficientBalanceError):
+            await fence.complete(_req())
+        assert is_turn_auth_dead()
+        assert inner.complete.await_count == 1
+
+        with pytest.raises(LLMInsufficientBalanceError) as ei:
+            await fence.complete(_req())
+        assert ei.value.details.get("short_circuited") is True
+        assert inner.complete.await_count == 1
     finally:
         reset_turn_auth_dead(token)
 

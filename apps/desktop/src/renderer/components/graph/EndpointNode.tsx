@@ -8,6 +8,11 @@ import {
   XCircle,
 } from "lucide-react";
 import { graphNodeDimClass, useGraphNodeDimmed } from "./graphHover";
+import {
+  useCaptainEndpointLive,
+  useGraphDocumentMode,
+  useInputEndpointLive,
+} from "./graphLive";
 import { useTerminalFlash } from "./useTerminalFlash";
 
 /** Which bookend this node is: the synthetic user-input source, or the CEO
@@ -16,10 +21,12 @@ export type EndpointVariant = "input" | "captain";
 
 interface EndpointNodeData {
   variant: EndpointVariant;
+  /** Captain Document shell identity (Live reads status/preview by this). */
+  runId?: string;
   /** Derived captain (汇聚点) status (ignored for the input node). */
-  status: RunStatus;
+  status?: RunStatus;
   /** Task summary (input) — kept short, the node clamps to two lines. */
-  label: string;
+  label?: string;
   /** Captain only: tail of the CEO's final answer, clamped to two lines, so
    * the climax node previews the team's deliverable like a worker previews its
    * output. Empty until the captain starts writing the answer. */
@@ -71,27 +78,36 @@ const SINK_STYLES: Record<string, { ring: string; icon: React.ReactNode }> = {
   },
 };
 
-export function EndpointNode({ data }: NodeProps) {
-  const d = data as EndpointNodeData;
-  const isInput = d.variant === "input";
-  const style = SINK_STYLES[d.status] ?? SINK_STYLES.pending;
-  const running = !isInput && d.status === "running";
-  const horizontal = d.handleDirection === "horizontal";
-  // Both bookends are interactive when given an activation handler: clicking
-  // jumps the conversation to the real message they stand in for (the user's
-  // prompt / the CEO's answer).
-  const interactive = !!d.onActivate;
-  // Single highlight source: the full-screen endpoint view (projected into
-  // `d.focused` by GraphView). Mirrors AgentNode — a solid primary outline when
-  // its prompt / answer is the one showing in the in-place panel.
-  const highlighted = d.focused;
-  const preview = isInput ? d.label : d.preview;
-  // Only the captain node owns a live status; the input node is static, so it
-  // never flashes (the hook also self-guards its already-terminal first mount).
-  const flashing = useTerminalFlash(d.status) && !isInput;
+export function EndpointNode({ data, id }: NodeProps) {
+  const shell = data as EndpointNodeData;
+  const documentMode = useGraphDocumentMode();
+  const isInput = shell.variant === "input";
+  const inputLive = useInputEndpointLive(shell.label ?? "");
+  const captainLive = useCaptainEndpointLive(shell.runId ?? id);
+
+  const live = isInput ? inputLive : captainLive;
+  const status = (documentMode ? live.status : shell.status) ?? "pending";
+  const statusCaption = documentMode ? live.statusCaption : shell.statusCaption;
+  const focused = documentMode ? live.focused : !!shell.focused;
+  const onActivate = documentMode ? live.onActivate : shell.onActivate;
+  const previewText = documentMode
+    ? isInput
+      ? live.label
+      : live.preview
+    : isInput
+      ? shell.label
+      : shell.preview;
+
+  const style = SINK_STYLES[status] ?? SINK_STYLES.pending;
+  const running = !isInput && status === "running";
+  const horizontal = shell.handleDirection === "horizontal";
+  const interactive = !!onActivate;
+  const highlighted = focused;
+  const preview = previewText;
+  const flashing = useTerminalFlash(status) && !isInput;
   const flashColor =
-    d.status === "failed" ? "var(--destructive)" : "var(--success)";
-  const enterDelay = Math.min((d.enterIndex ?? 0) * 35, 280);
+    status === "failed" ? "var(--destructive)" : "var(--success)";
+  const enterDelay = Math.min((shell.enterIndex ?? 0) * 35, 280);
   const dimmed = useGraphNodeDimmed();
 
   const interactiveProps: React.HTMLAttributes<HTMLDivElement> = interactive
@@ -100,11 +116,11 @@ export function EndpointNode({ data }: NodeProps) {
         tabIndex: 0,
         "aria-label": isInput
           ? "你的任务，对话发起，查看完整提问"
-          : `CEO 汇总，${d.statusCaption ?? sinkLabel(d.status)}，${d.actionLabel ?? "查看最终回答"}`,
+          : `CEO 汇总，${statusCaption ?? sinkLabel(status)}，${shell.actionLabel ?? "查看最终回答"}`,
         onKeyDown: (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            d.onActivate?.();
+            onActivate?.();
           }
         },
       }
@@ -117,10 +133,6 @@ export function EndpointNode({ data }: NodeProps) {
         position={horizontal ? Position.Left : Position.Top}
         className="!bg-border"
       />
-      {/* Entrance wrapper — see AgentNode: keeps the once-on-mount scale/fade off
-          the card so it never collides with the card's `animate-pulse`.
-          Dim sits outside the entrance wrapper so animation fill-mode cannot
-          override hover opacity. */}
       <div className={graphNodeDimClass(dimmed)}>
         <div
           className="animate-graph-node-enter"
@@ -153,25 +165,17 @@ export function EndpointNode({ data }: NodeProps) {
                 <p className="truncate text-sm font-medium text-foreground">
                   {isInput ? "你的任务" : "CEO 汇总"}
                 </p>
-                {/* 端点副标题是描述/汇聚状态（非冗余状态文字）：输入端「对话发起」恒显，
-                  CEO 汇总端保留「正在生成汇总…/已汇总」叙事（前端UX设计 §五约定的例外）。
-                  与 AgentNode 第二行同节奏（mt-0.5）。 */}
                 <p
                   className={`mt-0.5 truncate text-xs ${
                     running ? "text-primary" : "text-muted-foreground"
                   }`}
                   data-testid={isInput ? undefined : "captain-sink-label"}
                 >
-                  {isInput
-                    ? "对话发起"
-                    : (d.statusCaption ?? sinkLabel(d.status))}
+                  {isInput ? "对话发起" : (statusCaption ?? sinkLabel(status))}
                 </p>
               </div>
             </div>
 
-            {/* 预览取向与 AgentNode 对齐：输入端=任务摘要（task 语义，/70）、CEO 汇总端=
-              答案开头或合成预览（output 语义，/80；headText 取开头，见 GraphView）。
-              汇总空窗无 content_delta 时挂 team_synthesis_preview 片段，保持节点活性。 */}
             {preview && (
               <p
                 className={`mt-2 line-clamp-2 text-xs leading-snug ${

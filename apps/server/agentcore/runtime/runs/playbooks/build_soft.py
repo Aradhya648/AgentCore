@@ -8,39 +8,6 @@ from agentcore.runtime.runs.build_app import _build_app
 from agentcore.runtime.runs.playbooks._common import clean_str, clean_str_list
 from agentcore.runtime.runs.research_quality import MIN_UPSTREAM_BODY_CHARS
 
-# Repair posture tools: point reads / patch / verify — no全仓 list / web crawl.
-_REPAIR_DIAGNOSE_TOOLS = [
-    "file_read",
-    "grep",
-    "code_search",
-    "code_execute",
-    "handoff",
-    "escalate",
-    "post_note",
-    "read_notes",
-]
-_REPAIR_PATCH_TOOLS = [
-    "file_read",
-    "grep",
-    "str_replace",
-    "file_write",
-    "file_append",
-    "code_execute",
-    "handoff",
-    "escalate",
-    "post_note",
-    "read_notes",
-]
-_REPAIR_VERIFY_TOOLS = [
-    "file_read",
-    "code_execute",
-    "test_run",
-    "handoff",
-    "escalate",
-    "post_note",
-    "read_notes",
-]
-
 
 def build_feature(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     """后端接口 →（前端页面 ‖ 测试）并行依赖接口；接口契约经便签墙对齐.
@@ -155,7 +122,6 @@ def repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
                 "多已知问题 / 已有调查批确认要修 → 勿套 repair_code，改用手写 tasks +"
                 "continue_from_run_id。"
             ),
-            "tools": list(_REPAIR_DIAGNOSE_TOOLS),
             "max_rounds": 4,
             "deliverable": {
                 "name": "短诊断（根因 + 拟改点）",
@@ -170,12 +136,11 @@ def repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
             "task": (
                 f"按诊断结果修补【{problem}】。{target_hint}"
                 "用 str_replace 就地改（已有非空代码禁骨架整文件重写）；"
-                "改完自检语法；禁止重新从零巡仓；"
-                "禁止对本步跑全量 typecheck/build/`tsc -b`（全量验证归验收员；"
-                "若需自检仅窄范围：单文件 / 包内 / 改动相关）。"
+                "改完用内环 code_diagnostics / 写盘回执中的诊断自检；"
+                "禁止全量 typecheck/`test_run`（本批无 test_run）；"
+                "禁止重新从零巡仓。"
             ),
             "depends_on": ["diagnose"],
-            "tools": list(_REPAIR_PATCH_TOOLS),
             "max_rounds": 6,
             "deliverable": patch_deliverable,
         },
@@ -184,15 +149,15 @@ def repair_code(args: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
             "role": "验证员",
             "task": (
                 f"验证【{problem}】修补是否生效。约定验收：`{verify}`——"
-                "默认用 test_run（check=command，command 填该约定命令；或 "
+                "外环用 test_run（check=command，command 填该约定命令；或 "
                 "check=test/typecheck/build）跑通且 exit 0；"
                 "【不要】把慢 build/全量 tsc 塞进 code_execute；"
-                "全量 typecheck/build/`tsc -b` 由本验收员独占执行，勿与 fix 批并行全仓；"
+                "全量 typecheck/build/`tsc -b` 由本验收员独占执行（外环），"
+                "勿与 fix 批并行全仓；内环 code_diagnostics 不能代替本步验绿；"
                 "纯 prose 交卷不算过门。失败则 escalate 说明缺口，"
                 "禁止新开巡读或换马甲从零读仓库；禁止无产出反复空跑同一失败命令。"
             ),
             "depends_on": ["patch"],
-            "tools": list(_REPAIR_VERIFY_TOOLS),
             "max_rounds": 4,
             "deliverable": {
                 "name": "验证结果（通过或失败证据）",

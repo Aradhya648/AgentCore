@@ -140,7 +140,11 @@ def _norm_write_reject_path(path: object) -> str:
 
 
 def zero_write_warn_prompt(*, rounds: int, prose_idle: bool = False) -> str:
-    """Hard steer before idle FINALIZE (files zero-write or prose short idle)."""
+    """Hard steer before idle FINALIZE (files zero-write or prose short idle).
+
+    Dormant with the retired zero-write ladder; prefer
+    :func:`delivery_idle_nudge_prompt` for the soft files-expected path.
+    """
     if prose_idle:
         return (
             f"[系统提示] 只读不交卷告警（已连续 {rounds} 轮仅调查、无散文交付）："
@@ -151,6 +155,30 @@ def zero_write_warn_prompt(*, rounds: int, prose_idle: bool = False) -> str:
         f"[系统提示] 只读空转告警（已连续 {rounds} 轮仅调查、零落盘）："
         "任务要求写盘交付。请立即 str_replace / file_write 落地，或 handoff 诚实说明阻塞；"
         "禁止继续换文件通读空转。下一轮仍无落盘将强制收口。"
+    )
+
+
+def delivery_idle_nudge_prompt(*, rounds: int, recon: bool = False) -> str:
+    """Soft steer for read-idle (files delivery or investigation recon)."""
+    if recon:
+        return (
+            f"[系统提示] 调查空转提醒（已连续 {rounds} 轮仅搜读、无结论交接）："
+            "请立即基于已读内容给出结论，或 escalate / handoff 说明阻塞；"
+            "禁止继续换文件通读摊大饼。不要为「再确认」再开一轮全仓 typecheck。"
+        )
+    return (
+        f"[系统提示] 交文件空转提醒（已连续 {rounds} 轮仅调查、零落盘）："
+        "任务要求写盘交付。请立即 str_replace / file_write 落地改动，或 handoff 交接阻塞；"
+        "禁止继续大范围搜读空转。仍不落地将收窄调查类工具。"
+    )
+
+
+def delivery_idle_narrow_prompt(*, rounds: int) -> str:
+    """After soft nudge: tools narrowed to write/诊断/handoff/必要读 — still not FINALIZE."""
+    return (
+        f"[系统提示] 交文件空转收窄（已连续 {rounds} 轮仅调查、零落盘）："
+        "大范围调查类工具已收回；仅保留写盘 / 内环诊断 / handoff / 必要 file_read。"
+        "请立即改文件或交接，勿再展开新调研。"
     )
 
 
@@ -518,6 +546,12 @@ class LoopController:
         zero_write_finalize_rounds: int = 0,
         prose_idle: bool = False,
         form_prose: bool = False,
+        # Soft files-expected ladder (nudge → tool narrow); orthogonal to retired
+        # zero-write FINALIZE and to token/timeout wind_down. ≤0 disables each step.
+        delivery_idle_nudge_rounds: int = 0,
+        delivery_idle_narrow_rounds: int = 0,
+        # True → nudge prompt is recon (conclude/handoff), not write-disk pressure.
+        delivery_idle_recon: bool = False,
         investigation_tools: frozenset[str] = frozenset(),
         product_landing_artifacts: tuple[str, ...] | list[str] | None = None,
     ) -> None:
@@ -550,9 +584,14 @@ class LoopController:
         # Delivery-idle thrashing: investigation-only with no delivery success.
         # Files mode = landing write; prose_idle = handoff (or landing if present).
         # ``<= 0`` disables. Landing/handoff *attempt* resets; success latches done.
+        # Soft delivery_idle (nudge/narrow) reuses the same idle-round counter when
+        # enabled — still never arms the retired mid-loop FINALIZE/DEGRADED path.
         self._zero_write_finalize_rounds = max(0, zero_write_finalize_rounds)
         self._prose_idle = bool(prose_idle)
         self._form_prose = bool(form_prose)
+        self._delivery_idle_nudge_rounds = max(0, int(delivery_idle_nudge_rounds))
+        self._delivery_idle_narrow_rounds = max(0, int(delivery_idle_narrow_rounds))
+        self._delivery_idle_recon = bool(delivery_idle_recon)
         # Declared deliverable.artifacts — dossier intermediates count as product
         # only when they match (files zero-write latch). Empty = no whitelist.
         self._product_landing_artifacts: tuple[str, ...] = tuple(
@@ -560,6 +599,9 @@ class LoopController:
         )
         self._zero_write_investigation_rounds = 0
         self._zero_write_warned = False
+        self._delivery_idle_nudged = False
+        self._delivery_idle_narrowed = False
+        self._delivery_idle_narrow_apply_pending = False
         self._landing_succeeded = False
         self._prev_investigation_fps: frozenset[str] = frozenset()
         self._same_target_investigation_streak = 0
@@ -833,12 +875,18 @@ class LoopController:
         round_progress = any(
             attempt.success and attempt.tool_name in PROGRESS_TOOLS for attempt in attempts
         )
-        # Files zero-write: any successful landing-tool write latches success /
-        # clears the idle clock (dossier notes under research/reviews/debate
-        # count as product). Missing meta.path stays compatible (counts as product).
-        # Failed landing intent still resets the idle clock.
+        # Files zero-write / soft delivery_idle: any successful landing-tool write
+        # latches success / clears the idle clock (dossier notes under
+        # research/reviews/debate count as product). Missing meta.path stays
+        # compatible (counts as product). Failed landing intent still resets the
+        # idle clock.
+        delivery_idle_tracking = (
+            self._delivery_idle_nudge_rounds > 0 or self._delivery_idle_narrow_rounds > 0
+        )
         files_product_gate = (
-            self._zero_write_finalize_rounds > 0 and not self._prose_idle
+            (self._zero_write_finalize_rounds > 0 or delivery_idle_tracking)
+            and not self._prose_idle
+            and not self._form_prose
         )
         if files_product_gate:
             landing_success = any(
@@ -872,6 +920,8 @@ class LoopController:
             self._landing_succeeded = True
             self._zero_write_investigation_rounds = 0
             self._zero_write_warned = False
+            self._delivery_idle_nudged = False
+            # Keep narrow latch: tools stay narrowed once applied this run.
         if round_progress:
             self._same_target_investigation_streak = 0
             self._prev_investigation_fps = frozenset()
@@ -1025,12 +1075,16 @@ class LoopController:
                     self._same_target_investigation_streak = 0
                 self._prev_investigation_fps = current
 
-        # Delivery-idle thrashing (files zero-write / prose short idle): investigation-only
-        # round with no delivery attempt bumps the streak; delivery intent/success resets.
+        # Delivery-idle thrashing (files zero-write / soft delivery_idle /
+        # prose short idle): investigation-only round with no delivery attempt
+        # bumps the streak; delivery intent/success resets.
         # Non-investigation rounds (ask / progress / exec) clear the idle clock.
         # (Historical: dossier notes once counted as non-product idle; they now latch
         # as product via landing_product — dossier_note_only stays unreachable.)
-        if self._zero_write_finalize_rounds > 0 and not self._landing_succeeded:
+        idle_tracking = (
+            self._zero_write_finalize_rounds > 0 or delivery_idle_tracking
+        ) and not self._landing_succeeded
+        if idle_tracking:
             tool_names = {a.tool_name for a in attempts if a.tool_name}
             investigation_only = bool(tool_names) and tool_names <= self._investigation_tools
             dossier_note_only = False
@@ -1049,12 +1103,16 @@ class LoopController:
             if delivery_attempt or delivery_success:
                 self._zero_write_investigation_rounds = 0
                 self._zero_write_warned = False
+                if not self._delivery_idle_narrowed:
+                    self._delivery_idle_nudged = False
             elif investigation_only or dossier_note_only:
                 self._zero_write_investigation_rounds += 1
             elif tool_names:
                 # Mixed / non-investigation activity — not pure read-idle.
                 self._zero_write_investigation_rounds = 0
                 self._zero_write_warned = False
+                if not self._delivery_idle_narrowed:
+                    self._delivery_idle_nudged = False
 
     def note_empty_round(self, is_empty: bool) -> None:
         """Track consecutive empty-response rounds (B2).
@@ -1371,6 +1429,69 @@ class LoopController:
     def zero_write_warned(self) -> bool:
         """True after the one-shot zero-write warn was injected."""
         return self._zero_write_warned
+
+    @property
+    def delivery_idle_nudge_rounds(self) -> int:
+        """Configured soft nudge threshold for files_expected read-idle (0 = off)."""
+        return self._delivery_idle_nudge_rounds
+
+    @property
+    def delivery_idle_narrow_rounds(self) -> int:
+        """Configured tool-narrow threshold for files_expected read-idle (0 = off)."""
+        return self._delivery_idle_narrow_rounds
+
+    @property
+    def delivery_idle_recon(self) -> bool:
+        """True when soft nudge uses recon (conclude) copy, not write-disk copy."""
+        return self._delivery_idle_recon
+
+    @property
+    def delivery_idle_rounds(self) -> int:
+        """Consecutive investigation-only rounds with no landing (shared idle clock)."""
+        return self._zero_write_investigation_rounds
+
+    @property
+    def delivery_idle_nudged(self) -> bool:
+        """True after the soft delivery-idle nudge was injected."""
+        return self._delivery_idle_nudged
+
+    @property
+    def delivery_idle_narrowed(self) -> bool:
+        """True after the delivery-idle narrow steer was latched."""
+        return self._delivery_idle_narrowed
+
+    def delivery_idle_nudge_due(self) -> bool:
+        """True when idle rounds hit the soft nudge bar (one-shot)."""
+        bar = self._delivery_idle_nudge_rounds
+        if bar <= 0 or self._landing_succeeded or self._delivery_idle_nudged:
+            return False
+        if self._delivery_idle_narrowed:
+            return False
+        return self._zero_write_investigation_rounds >= bar
+
+    def mark_delivery_idle_nudged(self) -> None:
+        """Latch the one-shot delivery-idle soft nudge."""
+        self._delivery_idle_nudged = True
+
+    def delivery_idle_narrow_due(self) -> bool:
+        """True when idle rounds hit the tool-narrow bar (one-shot; not FINALIZE)."""
+        bar = self._delivery_idle_narrow_rounds
+        if bar <= 0 or self._landing_succeeded or self._delivery_idle_narrowed:
+            return False
+        return self._zero_write_investigation_rounds >= bar
+
+    def mark_delivery_idle_narrowed(self) -> None:
+        """Latch narrow steer + pending allowlist apply for the react loop."""
+        self._delivery_idle_narrowed = True
+        self._delivery_idle_nudged = True
+        self._delivery_idle_narrow_apply_pending = True
+
+    def take_delivery_idle_narrow_apply(self) -> bool:
+        """Consume one-shot pending tool-surface narrow (loop applies whitelist)."""
+        if not self._delivery_idle_narrow_apply_pending:
+            return False
+        self._delivery_idle_narrow_apply_pending = False
+        return True
 
     def convergence_action(self) -> Intervention:
         """Over-investigation finalize: progress-aware spinning, zero-write, absolute cap.

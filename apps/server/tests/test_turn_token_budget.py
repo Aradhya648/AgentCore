@@ -28,7 +28,7 @@ def test_engine_turn_token_ceiling_default():
     assert s.engine_turn_token_ceiling == 12_000_000
     assert s.engine_turn_token_delivery_reserve == 400_000
     assert s.engine_nested_turn_token_ceiling == 5_000_000
-    assert s.engine_worker_token_ceiling == 2_000_000  # orthogonal
+    assert s.engine_worker_token_ceiling == 4_000_000  # orthogonal
 
 
 def test_engine_nested_turn_token_ceiling_disable():

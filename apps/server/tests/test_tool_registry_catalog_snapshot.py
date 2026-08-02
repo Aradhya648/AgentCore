@@ -43,6 +43,7 @@ _BUILTIN_ORDER = [
     "md_to_pdf",
     "grep",
     "code_search",
+    "code_diagnostics",
     "git",
     "test_run",
     "code_execute",
@@ -110,6 +111,7 @@ _CEO_BUILTIN_ORDER = [
     "file_list",
     "grep",
     "code_search",
+    "code_diagnostics",
     "git",
 ]
 
@@ -134,6 +136,7 @@ _CATALOG_AVAILABLE_TO: dict[str, tuple[str, ...]] = {
     "file_list": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
     "grep": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
     "code_search": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
+    "code_diagnostics": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
     "git": (AVAILABLE_TO_CEO, AVAILABLE_TO_WORKER),
     # Worker-only mutation / execution / collaboration
     "file_write": (AVAILABLE_TO_WORKER,),
@@ -239,6 +242,7 @@ def test_tool_registry_builtin_approvals_snapshot():
         "file_list",
         "grep",
         "code_search",
+        "code_diagnostics",
         "git",
     }
     grantable = set(_BUILTIN_ORDER) - never

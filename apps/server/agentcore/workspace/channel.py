@@ -84,6 +84,11 @@ class WorkspaceOp(StrEnum):
     REPLACE = "replace"
     GREP = "grep"
     EXECUTE = "execute"
+    # Language-service diagnostics (inner verify loop) — LocalWorkspace only;
+    # ServerWorkspace returns unavailable without issuing this op. Desktop runs
+    # TS/JS diagnostics for ``args.paths`` and returns
+    # ``{status, reason?, diagnostics[]}``.
+    DIAGNOSTICS = "diagnostics"
     # Probe which code_execute languages have a usable launcher on the user's
     # machine (PATH / Git Bash). Not a WorkspaceBackend method — issued at turn
     # prepare so the tool schema can drop unavailable languages (e.g. broken WSL

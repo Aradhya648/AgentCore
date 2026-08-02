@@ -140,6 +140,7 @@ def build_escalation_channel(
                     question=question,
                     execution_id=env.base_tool_context.execution_id,
                     write_ancestors=env.ancestors_by_id.get(run_id, frozenset()),
+                    write_coordinator=env.write_coordinator,
                 )
                 session.register_arbitration(
                     run_id,

@@ -360,6 +360,7 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
         captured["history"] = kwargs.get("history")
         # The conversation's CURRENT permission axes ride the resume params.
         captured["autonomy"] = kwargs.get("permission_axes")
+        captured["x_client_platform"] = kwargs.get("x_client_platform")
         kwargs["sink"].close()
         return {
             "finish_reason": "end_turn",
@@ -428,6 +429,7 @@ def test_resume_claims_frame_and_drives_resume_pipeline(tmp_path, monkeypatch):
     # the reloaded history (from the local frame) is threaded into the resume pipeline so
     # window_from_journal can splice it ahead of the folded rounds (Phase 2 ⑤).
     assert captured["history"] == history
+    assert captured["x_client_platform"] == "desktop"
     assert remaining == []  # the frame was claimed (one-shot), so nothing is left
 
 

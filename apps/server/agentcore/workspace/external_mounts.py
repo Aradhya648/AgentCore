@@ -34,6 +34,7 @@ ORGANIZE_ALLOWED_OPS: frozenset[str] = frozenset(
         "list_tree",
         "index_files",
         "grep",
+        "diagnostics",  # 内环语言服务只读诊断
         "process_read",
         "process_list",
         "process_stop",
