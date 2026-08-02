@@ -15,6 +15,7 @@ import type { PtyApi } from "@shared/pty-contract";
 import type { SidecarApi } from "@shared/sidecar-contract";
 import type { TerminalApi } from "@shared/terminal-contract";
 import type { UpdaterApi } from "@shared/updater-contract";
+import type { FloatWindowApi } from "@shared/float-window-contract";
 import type { WindowApi } from "@shared/window-contract";
 
 declare global {
@@ -35,7 +36,7 @@ declare global {
     localStoreApi?: LocalStoreApi;
     /** Electron preload 注入；纯浏览器 / 单测环境可能缺失。 */
     updaterApi?: UpdaterApi;
-    /** 结构化产品日志（落主进程 desktop.jsonl）；纯浏览器 / 单测环境可能缺失。 */
+    /** 结构化产品日志（落主进程 desktop.jsonl）；纯浏览器 / 单测可能缺失。 */
     logApi?: LogApi;
     /** bash 代码块「在终端运行」；纯浏览器 / 单测环境可能缺失。 */
     terminalApi?: TerminalApi;
@@ -55,6 +56,8 @@ declare global {
     /** 右坞本机浏览器（LocalChromiumHost + openWorkspaceHtml）；仅 Electron；web / 单测可 mock。 */
     browserApi?: BrowserApi;
     windowApi: WindowApi;
+    /** 真 OS 浮窗（方案 C）；仅 Electron；web / 单测可缺失。 */
+    floatWindowApi?: FloatWindowApi;
     /** 由浏览器入口（生产 web 客户端 main.webapp.tsx / 离线预览 main.web.tsx → browserStubs）
      *  设置，标记「浏览器运行时、无原生 fs/sidecar/updater/window 能力」。能力代理
      *  （lib/capabilities）据此让本地专属功能降级、并使会话恒走云端。Electron 构建里始终缺失。 */
@@ -64,3 +67,5 @@ declare global {
     __WEB_PREVIEW__?: boolean;
   }
 }
+
+export {};

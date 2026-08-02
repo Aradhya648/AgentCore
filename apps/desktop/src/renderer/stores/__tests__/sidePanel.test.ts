@@ -21,8 +21,10 @@ import { useConversationStore } from "../conversation";
 import { type ExecutionPlan, useExecutionStore } from "../execution";
 import {
   CHANGES_TAB_ID,
+  COMMAND_TAB_ID,
   type DetailTab,
   SIDE_PANEL_DEFAULT_WIDTH,
+  SIDE_PANEL_MAX_FLOATS,
   SIDE_PANEL_MAX_TABS,
   SIDE_PANEL_MIN_WIDTH,
   TEAM_BROWSER_TAB_ID,
@@ -31,9 +33,11 @@ import {
   contentDetailTabId,
   fileTabId,
   runDetailTabId,
+  sidePanelFocusTabId,
   sidePanelMaxWidth,
   simpleTurnDetailTabId,
   terminalDismissKey,
+  dismissFocusedFloat,
   useSidePanelStore,
 } from "../sidePanel";
 
@@ -70,6 +74,8 @@ beforeEach(() => {
     width: 400,
     tabs: [],
     activeTabId: WORKSPACE_TAB_ID,
+    floats: [],
+    focusSurface: { type: "dock" },
     changesFocusMessageId: null,
     dismissedContexts: new Set(),
     pendingBadge: 0,
@@ -665,12 +671,210 @@ describe("Local browser detach on dock / browser tab close", () => {
     expect(panel().tabs.some((t) => t.kind === "browser")).toBe(false);
   });
 
-  it("closePanel / togglePanel(关) call hide", () => {
+  it("closePanel / togglePanel(关) call hide only when browser is still docked", () => {
     panel().openPanel();
     panel().closePanel();
+    expect(detachLocalBrowserHost).not.toHaveBeenCalled();
+
+    panel().showBrowser();
+    detachLocalBrowserHost.mockClear();
+    panel().closePanel();
     expect(detachLocalBrowserHost).toHaveBeenCalledTimes(1);
+
+    panel().showBrowser();
+    detachLocalBrowserHost.mockClear();
+    panel().togglePanel(); // close
+    expect(detachLocalBrowserHost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("应用内浮窗（§十 · Move / float·dock / 上限 8）", () => {
+  it("floatTab Moves a run out of the dock and focuses the float", () => {
+    panel().openTab(runDetail("run-1"));
+    expect(panel().floatTab(tabId("run-1"))).toBe(true);
+    expect(panel().isFloating(tabId("run-1"))).toBe(true);
+    expect(panel().floats).toHaveLength(1);
+    expect(panel().tabs.map((t) => t.id)).toEqual([tabId("run-1")]);
+    expect(panel().focusSurface).toEqual({
+      type: "float",
+      tabId: tabId("run-1"),
+    });
+    expect(sidePanelFocusTabId(panel())).toBe(tabId("run-1"));
+    // Dock active leaves the floated tab (Move, not a second copy).
+    expect(panel().activeTabId).toBe(CHANGES_TAB_ID);
+  });
+
+  it("dockTab pins a float back and activates it in the dock", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().floatTab(tabId("run-1"));
+    panel().closePanel();
+    panel().dockTab(tabId("run-1"));
+    expect(panel().isFloating(tabId("run-1"))).toBe(false);
+    expect(panel().floats).toHaveLength(0);
+    expect(panel().open).toBe(true);
+    expect(panel().activeTabId).toBe(tabId("run-1"));
+    expect(panel().focusSurface).toEqual({ type: "dock" });
+  });
+
+  it("rejects float for terminal / browser / command / content / simple-turn", () => {
+    panel().openTerminalTab();
+    expect(panel().floatTab(TEAM_TERMINAL_TAB_ID)).toBe(false);
+
+    panel().showBrowser();
+    expect(panel().floatTab(TEAM_BROWSER_TAB_ID)).toBe(false);
+
+    expect(panel().floatTab(COMMAND_TAB_ID)).toBe(false);
+
+    panel().showContentDetail(MID, "answer-msg", "最终回答", "answer");
+    expect(panel().floatTab(contentDetailTabId(MID, "answer-msg"))).toBe(false);
+
+    panel().showSimpleTurnDetail(MID, "user-1", "asst-1");
+    expect(panel().floatTab(simpleTurnDetailTabId(MID))).toBe(false);
+
+    expect(panel().floats).toHaveLength(0);
+  });
+
+  it("allows float for run / workspace / file / changes", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().showFile("src/a.ts", "a.ts");
+    expect(panel().floatTab(tabId("run-1"))).toBe(true);
+    expect(panel().floatTab(fileTabId("src/a.ts"))).toBe(true);
+    expect(panel().floatTab(WORKSPACE_TAB_ID)).toBe(true);
+    expect(panel().floatTab(CHANGES_TAB_ID)).toBe(true);
+    expect(panel().floats.map((f) => f.tabId).sort()).toEqual(
+      [
+        CHANGES_TAB_ID,
+        WORKSPACE_TAB_ID,
+        fileTabId("src/a.ts"),
+        tabId("run-1"),
+      ].sort(),
+    );
+  });
+
+  it("rejects a 9th float until one is docked or destroyed", () => {
+    for (let i = 0; i < SIDE_PANEL_MAX_FLOATS; i++) {
+      panel().openTab(runDetail(`run-${i}`));
+      expect(panel().floatTab(tabId(`run-${i}`))).toBe(true);
+    }
+    panel().openTab(runDetail("run-extra"));
+    expect(panel().floatTab(tabId("run-extra"))).toBe(false);
+    expect(panel().floats).toHaveLength(SIDE_PANEL_MAX_FLOATS);
+
+    panel().dockTab(tabId("run-0"));
+    expect(panel().floatTab(tabId("run-extra"))).toBe(true);
+    expect(panel().floats).toHaveLength(SIDE_PANEL_MAX_FLOATS);
+  });
+
+  it("closePanel / togglePanel keep floats and do not destroy them", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().floatTab(tabId("run-1"));
+    panel().floatTab(WORKSPACE_TAB_ID);
+    panel().closePanel();
+    expect(panel().open).toBe(false);
+    expect(panel().floats.map((f) => f.tabId).sort()).toEqual(
+      [WORKSPACE_TAB_ID, tabId("run-1")].sort(),
+    );
+    expect(panel().tabs.map((t) => t.id)).toEqual([tabId("run-1")]);
+
     panel().openPanel();
     panel().togglePanel(); // close
-    expect(detachLocalBrowserHost).toHaveBeenCalledTimes(2);
+    expect(panel().floats).toHaveLength(2);
+    expect(panel().isFloating(tabId("run-1"))).toBe(true);
+  });
+
+  it("floating tabs are not evicted by the closable 12-cap", () => {
+    panel().openTab(runDetail("run-float"));
+    panel().floatTab(tabId("run-float"));
+    for (let i = 0; i < SIDE_PANEL_MAX_TABS; i++) {
+      panel().openTab(runDetail(`run-${i}`));
+    }
+    expect(panel().tabs).toHaveLength(SIDE_PANEL_MAX_TABS);
+    expect(panel().isFloating(tabId("run-float"))).toBe(true);
+    expect(panel().tabs.some((t) => t.id === tabId("run-float"))).toBe(true);
+    // Oldest docked (run-0) was dropped to make room; float survives.
+    expect(panel().tabs.some((t) => t.id === tabId("run-0"))).toBe(false);
+  });
+
+  it("workspace detach does not destroy; destroyFloat rejects fixed tabs", () => {
+    expect(panel().floatTab(WORKSPACE_TAB_ID)).toBe(true);
+    expect(panel().destroyFloat(WORKSPACE_TAB_ID)).toBe(false);
+    expect(panel().isFloating(WORKSPACE_TAB_ID)).toBe(true);
+
+    panel().floatTab(CHANGES_TAB_ID);
+    expect(panel().destroyFloat(CHANGES_TAB_ID)).toBe(false);
+    expect(panel().isFloating(CHANGES_TAB_ID)).toBe(true);
+
+    panel().dockTab(WORKSPACE_TAB_ID);
+    expect(panel().isFloating(WORKSPACE_TAB_ID)).toBe(false);
+    expect(panel().activeTabId).toBe(WORKSPACE_TAB_ID);
+  });
+
+  it("destroyFloat removes a closable float tab entirely", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().floatTab(tabId("run-1"));
+    expect(panel().destroyFloat(tabId("run-1"))).toBe(true);
+    expect(panel().floats).toHaveLength(0);
+    expect(panel().tabs).toHaveLength(0);
+  });
+
+  it("clearFloats wipes floats and floating content tabs (切对话 API)", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().showFile("src/a.ts", "a.ts");
+    panel().floatTab(tabId("run-1"));
+    panel().floatTab(fileTabId("src/a.ts"));
+    panel().floatTab(WORKSPACE_TAB_ID);
+    panel().openTab(runDetail("run-docked"));
+    panel().clearFloats();
+    expect(panel().floats).toHaveLength(0);
+    expect(panel().tabs.map((t) => t.id)).toEqual([tabId("run-docked")]);
+    expect(panel().focusSurface).toEqual({ type: "dock" });
+  });
+
+  it("openTab on a floating tab focuses the float without opening a dock copy", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().floatTab(tabId("run-1"));
+    panel().closePanel();
+    panel().openTab({ ...runDetail("run-1"), title: "研究员" });
+    expect(panel().open).toBe(false);
+    expect(panel().tabs).toHaveLength(1);
+    expect(panel().tabs[0].title).toBe("研究员");
+    expect(panel().focusSurface).toEqual({
+      type: "float",
+      tabId: tabId("run-1"),
+    });
+  });
+
+  it("focusFloat / focusDock express the highlight focus surface", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().openTab(runDetail("run-2"));
+    panel().floatTab(tabId("run-1"));
+    // Dock active stayed on run-2 (it was already active when run-1 floated).
+    expect(panel().activeTabId).toBe(tabId("run-2"));
+    panel().focusDock();
+    expect(sidePanelFocusTabId(panel())).toBe(tabId("run-2"));
+    panel().focusFloat(tabId("run-1"));
+    expect(sidePanelFocusTabId(panel())).toBe(tabId("run-1"));
+    expect(panel().floats[0]!.layout.zIndex).toBeGreaterThan(0);
+  });
+
+  it("focusFloat is a no-op when that float is already the focus surface", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().openTab(runDetail("run-2"));
+    panel().floatTab(tabId("run-1"));
+    panel().floatTab(tabId("run-2"));
+    const before = panel().floats;
+    const zBefore = before.map((f) => f.layout.zIndex);
+    panel().focusFloat(tabId("run-2"));
+    expect(panel().floats).toBe(before);
+    expect(panel().floats.map((f) => f.layout.zIndex)).toEqual(zBefore);
+  });
+
+  it("dismissFocusedFloat docks the focused float (Esc / Ctrl+J)", () => {
+    panel().openTab(runDetail("run-1"));
+    panel().floatTab(tabId("run-1"));
+    expect(dismissFocusedFloat()).toBe(true);
+    expect(panel().floats).toHaveLength(0);
+    expect(panel().activeTabId).toBe(tabId("run-1"));
+    expect(dismissFocusedFloat()).toBe(false);
   });
 });

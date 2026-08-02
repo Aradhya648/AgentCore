@@ -19,6 +19,10 @@ vi.mock("../RecentConversations", () => ({
   ViewAllConversations: () => null,
 }));
 
+vi.mock("../PinnedConversations", () => ({
+  PinnedConversations: () => null,
+}));
+
 vi.mock("../WorkspaceGroups", () => ({
   WorkspaceGroups: () => null,
 }));

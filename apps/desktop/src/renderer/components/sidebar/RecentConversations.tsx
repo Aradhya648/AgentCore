@@ -8,40 +8,36 @@ import { useNavigate } from "react-router-dom";
 import { ConversationItem } from "./ConversationItem";
 
 /** How many 裸聊 the「快速对话」zone shows before deferring to /conversations.
- * Adaptive: with no「项目」groups the zone owns the whole rail ({@link BARE_LIMIT_SOLO});
- * once groups sit above it the cap relaxes to {@link BARE_LIMIT_WITH_GROUPS} because
- * workspaces already occupy the priority fold. Overflow exits via「查看全部对话」. */
+ * Adaptive: with no「项目」groups the zone owns more of the rail ({@link BARE_LIMIT_SOLO});
+ * once groups sit above it the cap relaxes to {@link BARE_LIMIT_WITH_GROUPS}.
+ * Overflow exits via「查看全部对话」. Pinned chats live in {@link PinnedConversations}. */
 const BARE_LIMIT_SOLO = 15;
 const BARE_LIMIT_WITH_GROUPS = 10;
 
-function byPinnedThenRecency(a: Conversation, b: Conversation): number {
-  // Pinned float to the top (置顶对话); within each group, newest activity first.
-  if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+function byRecency(a: Conversation, b: Conversation): number {
   return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
 }
 
 /**
- * The rail's bare-chat zone (前端UX §一 方案B): **裸聊 (folderless chats)** below the
- * workspace groups, capped adaptively (see {@link BARE_LIMIT_SOLO}). Foldered chats live
- * ONLY in their {@link useWorkspaceGroups} group (干净二分零重复). The currently-open bare
- * chat is always pinned in even when older than the cut-off (a foldered active chat
- * shows in its auto-expanded group instead).
+ * The rail's bare-chat zone (前端UX §一 方案C): **unpinned 裸聊** below the
+ * workspace groups. Foldered chats live in their {@link useWorkspaceGroups} group
+ * (or the pin zone if pinned). The currently-open bare chat is always kept even
+ * when older than the cut-off.
  *
- * No section title — group headers (cloud/local icon + trailing chevron) vs flat
- * {@link ConversationItem} rows carry the IA. When both zones exist, a hairline divider
- * separates them; inside this zone a second hairline splits 置顶 from 普通 whenever both
- * groups are present. When every chat is foldered this zone renders nothing.
+ * No section title. A hairline separates this zone from whatever sits above
+ * (置顶 and/or 项目). When every chat is foldered or pinned this zone renders nothing.
  */
 export function RecentConversations() {
   const conversations = useConversations();
   const hasGroups = useWorkspaceGroups().length > 0;
+  const hasPinned = conversations.some((c) => c.pinned);
   const currentId = useConversationStore((s) => s.currentConversationId);
 
   const recent = useMemo(() => {
     const limit = hasGroups ? BARE_LIMIT_WITH_GROUPS : BARE_LIMIT_SOLO;
     const bare = conversations
-      .filter((c) => !c.folderId)
-      .sort(byPinnedThenRecency);
+      .filter((c) => !c.folderId && !c.pinned)
+      .sort(byRecency);
     const top = bare.slice(0, limit);
     if (currentId && !top.some((c) => c.id === currentId)) {
       const active = bare.find((c) => c.id === currentId);
@@ -60,37 +56,20 @@ export function RecentConversations() {
     );
   }
 
-  // Every chat is foldered → no 裸聊 to show; the「项目」zone carries the rail.
+  // Every chat is foldered / pinned → no unpinned 裸聊; upper zones carry the rail.
   if (recent.length === 0) return null;
-
-  // 置顶浮顶后，用一条 hairline 把置顶与普通裸聊分成两区（两组都非空时才出现）。
-  // 显式按 pinned 切分而非靠排序下标，才不会被上面「活跃裸聊兜底入列」打乱分区。
-  const pinned = recent.filter((c) => c.pinned);
-  const rest = recent.filter((c) => !c.pinned);
 
   return (
     <>
-      {/* Hairline between 项目区 and 裸聊 — margin only on the rule, not the rows
-          (Sidebar nav divider uses the same mx-3 sibling pattern). */}
-      {hasGroups && <div className="mx-3 border-t border-sidebar-border" />}
-      <div className={`px-2 py-1 ${hasGroups ? "pt-2" : ""}`}>
-        {pinned.length > 0 && (
-          <div className="space-y-0.5">
-            {pinned.map((conv) => (
-              <ConversationItem key={conv.id} conversation={conv} />
-            ))}
-          </div>
-        )}
-        {pinned.length > 0 && rest.length > 0 && (
-          <div className="my-1.5 border-t border-sidebar-border/60" />
-        )}
-        {rest.length > 0 && (
-          <div className="space-y-0.5">
-            {rest.map((conv) => (
-              <ConversationItem key={conv.id} conversation={conv} />
-            ))}
-          </div>
-        )}
+      {/* Hairline above 裸聊 when 置顶 and/or 项目 sit above (Sidebar nav divider
+          uses the same mx-3 sibling pattern). */}
+      {(hasGroups || hasPinned) && (
+        <div className="mx-3 border-t border-sidebar-border" />
+      )}
+      <div className={`space-y-0.5 px-2 py-1 ${hasGroups || hasPinned ? "pt-2" : ""}`}>
+        {recent.map((conv) => (
+          <ConversationItem key={conv.id} conversation={conv} />
+        ))}
       </div>
     </>
   );
@@ -98,7 +77,7 @@ export function RecentConversations() {
 
 /**
  * The「查看全部对话」entry into the full management page (/conversations). Lives at the
- * very bottom of the rail's conversation area — after「项目」+「快速对话」— so it's
+ * very bottom of the rail's conversation area — after「置顶」+「项目」+「快速对话」— so it's
  * the single overflow exit for everything (older 裸聊, extra workspaces, per-group
  * overflow). Hidden when there are no conversations at all.
  */

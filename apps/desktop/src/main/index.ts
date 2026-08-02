@@ -11,6 +11,11 @@ import icon from "../../resources/icon.png?asset";
 import { registerAgentTownIpc } from "./agenttown-service";
 import { registerBrowserIpc, startDesktopBrowserBridge } from "./browser";
 import { WORKSPACE_SCHEME } from "./browser/workspace-paths";
+import {
+  buildFloatHashRoute,
+  destroyAllFloatWindows,
+  registerFloatWindowIpc,
+} from "./float-window";
 import { registerFsIpc } from "./fs-service";
 import { registerHostIpc } from "./host-service";
 import { registerLocalStoreIpc } from "./local-store";
@@ -30,6 +35,45 @@ import { registerTerminalIpc } from "./terminal-service";
 import { initUpdater } from "./updater";
 import { registerWindowFrameIpc } from "./window-frame";
 import { loadWindowState, manageWindowState } from "./window-state";
+
+/** 主 BrowserWindow（真窗 closed 事件目标；窗控按 sender 路由后不再闭包绑死它）。 */
+let mainWindowRef: BrowserWindow | null = null;
+let windowChromeIpcRegistered = false;
+
+function preloadPath(): string {
+  return join(__dirname, "../preload/index.js");
+}
+
+function rendererLoadBase(): string {
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    return process.env.ELECTRON_RENDERER_URL;
+  }
+  return `${APP_ORIGIN}/index.html`;
+}
+
+function allowedNavigationBase(): string {
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    return process.env.ELECTRON_RENDERER_URL;
+  }
+  return APP_ORIGIN;
+}
+
+/** 窗控按 webContents→窗 路由，主窗与真 OS 浮窗共用同一 preload API。 */
+function registerWindowChromeIpc(): void {
+  if (windowChromeIpcRegistered) return;
+  windowChromeIpcRegistered = true;
+  ipcMain.on(WINDOW_CHANNELS.minimize, (e) => {
+    BrowserWindow.fromWebContents(e.sender)?.minimize();
+  });
+  ipcMain.on(WINDOW_CHANNELS.maximize, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    win.isMaximized() ? win.unmaximize() : win.maximize();
+  });
+  ipcMain.on(WINDOW_CHANNELS.close, (e) => {
+    BrowserWindow.fromWebContents(e.sender)?.close();
+  });
+}
 
 installProcessSafetyNet();
 
@@ -192,7 +236,7 @@ function createWindow(): BrowserWindow {
     }),
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: preloadPath(),
       // SECURITY (XSS-003 前端XSS·渲染进程沙箱): run the renderer in the OS sandbox. The
       // preload is sandbox-compatible — it only uses contextBridge + ipcRenderer (no Node
       // built-ins / npm Node deps), so the contextBridge API surface is unchanged. With
@@ -201,9 +245,16 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+  mainWindowRef = mainWindow;
+  mainWindow.on("closed", () => {
+    if (mainWindowRef === mainWindow) mainWindowRef = null;
+    // 关主窗 ≈ 收应用：收尽真窗，避免只剩浮窗挂起进程。
+    destroyAllFloatWindows();
+  });
   if (windowState.isMaximized) mainWindow.maximize();
   manageWindowState(mainWindow);
   registerWindowFrameIpc(mainWindow);
+  registerWindowChromeIpc();
 
   // Dev-only: forward the renderer's console warnings/errors to this process's
   // stdout so a renderer crash (e.g. a React error-boundary stack logged via
@@ -224,12 +275,6 @@ function createWindow(): BrowserWindow {
       },
     );
   }
-
-  ipcMain.on(WINDOW_CHANNELS.minimize, () => mainWindow.minimize());
-  ipcMain.on(WINDOW_CHANNELS.maximize, () => {
-    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
-  });
-  ipcMain.on(WINDOW_CHANNELS.close, () => mainWindow.close());
 
   mainWindow.on("ready-to-show", () => {
     mainWindow.show();
@@ -257,21 +302,14 @@ function createWindow(): BrowserWindow {
   // the Vite server) is an attempted navigation away from the app — block it. Outbound
   // links go through setWindowOpenHandler above, not here.
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    const allowedBase =
-      is.dev && process.env.ELECTRON_RENDERER_URL
-        ? process.env.ELECTRON_RENDERER_URL
-        : APP_ORIGIN;
+    const allowedBase = allowedNavigationBase();
     if (!url.startsWith(allowedBase)) {
       event.preventDefault();
       console.warn(`[security] blocked in-page navigation to: ${url}`);
     }
   });
 
-  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
-  }
+  mainWindow.loadURL(rendererLoadBase());
 
   return mainWindow;
 }
@@ -296,6 +334,14 @@ app.whenReady().then(async () => {
   registerMcpIpc();
   registerPreviewIpc();
   registerBrowserIpc();
+  registerFloatWindowIpc({
+    getMainWindow: () => mainWindowRef,
+    buildFloatUrl: (conversationId, tabId) =>
+      `${rendererLoadBase()}${buildFloatHashRoute(conversationId, tabId)}`,
+    allowedNavigationBase: allowedNavigationBase(),
+    preloadPath: preloadPath(),
+    icon,
+  });
   // B-Arch-1: Bridge Ready is part of the control plane — await listen before
   // window/sidecar work so initialize/startTurn can hand out live credentials.
   try {
@@ -310,11 +356,13 @@ app.whenReady().then(async () => {
   initUpdater(mainWindow);
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // 只看主窗：真 OS 浮窗存活时仍应能重建主窗。
+    if (!mainWindowRef || mainWindowRef.isDestroyed()) createWindow();
   });
 });
 
 app.on("before-quit", () => {
+  destroyAllFloatWindows();
   void shutdownAllMcpSessions();
 });
 

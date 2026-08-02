@@ -6,6 +6,7 @@ import { CapabilityPacksPreviewPage } from "@/pages/CapabilityPacksPreviewPage";
 import { ConversationsPage } from "@/pages/ConversationsPage";
 import { ConversationsPreviewPage } from "@/pages/ConversationsPreviewPage";
 import { FilesPage } from "@/pages/FilesPage";
+import { FloatWindowPage } from "@/pages/FloatWindowPage";
 import { MessagesPage } from "@/pages/MessagesPage";
 import { MorePage } from "@/pages/MorePage";
 import { OnboardingPreviewPage } from "@/pages/OnboardingPreviewPage";
@@ -48,6 +49,13 @@ import { WorkflowEditorPage, WorkflowsPage } from "@/pages/toolbox/workflows";
 import { Navigate, createHashRouter } from "react-router-dom";
 
 export const router = createHashRouter([
+  // Desktop OS float window (UX §十 · 方案 C): sibling of AppShell so it skips
+  // sidebar / main dock / app TitleBar. Hash: #/float?cid=…&tab=….
+  {
+    path: "/float",
+    element: <FloatWindowPage />,
+    errorElement: <RouteError />,
+  },
   {
     path: "/",
     element: <AppShell />,

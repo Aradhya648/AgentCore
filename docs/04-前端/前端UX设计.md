@@ -29,7 +29,7 @@ skip_if:
 
 侧栏 + 页面自布局；对话页单栏聊天。内嵌图「在画布打开」→ `TurnDetailPage`；点节点 → SidePanel run tab。输入框：空草稿居中，首条后 FLIP 落底。→ `ChatView.tsx`、`useComposerDockFlip.ts`。
 
-**侧栏 IA（方案 B）**：上=项目分组（Top 5/组、≤6 组）；下=裸聊扁平（有分组 10 / 无分组 15）。**否决**跨区「最近」、裸聊「未分组」空组。两区无标题，分隔线区分。对话出生定终身（不支持事后移入）。归档可撤销；删除对用户永久（无回收站 UI）。「对话」导航 = 新建草稿（`/` 唯一真相）。
+**侧栏 IA（方案 C）**：顶=全局置顶（裸聊 + 项目对话均可；按最近活动；零重复）；中=项目分组（Top 5/组、≤6 组；组内仅未置顶）；底=未置顶裸聊扁平（有分组 10 / 无分组 15）。**否决**跨区「最近」、裸聊「未分组」空组、置顶与组内/裸聊双显。三区无标题，分隔线区分。对话出生定终身（不支持事后移入）。归档可撤销；删除对用户永久（无回收站 UI）。「对话」导航 = 新建草稿（`/` 唯一真相）。
 
 **全局协作感知**：列表状态点（执行中脉动 / 「等你决策」光环）；跨对话完成 Toast + 原生通知。`finish_reason=paused` ≠ 完成。→ `teamActivityNotifications.ts`。
 
@@ -53,12 +53,47 @@ skip_if:
 
 ## 十、详情面板（右坞）
 
-单一 `SidePanel`（对话/画布右坞）。高亮同源 sidePanel。**否决**覆盖式单 tab、独立 reasoning Tab、并排双右坞、把白板塞进右坞、顶栏全局命令板（首期）。委派：单一 GraphView + 单一 `AgentRun` 模型。诊断模式 ⊥ 用量呈现。run 详情时间线：进行中贴底跟随（同主对话 stick 语义，上滑脱钩 +「回到底部」）；回看已结束 run 打开置顶。→ `stores/sidePanel.ts`、`RunDetailScroll.tsx` / `RunDetailBody.tsx`。
+单一 `SidePanel`（对话/画布**主坞**）。高亮跟**焦点面板**的 run（主坞活跃 tab 或某浮窗；`focusSurface` / `sidePanelFocusTabId`）。**否决**覆盖式单 tab、独立 reasoning Tab、并排双右坞、把白板塞进右坞、顶栏全局命令板（首期）。委派：单一 GraphView + 单一 `AgentRun` 模型。诊断模式 ⊥ 用量呈现。run 详情时间线：进行中贴底跟随（同主对话 stick 语义，上滑脱钩 +「回到底部」）；回看已结束 run 打开置顶。→ `stores/sidePanel.ts`、`RunDetailScroll.tsx` / `RunDetailBody.tsx`。
 
-**右坞 IA**：顶栏 = `[工作区*] [改动?] | 内容 tabs | [+]`（工作区固定不可关；**改动按本对话有无 AI 文件改动条件出现**，出现后位次第二、不可关）。内容 tab 多开并存、只存引用；可关 tab 上限 **12**（固定/条件固定不计）。`+` 菜单：文件 / 终端 / 浏览器（**文件**可多开顶栏 tab；**终端 / 浏览器**各一壳，多会话/页签在壳内管理）。**浏览器** = 统一 BrowserSession 壳（可新空白页+地址栏；非「等 AI 才亮」）；产物完整预览并入同壳（桌面 workspace 协议；**否决**平行「预览」tab）。**否决**「团队浏览器 vs 通用浏览器」双入口。画布态另出「指挥台」（条件固定，不进 `+`）。工作区 tab 内保留文件树 + 项目·本地/云端 chip + 新建文件/文件夹等工具栏；点文件开顶栏 File tab（不 swap 掉树）。
+**主坞定义**：未弹出内容的**停靠条 + 右侧布局槽**（非唯一可见/唯一可操作面）。关主坞 = 收起右侧槽，不销毁已弹出浮窗。
+
+**右坞 IA**：顶栏 = `[工作区?] [改动?] | 内容 tabs | [+]`（工作区**不可销毁、可 detach**——在坞内时固定首位；已弹出则坞条不留重复入口，可钉回；**改动按本对话有无 AI 文件改动条件出现**，出现后在坞内位次靠前、不可关，亦可 detach）。内容 tab 多开并存、只存引用；可关 tab 上限 **12**（固定/条件固定不计；正在 float 的 tab 不被此帽挤掉）。`+` 菜单：文件 / 终端 / 浏览器（**文件**可多开顶栏 tab；**终端 / 浏览器**各一壳，多会话/页签在壳内管理）。**浏览器** = 统一 BrowserSession 壳（可新空白页+地址栏；非「等 AI 才亮」）；产物完整预览并入同壳（桌面 workspace 协议；**否决**平行「预览」tab）。**否决**「团队浏览器 vs 通用浏览器」双入口。画布态另出「指挥台」（条件固定，不进 `+`）。工作区 tab 内保留文件树 + 项目·本地/云端 chip + 新建文件/文件夹等工具栏；点文件开顶栏 File tab（不 swap 掉树）。
 
 **「改动」tab**：本对话 AI 文件改动聚合（只读真 diff + 回滚；不做 apply/三方冲突——仍归交接）。行标签=新建/更新/删除（相对回合基线；**否决**工具名「写入/编辑」）。与产物卡「查看改动」同源聚焦（深链可先挂再聚焦）。**出现** = 本对话已有 AI 文件改动记录，或产物卡深链；**不**空挂常驻（对齐 Cursor 等「有货才审」）。**卸下** = 本对话无改动记录（切对话各自推导）；有改动时挂上不抢焦点。**否决**空态常驻入口；**否决**「清空本对话产物」作为卸 tab 条件（清空只抹云 scratch 盘，process/execution 改动史仍在）。文案用「改动」；**否决** tab 名 `diff`。→ `ConversationChangesPanel.tsx`
 
+### ✅ 应用内浮窗（方案 B · Web）
+
+桌面已切方案 C；**Web 长期保留 B**（无真窗）。B 宿主：`SidePanelFloatHost` ⊥ `open`。
+
+| 项 | 现状 |
+|---|---|
+| 语义 | Move；上限 8；可弹 run/工作区/文件/改动 |
+| 宿主 | `SidePanelFloatHost` ⊥ `open`；几何限于应用客户区（盖不住侧栏） |
+| 指针 | `stores/sidePanel.ts`、`FloatingPanelShell` / `SidePanelFloatHost` / `SidePanelSurfaceBody` |
+
+### ✅ 真 OS 窗（方案 C）
+
+桌面「弹出」= 独立 `BrowserWindow`（对标 JetBrains **Window** / VS Code Aux），可拖到任意显示器、可盖过主窗 UI。**否决**继续用应用内 absolute 层冒充「任意移到屏幕」；**否决** Copy 双开；终端/浏览器/指挥台/`content`/`simple-turn` 仍不可弹。
+
+| 项 | 定案 / 现状 |
+|---|---|
+| 平台 | **仅桌面 Electron**；Web 保持方案 B |
+| 语义 | 仍 **Move**；同一 tab 至多一处（坞 \| 应用内浮层(Web) \| 真窗(桌面)） |
+| 可弹 | 同 B：run、工作区、文件、改动 |
+| 交互 | 真窗内完整可操作；审批须在真窗内可达 |
+| 关主坞 | 真窗保留 |
+| 关真窗 | **系统关闭** = 钉回主坞（同 VS Code 关 aux）；**否决**真窗顶栏再挂图钉/自定义 ×（与窗控叠床架屋） |
+| 关主应用 | 主进程退出时收尽真窗 |
+| 高亮 | 跟焦点面（含「焦点在某真窗」）；主窗图高亮经 BroadcastChannel 焦点同步 |
+| 数量 | 统一上限 **8** |
+| 状态 | 真窗 = 新 renderer；主窗 SSE 权威，经 BroadcastChannel 推投影快照（禁真窗各自开对话流） |
+| Local Browser | 仍不可弹；单 `hostWin` 附着模型首期不改为多宿主 |
+| 窗控 IPC | 按 **webContents/窗 id** 路由；`float-window:*` + preload `floatWindowApi` |
+| 任务栏（Win） | **单 AppUserModelID**（`com.agentcore.desktop`）分组 + 多预览；最小化后缩略图/列表可还原；预览标题=真窗 title；**否决**每真窗独立钉选图标 |
+
+→ `main/float-window.ts`、`DesktopFloatWindowBridge`、`FloatWindowPage`、`lib/floatWindowSync.ts`
+
+**验收**：真窗可拖到副屏；盖过主窗侧栏/外框；两 worker 真窗并排跟流；钉回/切对话清空；审批在真窗可点；Web 仍为应用内浮窗。
 ## 十一、Agent 可发现性
 
 `public`/`unlisted`/`private`；可发现 ≠ 手选。**否决**用户 Agent/Team 选择器、辩论角色手选实体。

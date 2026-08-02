@@ -35,7 +35,7 @@ skip_if:
 
 ## 五、图视图
 
-内嵌 = 静态预览（禁缩放）；探索在放大态。节点 face：角色→在干什么→用时；¥/token 归 run 详情。点节点 → 右坞 SidePanel（高亮同源）。
+内嵌 = 静态预览（禁缩放）；探索在放大态。节点 face：角色→在干什么→用时；¥/token 归 run 详情。点节点 → SidePanel（主坞或已浮出的对应面板；高亮跟**焦点面板**的 run）。
 
 **布局 / 相机（白板模型）**：ELK **只**在结构变更时跑；`NODE_WIDTH`×`NODE_HEIGHT` 为布局权威 footprint，face 槽内裁切/滚动。相机只在结构 bbox 就绪/身份变化或容器尺寸变化时 fit（内联一次 fit-width）；**否决**测高二次 ELK、soft-center 抬 footprint、测高伺服相机。宿主常驻：`layoutReady` 不卸载 ReactFlow；内联折叠隐藏不卸树。契约 → `graphHost.tsx`。
 

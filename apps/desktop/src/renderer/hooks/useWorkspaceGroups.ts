@@ -14,32 +14,36 @@ export const MAX_WORKSPACE_GROUPS = 6;
 /** One sidebar「项目」group: a folder plus its (recency-sorted) conversations. */
 export interface WorkspaceGroup {
   folder: FolderMeta;
-  /** This folder's conversations, pinned-first then newest-first. */
+  /**
+   * Every live conversation in this folder (incl. pinned), newest-first.
+   * Header actions (归档全部 / 删项目) need the full set; the rail list filters
+   * pinned out so they only appear in the 置顶区.
+   */
   convs: Conversation[];
   /** Newest `updatedAt` in `convs` (ms epoch), for ordering groups by activity. */
   latest: number;
 }
 
-/** Pinned float to the top (置顶对话); within each group, newest activity first. */
-function byPinnedThenRecency(a: Conversation, b: Conversation): number {
-  if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+function byRecency(a: Conversation, b: Conversation): number {
   return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
 }
 
 /**
- * Partition conversations into「项目」groups (前端UX §一 方案B): folder → its
- * conversations (pinned-first, newest-first), groups ordered by latest activity and
- * capped at {@link MAX_WORKSPACE_GROUPS}. Pure (no React) so it's unit-testable; the
- * {@link useWorkspaceGroups} hook just memoizes it over the live cache.
+ * Partition conversations into「项目」groups (前端UX §一 方案C): folder → its
+ * conversations (newest-first; pinned included for header/latest), groups ordered
+ * by latest activity and capped at {@link MAX_WORKSPACE_GROUPS}. Pure (no React)
+ * so it's unit-testable; the {@link useWorkspaceGroups} hook just memoizes it.
  *
- * **裸聊 (folderless chats) are excluded** — under 方案B they live solely in「快速对话」
- * (干净二分零重复). Conversations whose folder isn't in `folders` (e.g. mid-deletion)
- * are skipped; the delete flow unbinds them to 裸聊 so they resurface in「快速对话」.
- */
-/**
- * Map each folder id → the canonical (first / oldest) id for its local binding.
- * Cloud folders map to themselves. Used so sidebar groups don't duplicate the
- * same local path when historical duplicate rows exist.
+ * **裸聊 (folderless chats) are excluded** — they live in「快速对话」. Pinned
+ * foldered chats stay in `convs` for group actions but the rail renders them only
+ * in the 置顶区 (零重复). Conversations whose folder isn't in `folders` (e.g.
+ * mid-deletion) are skipped; the delete flow unbinds them to 裸聊 so they
+ * resurface in「快速对话」.
+ *
+ * Map each folder id → the canonical (first / oldest) id for its local binding
+ * lives in {@link canonicalFolderIds}: cloud folders map to themselves so
+ * sidebar groups don't duplicate the same local path when historical duplicate
+ * rows exist.
  */
 function canonicalFolderIds(folders: FolderMeta[]): Map<string, string> {
   const keptByBinding = new Map<string, string>();
@@ -80,7 +84,7 @@ export function buildWorkspaceGroups(
   for (const [folderId, convs] of byFolder) {
     const folder = folderById.get(folderId);
     if (!folder) continue; // folder not in cache (e.g. just deleted) — skip
-    convs.sort(byPinnedThenRecency);
+    convs.sort(byRecency);
     const latest = convs.reduce(
       (m, c) => Math.max(m, Date.parse(c.updatedAt) || 0),
       0,
@@ -93,7 +97,7 @@ export function buildWorkspaceGroups(
 
 /**
  * The sidebar's「项目」groups over the live grouped cache. Shared by
- * `WorkspaceGroups` (renders them) and `RecentConversations` (bare-chat zone below)
+ * `WorkspaceGroups` (renders them) and `RecentConversations` (bare-chat zone)
  * so the partition lives in one place.
  */
 export function useWorkspaceGroups(): WorkspaceGroup[] {

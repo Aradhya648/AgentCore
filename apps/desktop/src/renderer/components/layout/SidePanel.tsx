@@ -25,6 +25,8 @@ import { ConversationChangesPanel } from "@/components/workspace/ConversationCha
 import { WorkspaceMode } from "@/components/workspace/WorkspacePanel";
 import { useConversationFileSource } from "@/hooks/useConversationFileSource";
 import { conversationHasFileArtifacts } from "@/lib/conversationFileChanges";
+import { closeOsFloatWindowsForTabs } from "@/components/layout/DesktopFloatWindowBridge";
+import { notifyError } from "@/lib/toast";
 import { resolveConversationLocalTarget } from "@/services/sidecarRouting";
 import {
   useActiveMessageContent,
@@ -43,6 +45,7 @@ import {
   TEAM_BROWSER_TAB_ID,
   TEAM_TERMINAL_TAB_ID,
   WORKSPACE_TAB_ID,
+  canFloatTabId,
   terminalDismissKey,
   useSidePanelStore,
 } from "@/stores/sidePanel";
@@ -57,6 +60,7 @@ import {
   Gavel,
   MessageSquare,
   PanelRight,
+  PictureInPicture2,
   Plus,
   Radio,
   Sparkles,
@@ -110,9 +114,12 @@ export function SidePanel() {
   const cycleWidth = useSidePanelStore((s) => s.cycleWidth);
   const closePanel = useSidePanelStore((s) => s.closePanel);
   const tabs = useSidePanelStore((s) => s.tabs);
+  const floats = useSidePanelStore((s) => s.floats);
   const activeTabId = useSidePanelStore((s) => s.activeTabId);
   const setActiveTab = useSidePanelStore((s) => s.setActiveTab);
   const closeTab = useSidePanelStore((s) => s.closeTab);
+  const floatTab = useSidePanelStore((s) => s.floatTab);
+  const clearFloats = useSidePanelStore((s) => s.clearFloats);
   const openTerminalTab = useSidePanelStore((s) => s.openTerminalTab);
   const bindTerminalSession = useSidePanelStore((s) => s.bindTerminalSession);
   const openFileTab = useSidePanelStore((s) => s.openFileTab);
@@ -121,6 +128,18 @@ export function SidePanel() {
     (s) => s.changesFocusMessageId,
   );
   const clearChangesFocus = useSidePanelStore((s) => s.clearChangesFocus);
+  const floatingIds = useMemo(
+    () => new Set(floats.map((f) => f.tabId)),
+    [floats],
+  );
+  const onPopOut = useCallback(
+    (tabId: string) => {
+      if (!floatTab(tabId)) {
+        notifyError("浮窗已满（最多 8 个），请先钉回或关闭一个");
+      }
+    },
+    [floatTab],
+  );
   const currentConversationId = useConversationStore(
     (s) => s.currentConversationId,
   );
@@ -158,16 +177,20 @@ export function SidePanel() {
 
   const visibleTabs = useMemo(() => {
     const live = new Set(liveTabKey ? liveTabKey.split("\u0001") : []);
-    return tabs.filter((t) => live.has(t.id));
-  }, [tabs, liveTabKey]);
+    // Move'd tabs leave the dock strip entirely (XOR dock/float).
+    return tabs.filter((t) => live.has(t.id) && !floatingIds.has(t.id));
+  }, [tabs, liveTabKey, floatingIds]);
   const activeTab =
     activeTabId === WORKSPACE_TAB_ID ||
     activeTabId === CHANGES_TAB_ID ||
     activeTabId === COMMAND_TAB_ID
       ? null
       : (visibleTabs.find((t) => t.id === activeTabId) ?? null);
-  const workspaceActive = activeTabId === WORKSPACE_TAB_ID;
-  const changesActive = activeTabId === CHANGES_TAB_ID;
+  const workspaceInDock = !floatingIds.has(WORKSPACE_TAB_ID);
+  const changesInDock =
+    changesTabVisible && !floatingIds.has(CHANGES_TAB_ID);
+  const workspaceActive = workspaceInDock && activeTabId === WORKSPACE_TAB_ID;
+  const changesActive = changesInDock && activeTabId === CHANGES_TAB_ID;
   const commandActive = command.show && activeTabId === COMMAND_TAB_ID;
 
   // Leaving canvas while on 指挥台: fall back to 工作区 (the tab disappears).
@@ -177,11 +200,14 @@ export function SidePanel() {
     }
   }, [command.show, activeTabId, setActiveTab]);
 
-  // 切对话：清深链聚焦；若仍停在「改动」且新对话无改动 → 由下方 effect 回工作区。
+  // 切对话：清深链聚焦 + 清浮窗；桌面须先/并关对应真窗。
   // biome-ignore lint/correctness/useExhaustiveDependencies: currentConversationId is an intentional re-run key
   useEffect(() => {
     clearChangesFocus();
-  }, [currentConversationId, clearChangesFocus]);
+    const floated = useSidePanelStore.getState().floats.map((f) => f.tabId);
+    clearFloats();
+    closeOsFloatWindowsForTabs(floated);
+  }, [currentConversationId, clearChangesFocus, clearFloats]);
 
   // 「改动」不可见时若仍激活 → 回工作区。
   useEffect(() => {
@@ -256,7 +282,7 @@ export function SidePanel() {
     if (open && changesActive) setChangesMounted(true);
   }, [open, changesActive]);
 
-  // Keep-alive keys for terminal / file bodies (mounted while tab exists).
+  // Keep-alive keys for terminal / file / run bodies (mounted while docked tab exists).
   const terminalTabs = useMemo(
     () =>
       visibleTabs.filter(
@@ -269,6 +295,13 @@ export function SidePanel() {
     () =>
       visibleTabs.filter(
         (t): t is Extract<DetailTab, { kind: "file" }> => t.kind === "file",
+      ),
+    [visibleTabs],
+  );
+  const runTabs = useMemo(
+    () =>
+      visibleTabs.filter(
+        (t): t is Extract<DetailTab, { kind: "run" }> => t.kind === "run",
       ),
     [visibleTabs],
   );
@@ -375,16 +408,20 @@ export function SidePanel() {
 
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 py-1.5 pr-1">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <FixedTab
-            active={workspaceActive}
-            onClick={() => setActiveTab(WORKSPACE_TAB_ID)}
-            icon={<FolderOpen size={14} />}
-            label="工作区"
-          />
-          {changesTabVisible && (
+          {workspaceInDock && (
+            <FixedTab
+              active={workspaceActive}
+              onClick={() => setActiveTab(WORKSPACE_TAB_ID)}
+              onPopOut={() => onPopOut(WORKSPACE_TAB_ID)}
+              icon={<FolderOpen size={14} />}
+              label="工作区"
+            />
+          )}
+          {changesInDock && (
             <FixedTab
               active={changesActive}
               onClick={() => setActiveTab(CHANGES_TAB_ID)}
+              onPopOut={() => onPopOut(CHANGES_TAB_ID)}
               icon={<Diff size={14} />}
               label="改动"
             />
@@ -402,8 +439,10 @@ export function SidePanel() {
               key={tab.id}
               tab={tab}
               active={tab.id === activeTab?.id}
+              canPopOut={canFloatTabId(tab.id, tabs)}
               onSelect={() => setActiveTab(tab.id)}
               onClose={() => onCloseContentTab(tab.id)}
+              onPopOut={() => onPopOut(tab.id)}
             />
           ))}
         </div>
@@ -436,14 +475,14 @@ export function SidePanel() {
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {wsMounted && (
+        {wsMounted && workspaceInDock && (
           <div
             className={`absolute inset-0 ${workspaceActive ? "" : "hidden"}`}
           >
             <WorkspaceMode />
           </div>
         )}
-        {changesMounted && changesTabVisible && (
+        {changesMounted && changesInDock && (
           <div className={`absolute inset-0 ${changesActive ? "" : "hidden"}`}>
             <ConversationChangesPanel />
           </div>
@@ -495,13 +534,21 @@ export function SidePanel() {
             </div>
           );
         })}
-        {activeTab?.kind === "run" && (
-          <RunDetailScroll
-            key={`${activeTab.id}:${activeTab.runId}`}
-            messageId={activeTab.messageId}
-            runId={activeTab.runId}
-          />
-        )}
+        {/* Multi-run keep-alive: every docked run stays mounted (hidden when inactive). */}
+        {runTabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`absolute inset-0 ${
+              activeTabId === tab.id ? "" : "hidden"
+            }`}
+          >
+            <RunDetailScroll
+              key={`${tab.id}:${tab.runId}`}
+              messageId={tab.messageId}
+              runId={tab.runId}
+            />
+          </div>
+        ))}
         {activeTab?.kind === "content" && (
           <div className="absolute inset-0 overflow-y-auto p-4">
             <Markdown content={contentTabText} />
@@ -591,27 +638,44 @@ function FileTabBody({
 function FixedTab({
   active,
   onClick,
+  onPopOut,
   icon,
   label,
 }: {
   active: boolean;
   onClick: () => void;
+  onPopOut?: () => void;
   icon: ReactNode;
   label: string;
 }) {
   return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      className={`shrink-0 gap-1.5 px-2.5 py-1 text-sm font-medium ${
+    <div
+      className={`group/tab flex shrink-0 items-center rounded-lg ${
         active
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/50"
       }`}
-      icon={icon}
     >
-      {label}
-    </Button>
+      <Button
+        variant="ghost"
+        onClick={onClick}
+        className="h-auto gap-1.5 rounded-none px-2.5 py-1 text-sm font-medium"
+        icon={icon}
+      >
+        {label}
+      </Button>
+      {onPopOut && (
+        <SimpleTooltip label="弹出为浮窗">
+          <IconButton
+            onClick={onPopOut}
+            aria-label={`弹出 ${label}`}
+            className="mr-1 size-5 opacity-0 group-hover/tab:opacity-100"
+          >
+            <PictureInPicture2 size={12} />
+          </IconButton>
+        </SimpleTooltip>
+      )}
+    </div>
   );
 }
 
@@ -673,11 +737,15 @@ function ContentTabChip({
   active,
   onSelect,
   onClose,
+  onPopOut,
+  canPopOut = false,
 }: {
   tab: DetailTab;
   active: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onPopOut?: () => void;
+  canPopOut?: boolean;
 }) {
   const icon =
     tab.kind === "content" ? (
@@ -712,6 +780,17 @@ function ContentTabChip({
       >
         {tab.title}
       </Button>
+      {canPopOut && onPopOut && (
+        <SimpleTooltip label="弹出为浮窗">
+          <IconButton
+            onClick={onPopOut}
+            aria-label={`弹出 ${tab.title}`}
+            className="size-5 opacity-0 group-hover/tab:opacity-100"
+          >
+            <PictureInPicture2 size={12} />
+          </IconButton>
+        </SimpleTooltip>
+      )}
       <IconButton
         onClick={onClose}
         aria-label={`关闭 ${tab.title}`}

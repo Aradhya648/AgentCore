@@ -6,6 +6,7 @@ import { TurnCompare } from "@/components/chat/compare/TurnCompare";
 import { DebateArena } from "@/components/chat/debate/arena/DebateArena";
 import { GraphView } from "@/components/graph/GraphView";
 import { SidePanel } from "@/components/layout/SidePanel";
+import { SidePanelFloatHost } from "@/components/layout/SidePanelFloatHost";
 import { SidePanelToggle } from "@/components/layout/SidePanelToggle";
 import { Button } from "@/components/ui";
 import {
@@ -30,7 +31,7 @@ import {
   useExecutionStore,
   useMessageExecution,
 } from "@/stores/execution";
-import { useSidePanelStore } from "@/stores/sidePanel";
+import { dismissFocusedFloat, useSidePanelStore } from "@/stores/sidePanel";
 import type { TurnDetailView } from "@/stores/ui";
 import { ReactFlowProvider } from "@xyflow/react";
 import {
@@ -351,6 +352,10 @@ export function TurnDetailPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (dismissFocusedFloat()) {
+        e.preventDefault();
+        return;
+      }
       const sp = useSidePanelStore.getState();
       const panelVisible =
         sp.open &&
@@ -519,6 +524,8 @@ export function TurnDetailPage() {
 
           <SidePanel />
         </div>
+
+        <SidePanelFloatHost />
 
         {!panelOpen && (
           <div className="absolute right-3 top-2 z-20">

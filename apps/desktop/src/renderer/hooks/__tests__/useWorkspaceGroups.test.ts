@@ -61,7 +61,7 @@ describe("buildWorkspaceGroups (方案B 项目分组)", () => {
     expect(groups.map((g) => g.folder.id)).toEqual(["f2", "f1"]);
   });
 
-  it("sorts within a group pinned-first then newest-first", () => {
+  it("sorts within a group newest-first (pinned stay in members for header)", () => {
     const groups = buildWorkspaceGroups(
       [
         conv("oldPinned", {
@@ -75,9 +75,9 @@ describe("buildWorkspaceGroups (方案B 项目分组)", () => {
       [folder("f1")],
     );
     expect(groups[0].convs.map((c) => c.id)).toEqual([
-      "oldPinned",
       "newest",
       "newer",
+      "oldPinned",
     ]);
   });
 

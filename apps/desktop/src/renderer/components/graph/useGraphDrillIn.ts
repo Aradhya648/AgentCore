@@ -1,6 +1,10 @@
 import { useActiveMessages, useConversationStore } from "@/stores/conversation";
 import type { Execution } from "@/stores/execution";
-import { type EndpointKind, useSidePanelStore } from "@/stores/sidePanel";
+import {
+  type EndpointKind,
+  sidePanelFocusTabId,
+  useSidePanelStore,
+} from "@/stores/sidePanel";
 import { useCallback, useMemo } from "react";
 import { INPUT_ID, isEndpointId } from "./constants";
 
@@ -41,17 +45,19 @@ export function useGraphDrillIn(
     [execution, messageId, showRunDetail],
   );
 
+  // Highlight follows focusSurface (dock active OR a float) — closing the dock
+  // must not clear a floating run's lit node (UX §十).
   const litRunId = useSidePanelStore((s) => {
-    if (!s.open) return null;
-    const active = s.tabs.find((t) => t.id === s.activeTabId);
+    const focusId = sidePanelFocusTabId(s);
+    const active = s.tabs.find((t) => t.id === focusId);
     return active?.kind === "run" && active.messageId === messageId
       ? active.runId
       : null;
   });
 
   const litEndpointMessageId = useSidePanelStore((s) => {
-    if (!s.open) return null;
-    const active = s.tabs.find((t) => t.id === s.activeTabId);
+    const focusId = sidePanelFocusTabId(s);
+    const active = s.tabs.find((t) => t.id === focusId);
     return active?.kind === "content" && active.messageId === messageId
       ? active.contentMessageId
       : null;

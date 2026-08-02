@@ -105,8 +105,12 @@ describe("TurnFileChangesReview change labels", () => {
     expect(screen.queryByText("编辑")).toBeNull();
     expect(screen.queryByText("新增")).toBeNull();
     expect(screen.queryByText("修改")).toBeNull();
-    // WriteBlock for added uses 新建 in the content header too
-    expect(screen.getByText(/新建 · 1 行/)).toBeTruthy();
+    // 单层 chrome：行数在折叠头，不在展开体内再标路径/模式
+    expect(screen.getByText("1 行")).toBeTruthy();
+    expect(screen.getAllByText("+1").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("-1").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("old.ts")).toHaveLength(1);
+    expect(screen.getAllByText("new.ts")).toHaveLength(1);
   });
 
   it("tool-arg fallback labels write/edit as 更新, never 写入/编辑", async () => {
@@ -162,8 +166,10 @@ describe("TurnFileChangesReview change labels", () => {
     expect(screen.getByText("删除")).toBeTruthy();
     expect(screen.queryByText("写入")).toBeNull();
     expect(screen.queryByText("编辑")).toBeNull();
-    // WriteBlock overwrite header also 更新, not 写入
-    expect(screen.getByText(/更新 · 1 行/)).toBeTruthy();
+    // 单层 chrome：write 模式行数在折叠头；路径不重复
+    expect(screen.getByText("1 行")).toBeTruthy();
+    expect(screen.getAllByText("a.ts")).toHaveLength(1);
+    expect(screen.getAllByText("b.ts")).toHaveLength(1);
   });
 });
 

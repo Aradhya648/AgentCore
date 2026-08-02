@@ -5,7 +5,7 @@ import {
   WINDOW_FRAME_PRESETS,
   type WindowFramePreset,
 } from "@shared/window-contract";
-import { type BrowserWindow, app, ipcMain, screen } from "electron";
+import { BrowserWindow, app, ipcMain, screen } from "electron";
 
 const PRESET_BY_ID = new Map(
   WINDOW_FRAME_PRESETS.map((p) => [p.id, p] as const),
@@ -84,6 +84,7 @@ function isWindowFramePreset(value: unknown): value is WindowFramePreset {
 }
 
 let currentPreset: WindowFramePreset = "free";
+let frameIpcRegistered = false;
 
 export function getFramePreset(): WindowFramePreset {
   return currentPreset;
@@ -114,16 +115,22 @@ export function applyFramePresetToWindow(
 
 /**
  * 注册拍摄比例 IPC，并在启动时恢复上次选择（若有）。
+ * apply 按 sender 窗路由（主窗 / 真 OS 浮窗均可）；IPC 句柄全局只注册一次。
  */
 export function registerWindowFrameIpc(window: BrowserWindow): void {
   currentPreset = readSavedPreset();
 
-  ipcMain.handle(WINDOW_CHANNELS.applyFramePreset, (_e, raw: unknown) => {
-    if (!isWindowFramePreset(raw)) return;
-    applyFramePresetToWindow(window, raw);
-  });
+  if (!frameIpcRegistered) {
+    frameIpcRegistered = true;
+    ipcMain.handle(WINDOW_CHANNELS.applyFramePreset, (e, raw: unknown) => {
+      if (!isWindowFramePreset(raw)) return;
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (!win || win.isDestroyed()) return;
+      applyFramePresetToWindow(win, raw);
+    });
 
-  ipcMain.handle(WINDOW_CHANNELS.getFramePreset, () => currentPreset);
+    ipcMain.handle(WINDOW_CHANNELS.getFramePreset, () => currentPreset);
+  }
 
   if (currentPreset !== "free") {
     window.once("ready-to-show", () => {

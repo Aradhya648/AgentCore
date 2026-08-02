@@ -25,6 +25,7 @@ import {
   RecentConversations,
   ViewAllConversations,
 } from "./RecentConversations";
+import { PinnedConversations } from "./PinnedConversations";
 import { UserMenu } from "./UserMenu";
 import { WorkspaceGroups } from "./WorkspaceGroups";
 
@@ -209,11 +210,12 @@ export function Sidebar() {
       {/* Divider — nav vs conversation list */}
       <div className="mx-3 border-t border-sidebar-border" />
 
-      {/* 项目 (collapsible folder groups) + 快速对话 (裸聊 flat list); full list
-          lives on /conversations (前端UX §一 方案B). */}
+      {/* 置顶 (全局) → 项目 → 快速对话 (未置顶裸聊); full list on /conversations
+          (前端UX §一 方案C). */}
       <div className="flex-1 overflow-y-auto">
         {!collapsed && (
           <>
+            <PinnedConversations />
             <WorkspaceGroups />
             <RecentConversations />
             <ViewAllConversations />

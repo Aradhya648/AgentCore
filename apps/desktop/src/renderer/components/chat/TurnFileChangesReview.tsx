@@ -10,21 +10,16 @@ import {
   restoreLocalTurnBaseline,
 } from "@/services/turnFilesDiff";
 import { restoreSnapshot } from "@/services/workspace";
-import {
-  ChevronDown,
-  ChevronRight,
-  FileCode2,
-  FileText,
-  Loader2,
-  RotateCcw,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 /**
  * A1 / A1+ 只读「查看改动」——挂在产物卡内。
  * 优先拉回合基线真 diff（A1+）；无基线 / 失败则降级工具参数预览（A1）。
  * 标签按路径相对回合初是否存在（新建/更新/删除），不按 file_write/str_replace 工具名。
  * 不做 apply / 三方冲突（与交接「查看并应用」刻意区分）。
+ *
+ * 信息架构：折叠头 = 唯一身份条（路径 + 变更态 + 行统计）；展开体 = 纯 diff / 预览，不再套路径标题。
  */
 
 const WRITE_PREVIEW_LINES = 300;
@@ -46,6 +41,12 @@ function previewKindLabel(change: FileChangePreview): string {
   return "更新";
 }
 
+function writeModeLabel(mode: "overwrite" | "append" | "added"): string {
+  if (mode === "append") return "追加";
+  if (mode === "added") return "新建";
+  return "更新";
+}
+
 function diffSign(type: DiffLine["type"]): string {
   if (type === "add") return "+";
   if (type === "del") return "-";
@@ -58,72 +59,50 @@ function diffRowClass(type: DiffLine["type"]): string {
   return "text-muted-foreground";
 }
 
-function EditBlock({
-  path,
-  oldText,
-  newText,
-}: {
-  path: string;
-  oldText: string;
-  newText: string;
-}) {
-  const lines = useMemo(() => lineDiff(oldText, newText), [oldText, newText]);
-  const adds = lines.reduce((n, l) => (l.type === "add" ? n + 1 : n), 0);
-  const dels = lines.reduce((n, l) => (l.type === "del" ? n + 1 : n), 0);
+function summarizeLineDiff(oldText: string, newText: string): {
+  lines: DiffLine[];
+  adds: number;
+  dels: number;
+} {
+  const lines = lineDiff(oldText, newText);
+  let adds = 0;
+  let dels = 0;
+  for (const l of lines) {
+    if (l.type === "add") adds += 1;
+    else if (l.type === "del") dels += 1;
+  }
+  return { lines, adds, dels };
+}
+
+/** 展开体：纯行 diff，无路径标题（身份在折叠头）。 */
+function DiffBody({ lines }: { lines: DiffLine[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1 text-xs">
-        <FileCode2 size={12} className="shrink-0 text-muted-foreground" />
-        <span className="truncate font-mono text-foreground">{path}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular-nums">
-          <span className="text-success">+{adds}</span>
-          <span className="text-destructive">-{dels}</span>
-        </span>
-      </div>
-      <div className="max-h-72 overflow-auto font-mono text-xs leading-relaxed">
-        {lines.map((l, i) => (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: stable positional diff rows
-            key={i}
-            className={`flex ${diffRowClass(l.type)}`}
-          >
-            <span className="w-5 shrink-0 select-none text-center text-muted-foreground/50">
-              {diffSign(l.type)}
-            </span>
-            <span className="whitespace-pre-wrap break-words pr-2">
-              {l.text || " "}
-            </span>
-          </div>
-        ))}
-      </div>
+    <div className="max-h-72 overflow-auto rounded-lg border border-border font-mono text-xs leading-relaxed">
+      {lines.map((l, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: stable positional diff rows
+          key={i}
+          className={`flex ${diffRowClass(l.type)}`}
+        >
+          <span className="w-5 shrink-0 select-none text-center text-muted-foreground/50">
+            {diffSign(l.type)}
+          </span>
+          <span className="whitespace-pre-wrap break-words pr-2">
+            {l.text || " "}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function WriteBlock({
-  path,
-  content,
-  mode,
-}: {
-  path: string;
-  content: string;
-  mode: "overwrite" | "append" | "added";
-}) {
+/** 展开体：纯内容预览，无路径 / 模式标题。 */
+function WriteBody({ content }: { content: string }) {
   const allLines = content.split("\n");
   const shown = allLines.slice(0, WRITE_PREVIEW_LINES);
   const hidden = allLines.length - shown.length;
-  // added = 真 diff 回合初不存在；overwrite/append = 无基线或已存在路径上的内容预览。
-  const modeLabel =
-    mode === "append" ? "追加" : mode === "added" ? "新建" : "更新";
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-border/60 border-b bg-muted/40 px-2.5 py-1 text-xs">
-        <FileText size={12} className="shrink-0 text-muted-foreground" />
-        <span className="truncate font-mono text-foreground">{path}</span>
-        <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-          {modeLabel} · {allLines.length} 行
-        </span>
-      </div>
       <div className="max-h-72 overflow-auto font-mono text-xs leading-relaxed">
         {shown.map((line, i) => (
           <div
@@ -149,29 +128,67 @@ function WriteBlock({
   );
 }
 
-function MetaBlock({
-  path,
-  change,
-}: {
-  path: string;
-  change: Extract<FileChangePreview, { kind: "delete" | "move" }>;
-}) {
-  const detail =
-    change.kind === "delete"
-      ? "已删除"
-      : `移动：${change.fromPath || "?"} → ${path}`;
+/** 展开体：删除/移动说明，不重复路径。 */
+function MetaBody({ detail }: { detail: string }) {
   return (
     <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 font-mono text-xs text-muted-foreground">
-      <span className="text-foreground">{path}</span>
-      <span className="mx-1.5">·</span>
       {detail}
     </div>
   );
 }
 
+function FileChangeChrome({
+  path,
+  open,
+  onToggle,
+  trailing,
+}: {
+  path: string;
+  open: boolean;
+  onToggle: () => void;
+  trailing: ReactNode;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onToggle}
+      className="h-auto w-full justify-start gap-1.5 rounded-lg px-1.5 py-1 hover:bg-accent/50"
+    >
+      <span className="flex w-full items-center gap-1.5 text-left text-xs">
+        {open ? (
+          <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+        )}
+        <span className="min-w-0 truncate font-mono text-foreground" title={path}>
+          {path}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular-nums text-muted-foreground">
+          {trailing}
+        </span>
+      </span>
+    </Button>
+  );
+}
+
+function EditTrailing({ adds, dels, label }: { adds: number; dels: number; label: string }) {
+  return (
+    <>
+      <span>{label}</span>
+      <span className="text-success">+{adds}</span>
+      <span className="text-destructive">-{dels}</span>
+    </>
+  );
+}
+
 function ArtifactChangeRow({ artifact }: { artifact: FileArtifact }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const change = artifact.change;
+  const editDiff = useMemo(() => {
+    if (!change || change.kind !== "edit") return null;
+    return summarizeLineDiff(change.oldText, change.newText);
+  }, [change]);
+
   if (!change) {
     return (
       <div className="px-1 py-1 text-xs text-muted-foreground">
@@ -181,100 +198,94 @@ function ArtifactChangeRow({ artifact }: { artifact: FileArtifact }) {
       </div>
     );
   }
+
+  const label = previewKindLabel(change);
+  let trailing: ReactNode = label;
+  if (change.kind === "edit" && editDiff) {
+    trailing = (
+      <EditTrailing adds={editDiff.adds} dels={editDiff.dels} label={label} />
+    );
+  } else if (change.kind === "write") {
+    const lines = change.content.split("\n").length;
+    trailing = (
+      <>
+        <span>{writeModeLabel(change.mode)}</span>
+        <span>{lines} 行</span>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
-      <Button
-        variant="ghost"
-        onClick={() => setOpen((v) => !v)}
-        className="h-auto w-full justify-start gap-1.5 rounded-lg px-1.5 py-1 hover:bg-accent/50"
-      >
-        <span className="flex w-full items-center gap-1.5 text-left text-xs">
-          {open ? (
-            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight
-              size={12}
-              className="shrink-0 text-muted-foreground"
-            />
-          )}
-          <span className="truncate font-mono text-foreground">
-            {artifact.path}
-          </span>
-          <span className="ml-auto shrink-0 text-muted-foreground">
-            {previewKindLabel(change)}
-          </span>
-        </span>
-      </Button>
-      {open && change.kind === "edit" && (
-        <EditBlock
-          path={artifact.path}
-          oldText={change.oldText}
-          newText={change.newText}
-        />
+      <FileChangeChrome
+        path={artifact.path}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        trailing={trailing}
+      />
+      {open && change.kind === "edit" && editDiff && (
+        <DiffBody lines={editDiff.lines} />
       )}
-      {open && change.kind === "write" && (
-        <WriteBlock
-          path={artifact.path}
-          content={change.content}
-          mode={change.mode}
+      {open && change.kind === "write" && <WriteBody content={change.content} />}
+      {open && change.kind === "delete" && <MetaBody detail="已删除" />}
+      {open && change.kind === "move" && (
+        <MetaBody
+          detail={`移动：${change.fromPath || "?"} → ${artifact.path}`}
         />
-      )}
-      {open && (change.kind === "delete" || change.kind === "move") && (
-        <MetaBlock path={artifact.path} change={change} />
       )}
     </div>
   );
 }
 
 function TrueDiffRow({ change }: { change: TurnFileChange }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const editDiff = useMemo(() => {
+    if (
+      change.changeType !== "modified" ||
+      change.isBinary ||
+      change.baseContent == null ||
+      change.content == null
+    ) {
+      return null;
+    }
+    return summarizeLineDiff(change.baseContent, change.content);
+  }, [change]);
+
+  const label = turnChangeLabel(change.changeType);
+  let trailing: ReactNode = label;
+  if (editDiff) {
+    trailing = (
+      <EditTrailing adds={editDiff.adds} dels={editDiff.dels} label={label} />
+    );
+  } else if (
+    change.changeType === "added" &&
+    !change.isBinary &&
+    change.content != null
+  ) {
+    const lines = change.content.split("\n").length;
+    trailing = (
+      <>
+        <span>{label}</span>
+        <span>{lines} 行</span>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-1.5">
-      <Button
-        variant="ghost"
-        onClick={() => setOpen((v) => !v)}
-        className="h-auto w-full justify-start gap-1.5 rounded-lg px-1.5 py-1 hover:bg-accent/50"
-      >
-        <span className="flex w-full items-center gap-1.5 text-left text-xs">
-          {open ? (
-            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight
-              size={12}
-              className="shrink-0 text-muted-foreground"
-            />
-          )}
-          <span className="truncate font-mono text-foreground">
-            {change.path}
-          </span>
-          <span className="ml-auto shrink-0 text-muted-foreground">
-            {turnChangeLabel(change.changeType)}
-          </span>
-        </span>
-      </Button>
-      {open &&
-        change.changeType === "modified" &&
-        !change.isBinary &&
-        change.baseContent != null &&
-        change.content != null && (
-          <EditBlock
-            path={change.path}
-            oldText={change.baseContent}
-            newText={change.content}
-          />
-        )}
+      <FileChangeChrome
+        path={change.path}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        trailing={trailing}
+      />
+      {open && editDiff && <DiffBody lines={editDiff.lines} />}
       {open &&
         change.changeType === "added" &&
         !change.isBinary &&
-        change.content != null && (
-          <WriteBlock
-            path={change.path}
-            content={change.content}
-            mode="added"
-          />
-        )}
+        change.content != null && <WriteBody content={change.content} />}
       {open && change.changeType === "deleted" && (
-        <MetaBlock path={change.path} change={{ kind: "delete" }} />
+        <MetaBody detail="已删除" />
       )}
       {open && change.isBinary && change.changeType !== "deleted" && (
         <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">

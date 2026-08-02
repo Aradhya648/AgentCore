@@ -5,6 +5,7 @@ import {
 } from "@/components/chat/ConversationHydrateOverlay";
 import { ConversationCanvas } from "@/components/graph/ConversationCanvas";
 import { SidePanel } from "@/components/layout/SidePanel";
+import { SidePanelFloatHost } from "@/components/layout/SidePanelFloatHost";
 import { SidePanelToggle } from "@/components/layout/SidePanelToggle";
 import { Button } from "@/components/ui";
 import { getConversations } from "@/hooks/useConversations";
@@ -28,7 +29,7 @@ import {
   getRuntime,
   useConversationStore,
 } from "@/stores/conversation";
-import { WORKSPACE_TAB_ID, useSidePanelStore } from "@/stores/sidePanel";
+import { WORKSPACE_TAB_ID, dismissFocusedFloat, useSidePanelStore } from "@/stores/sidePanel";
 import { useUIStore } from "@/stores/ui";
 import { MessageSquare, Network } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -303,14 +304,20 @@ export function ConversationPage() {
   // collapse, so the panel takes I to avoid the double-fire.)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (dismissFocusedFloat()) {
+          e.preventDefault();
+        }
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key === "i" || e.key === "I") {
         e.preventDefault();
         useSidePanelStore.getState().togglePanel();
       } else if (e.key === "j" || e.key === "J") {
         e.preventDefault();
-        // Smart toggle: reveal the 工作区 home tab, or dismiss the panel if it's
-        // already there (press again to close, like the old dedicated dock).
+        // Float focus: 钉回 first. Else smart toggle 工作区 / close dock.
+        if (dismissFocusedFloat()) return;
         const s = useSidePanelStore.getState();
         if (s.open && s.activeTabId === WORKSPACE_TAB_ID) s.closePanel();
         else s.showWorkspace();
@@ -376,6 +383,8 @@ export function ConversationPage() {
         </div>
       )}
       <SidePanel />
+      {/* 应用内浮窗宿主 ⊥ SidePanel.open（UX §十）：关主坞不得卸本层。 */}
+      {id && <SidePanelFloatHost />}
     </>
   );
 }

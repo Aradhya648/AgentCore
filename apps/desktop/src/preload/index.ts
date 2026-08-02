@@ -61,6 +61,11 @@ import {
   type UpdaterStatus,
 } from "@shared/updater-contract";
 import {
+  FLOAT_WINDOW_CHANNELS,
+  type FloatWindowApi,
+  type FloatWindowClosedPayload,
+} from "@shared/float-window-contract";
+import {
   WINDOW_CHANNELS,
   type WindowApi,
   type WindowFramePreset,
@@ -362,6 +367,20 @@ const windowApi: WindowApi = {
   getFramePreset: () => ipcRenderer.invoke(WINDOW_CHANNELS.getFramePreset),
 };
 
+/** 真 OS 浮窗（方案 C）；主窗侧 open/dock/destroy + closed 订阅。 */
+const floatWindowApi: FloatWindowApi = {
+  open: (input) => ipcRenderer.invoke(FLOAT_WINDOW_CHANNELS.open, input),
+  dock: (input) => ipcRenderer.invoke(FLOAT_WINDOW_CHANNELS.dock, input),
+  destroy: (input) => ipcRenderer.invoke(FLOAT_WINDOW_CHANNELS.destroy, input),
+  onClosed: (cb) => {
+    const listener = (_e: unknown, payload: FloatWindowClosedPayload) =>
+      cb(payload);
+    ipcRenderer.on(FLOAT_WINDOW_CHANNELS.closed, listener);
+    return () =>
+      ipcRenderer.removeListener(FLOAT_WINDOW_CHANNELS.closed, listener);
+  },
+};
+
 if (!process.contextIsolated) {
   throw new Error(
     "preload requires contextIsolation; refusing to mount APIs on window",
@@ -385,6 +404,7 @@ try {
   contextBridge.exposeInMainWorld("previewApi", previewApi);
   contextBridge.exposeInMainWorld("browserApi", browserApi);
   contextBridge.exposeInMainWorld("windowApi", windowApi);
+  contextBridge.exposeInMainWorld("floatWindowApi", floatWindowApi);
 } catch (error) {
   console.error(error);
 }
