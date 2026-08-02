@@ -224,7 +224,8 @@ export interface DebateModel {
   /** 本场是否开启质询（`debate_round_started.cross_exam_enabled`）。缺字段 / 老会话 → false，
    *  pending 文案回退「正在小结…」。 */
   crossExamEnabled: boolean;
-  /** 庭前取证（开赛后首轮前）；null = 无 / 老会话 / 秒过前未发事件。 */
+  /** 庭前取证（开赛后首轮前）；null = 无 / 老会话 / 秒过前未发事件。
+   * 展示为组卷轻态，不渲染取证员舰队。 */
   pretrial: DebatePretrialView | null;
   /** 场级证据台账（live delta 累积 / 收场权威）：徽章 `#eN` 溯源。 */
   evidenceLedger: EvidenceLedgerEntry[];
@@ -232,7 +233,7 @@ export interface DebateModel {
   subtopics: string[] | null;
 }
 
-/** 庭前取证展示态：各队点单 / 取证员进度 + 台账计数。 */
+/** 庭前取证展示态：组卷轻态 / 各方任务单摘要 + 台账计数。 */
 export interface DebatePretrialView {
   status: "running" | "done" | "skipped" | "degraded" | string;
   thorough: boolean;
@@ -245,27 +246,20 @@ export interface DebatePretrialView {
   completeness?: "full" | "partial" | "empty" | string;
   /** 明确 incomplete 字段时才有；intentional skip 不靠此告警。 */
   incomplete?: boolean;
-  /** 未有效交付的 side_key。 */
-  failedSides?: string[];
-  /** 外证计划 mode：skip / gap_fill / investigators。 */
-  externalEvidenceMode?: string | null;
-  /** 外证跳过/允许原因。 */
+  /** 外证计划 mode：生产仅 skip。 */
+  externalEvidenceMode?: "skip" | string | null;
+  /** 外证跳过原因。 */
   externalEvidenceReason?: string | null;
-  /** 庭前取证员/补证 per-run 检索预算。 */
-  retrievalBudgetPerInvestigator?: number;
 }
 
 export interface DebatePretrialSideView {
   sideKey: string;
   name: string;
   colorVar: string;
-  /** 本方任务单（点单后可见）。 */
+  /** 本方任务单（点单后可见；无舰队进度）。 */
   tasks: Array<{ query: string; purpose?: string }>;
-  /** 取证员进度：done/total；无取证员时 total=0。 */
-  investigatorDone: number;
-  investigatorTotal: number;
-  /** 是否仍有取证员在跑（live）。 */
-  running: boolean;
+  /** 庭前阶段仍在准备中（status=running）。 */
+  preparing: boolean;
 }
 
 /** 参辩名册的一方：语义 `sideKey` + 展示名 + 身份色——站队 / 拍板按 `sideKey` 记录用户取舍。 */

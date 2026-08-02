@@ -89,11 +89,11 @@ async def test_managed_bind_activates_and_snapshots_axes():
         turn_id=str(uuid4()),
         trace_id=None,
         delegated=True,
-        permission_preset=str(managed.to_dict()),
+        permission_axes=str(managed.to_dict()),
     )
     try:
         assert recorder.active is True
-        assert recorder._preset_snapshotted is True  # noqa: SLF001
+        assert recorder._axes_snapshotted is True  # noqa: SLF001
         assert len(recorder._pending) >= 1  # noqa: SLF001
         await recorder.flush()
     finally:
@@ -108,7 +108,7 @@ async def test_full_trust_journal_tool_side_effect_without_delegate():
         turn_id=str(uuid4()),
         trace_id=None,
         delegated=True,
-        permission_preset="full_trust",
+        permission_axes="full_trust",
     )
     try:
         on_journal_fact_appended(
@@ -170,7 +170,7 @@ def test_gvisor_none_mode_keeps_offline_namespaces():
 
 
 @pytest.mark.asyncio
-async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
+async def test_code_execute_network_mode_follows_axes(tmp_path: Path):
     captured: list[ExecutionRequest] = []
 
     class _CaptureSandbox(SubprocessSandbox):
@@ -189,7 +189,7 @@ async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
         agent_id="a",
         backend=backend,
         user_id="u",
-        permission_preset="{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\"}",
+        permission_axes="{\"file_write\":\"session\",\"command\":\"auto\",\"team_kickoff\":\"skip\"}",
     )
     await tool.execute({"code": "print(1)", "language": "python"}, ctx_trust)
     assert captured[-1].network_mode == "restricted"
@@ -200,7 +200,7 @@ async def test_code_execute_network_mode_follows_preset(tmp_path: Path):
         agent_id="a",
         backend=backend,
         user_id="u",
-        permission_preset="{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}",
+        permission_axes="{\"file_write\":\"session\",\"command\":\"kickoff\",\"team_kickoff\":\"rules\"}",
     )
     await tool.execute({"code": "print(1)", "language": "python"}, ctx_ws)
     assert captured[-1].network_mode == "none"

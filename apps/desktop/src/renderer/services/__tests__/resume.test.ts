@@ -64,7 +64,6 @@ const cpPayload = (
   context: "两条路线各有取舍。",
   assumptions: [],
   questions: [],
-  style_options: [],
   ...over,
 });
 
@@ -327,14 +326,10 @@ describe("resolveResumeMessageId", () => {
       sides: [],
       maxRounds: 0,
       thorough: true,
-      offerResearchFirst: false,
-      researchFirstRecommended: false,
       question: "先做 A 还是 B?",
       context: "",
       assumptions: [],
       questions: [],
-      styleOptions: [],
-      formatOptions: [],
       intent: "decision",
     });
 

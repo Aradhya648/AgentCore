@@ -38,7 +38,16 @@ from agentcore.db.base import Base
 _EXTRA_SOURCE_NEEDLES: tuple[str, ...] = (
     "UserLlmKey",
     "billing_preference",
+    # Auth invite codes retired (table ``invites`` is ambiguous vs shared-space
+    # invite helpers — skip that table name in source scan; these catch reintro).
+    "InviteRepository",
+    "generate_invite_code",
+    "CreateInviteRequest",
 )
+
+# Dropped table names that collide with unrelated identifiers (e.g. shared-space
+# invite helpers). Still enforced via ORM metadata; skipped in source scan.
+_AMBIGUOUS_TOMBSTONE_TABLES: frozenset[str] = frozenset({"invites"})
 
 _AGENTCORE_ROOT = Path(_db_pkg.__file__).resolve().parent.parent
 _MIGRATIONS_DIR = Path(_db_pkg.__file__).resolve().parent / "migrations"
@@ -213,7 +222,7 @@ def scan_source_for_tombstones(dropped_tables: set[str]) -> list[str]:
     ``status``, …); column tombstones are enforced via ORM metadata only.
     """
     needles: list[str] = list(_EXTRA_SOURCE_NEEDLES)
-    needles.extend(sorted(dropped_tables))
+    needles.extend(sorted(dropped_tables - _AMBIGUOUS_TOMBSTONE_TABLES))
     seen: set[str] = set()
     ordered: list[str] = []
     for n in needles:

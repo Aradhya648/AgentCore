@@ -27,7 +27,9 @@ skip_if:
 
 **失败收口**：协作图状态条 / 画布指挥台只报战绩——meta 的 `n/m` + 图节点色 + 右坞详情，**不**另挂「N 个子任务失败」红条；救火统一「对 CEO 再说」或再发一条（同人续派 / `continue_from_run_id`）。**否决**状态条「重试」「重试失败项」、`retry-failed` API、叠「全部重生成」、显式忽略（新 turn 隐式收口）、无帧「继续」。有正文气泡的 regenerate、传输层 RetryBanner 仍保留。`cancelled`/`interrupted` 不出 finishReason chip。
 
-默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。插话：composer 不禁发；主时间线普通用户气泡 + 四态状态标记（心智「对主 Agent」）；团队块仅追溯；热路挂起不可绕过。
+默认展开，按对话持久化。多幕 LOD：≥2 幕恰好一幕展开 DAG；**否决**默认全展开。face 徽标 ≤2；行动条仅 ≥2 待决。**否决**「规划中」态（`run_plan` 同步到达）。
+
+**运行中再发（P0+P1 ✅）**：composer 不禁发；`delivery` 必填。三原语 Steer / Queue / Stop。默认 Enter=Steer（协调→插话；经典→步边界软插入 + toast「已插入，下一工具步生效」）；Ctrl/Cmd+Enter（桌面）/「排队」钮（手机）强制 Queue。失败才 `degraded_from` 排队提示。Queue → 主气泡+轻态可取消；Stop ≠ 取消排队（但 Stop 后队列会立刻 drain 开跑）。单轮散文可能先 ack 再升下一回合——见 [运行时三模型 · 已知行为](/docs/03-AI核心/运行时三模型与挂起.md#已知行为真跑--平台-deepseek--2026-08)。权威 → [同对话再发](/docs/03-AI核心/运行时三模型与挂起.md#同对话再发steer--queue)。
 
 检查点 / 非阻塞发问 / plan_review / ResumePrompt / InteractionStore：语义 → [检查点与开工卡](/docs/03-AI核心/检查点与开工卡.md)。内联卡只留 resolved；可操作面统一 `ResumePrompt`。**否决**题目 accordion、Wizard、消息流再堆可操作入口。决策区 Chat/画布 `ConversationDecisionPrompts` 单挂载互斥。
 

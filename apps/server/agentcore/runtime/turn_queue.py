@@ -99,7 +99,10 @@ class TurnQueue:
         return len(self._queues.get(conversation_id) or ())
 
     def clear(self, conversation_id: str) -> int:
-        """Drop all pending turns (e.g. conversation deleted). Returns count dropped."""
+        """Drop all pending turns (e.g. conversation deleted). Returns count dropped.
+
+        Not a Stop side-effect — ``POST …/stop`` must leave queued items intact.
+        """
         q = self._queues.pop(conversation_id, None)
         self._drain_scheduled.discard(conversation_id)
         n = len(q) if q else 0
@@ -110,6 +113,30 @@ class TurnQueue:
                 dropped=n,
             )
         return n
+
+    def cancel(self, conversation_id: str, queue_id: str) -> QueuedTurn | None:
+        """Remove one pending turn by ``queue_id`` before drain. Returns the item or None.
+
+        Already-started / unknown id → None (route maps to 404). Does not affect
+        the in-flight turn or other queue entries.
+        """
+        q = self._queues.get(conversation_id)
+        if not q:
+            return None
+        for idx, item in enumerate(q):
+            if item.queue_id != queue_id:
+                continue
+            del q[idx]
+            if not q:
+                self._queues.pop(conversation_id, None)
+            logger.info(
+                "turn_queue.cancelled",
+                conversation_id=conversation_id,
+                queue_id=queue_id,
+                remaining=len(q),
+            )
+            return item
+        return None
 
     def pop_next(self, conversation_id: str) -> QueuedTurn | None:
         q = self._queues.get(conversation_id)

@@ -66,9 +66,8 @@ async def test_workspaces_requires_auth(client):
     assert (await client.get("/v1/workspaces/folder:x/files")).status_code == 401
 
 
-async def test_conv_scratch_file_crud_by_ws_id(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-1")
-    await register_and_login(client, code, "wsxuser1")
+async def test_conv_scratch_file_crud_by_ws_id(client, _fs_data_dir):
+    await register_and_login(client, "wsxuser1")
     conv_id = await _new_conversation(client, "Proj")
     ws = f"conv:{conv_id}"
 
@@ -94,9 +93,8 @@ async def test_conv_scratch_file_crud_by_ws_id(client, make_invite, _fs_data_dir
     assert (await client.delete(f"/v1/workspaces/{ws}/files/out/a.bin")).status_code == 200
 
 
-async def test_enumeration_lists_projects_and_conv_scratch(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-ENUM")
-    await register_and_login(client, code, "wsxenum")
+async def test_enumeration_lists_projects_and_conv_scratch(client, _fs_data_dir):
+    await register_and_login(client, "wsxenum")
     folder_id = await _new_folder(client, "Alpha")
     bare_conv = await _new_conversation(client, "bare")
 
@@ -116,9 +114,8 @@ async def test_enumeration_lists_projects_and_conv_scratch(client, make_invite, 
     assert by_id[f"conv:{bare_conv}"]["location"] == "cloud"
 
 
-async def test_enumeration_marks_local_binding(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-LOCAL")
-    await register_and_login(client, code, "wsxlocal")
+async def test_enumeration_marks_local_binding(client, _fs_data_dir):
+    await register_and_login(client, "wsxlocal")
     conv_id = await _new_conversation(client, "bound")
     await client.put(f"/v1/conversations/{conv_id}/workspace/binding", json={"root_id": _ROOT})
 
@@ -130,10 +127,9 @@ async def test_enumeration_marks_local_binding(client, make_invite, _fs_data_dir
     assert locals_[0]["has_files"] is True
 
 
-async def test_enumeration_lists_local_bound_conversation(client, make_invite, _fs_data_dir):
+async def test_enumeration_lists_local_bound_conversation(client, _fs_data_dir):
     """A conversation bound to a desktop root shows in the hub as a local scratch workspace."""
-    code = await make_invite("INV-WSX-F2")
-    await register_and_login(client, code, "wsxf2")
+    await register_and_login(client, "wsxf2")
     conv_id = await _new_conversation(client, "LocalProj")
     await client.put(f"/v1/conversations/{conv_id}/workspace/binding", json={"root_id": _ROOT})
 
@@ -147,10 +143,9 @@ async def test_enumeration_lists_local_bound_conversation(client, make_invite, _
     assert (await client.get(f"/v1/workspaces/conv:{conv_id}/files")).status_code == 409
 
 
-async def test_local_workspace_rejects_server_side_ops(client, make_invite, _fs_data_dir):
+async def test_local_workspace_rejects_server_side_ops(client, _fs_data_dir):
     """A local scratch workspace's files live on the desktop — server-side ops are 409."""
-    code = await make_invite("INV-WSX-409")
-    await register_and_login(client, code, "wsx409")
+    await register_and_login(client, "wsx409")
     conv_id = await _new_conversation(client, "LocalProj")
     await client.put(f"/v1/conversations/{conv_id}/workspace/binding", json={"root_id": _ROOT})
     ws = f"conv:{conv_id}"
@@ -166,9 +161,8 @@ async def test_local_workspace_rejects_server_side_ops(client, make_invite, _fs_
     assert (await client.get(f"/v1/workspaces/{ws}/snapshots")).status_code == 200
 
 
-async def test_snapshot_lifecycle_by_ws_id(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-SNAP")
-    await register_and_login(client, code, "wsxsnap")
+async def test_snapshot_lifecycle_by_ws_id(client, _fs_data_dir):
+    await register_and_login(client, "wsxsnap")
     conv_id = await _new_conversation(client, "Snaps")
     ws = f"conv:{conv_id}"
 
@@ -191,7 +185,7 @@ async def test_snapshot_lifecycle_by_ws_id(client, make_invite, _fs_data_dir):
     assert (await client.post(f"/v1/workspaces/{ws}/snapshots/nope/restore")).status_code == 404
 
 
-async def test_clone_repo_by_ws_id(client, make_invite, _fs_data_dir, tmp_path, monkeypatch):
+async def test_clone_repo_by_ws_id(client, _fs_data_dir, tmp_path, monkeypatch):
     if shutil.which("git") is None:
         pytest.skip("git not installed")
     src = tmp_path / "source-repo"
@@ -200,8 +194,7 @@ async def test_clone_repo_by_ws_id(client, make_invite, _fs_data_dir, tmp_path, 
 
     monkeypatch.setattr(gitmod, "_validate_url", lambda url: None)
 
-    code = await make_invite("INV-WSX-CLONE")
-    await register_and_login(client, code, "wsxclone")
+    await register_and_login(client, "wsxclone")
     conv_id = await _new_conversation(client, "CloneProj")
     ws = f"conv:{conv_id}"
 
@@ -214,9 +207,8 @@ async def test_clone_repo_by_ws_id(client, make_invite, _fs_data_dir, tmp_path, 
     assert r.content.replace(b"\r\n", b"\n") == b"hello clone\n"
 
 
-async def test_bad_and_foreign_ws_ids_404(client, new_client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-IDOR")
-    await register_and_login(client, code, "wsxowner")
+async def test_bad_and_foreign_ws_ids_404(client, new_client, _fs_data_dir):
+    await register_and_login(client, "wsxowner")
     folder_id = await _new_folder(client, "Mine")
     conv_id = await _new_conversation(client, "scratch")
 
@@ -226,19 +218,17 @@ async def test_bad_and_foreign_ws_ids_404(client, new_client, make_invite, _fs_d
     assert (await client.get(f"/v1/workspaces/folder:{folder_id}/files")).status_code == 200
     assert (await client.get(f"/v1/workspaces/conv:{conv_id}/files")).status_code == 200
 
-    code_b = await make_invite("INV-WSX-IDOR-B")
     async with new_client() as other:
-        await register_and_login(other, code_b, "wsxintruder")
+        await register_and_login(other, "wsxintruder")
         assert (await other.get(f"/v1/workspaces/conv:{conv_id}/files")).status_code == 404
         assert (await other.get(f"/v1/workspaces/folder:{folder_id}/files")).status_code == 404
 
 
-async def test_file_index_lists_files_pruning_ignored(client, make_invite, _fs_data_dir):
+async def test_file_index_lists_files_pruning_ignored(client, _fs_data_dir):
     """The @ mention index (文件中枢统一 F4) is a flat, files-only path list with
     noise dirs (node_modules/.git…) pruned — the cloud counterpart to the desktop
     fsApi.listFiles that indexes local roots, so @ behaves the same either way."""
-    code = await make_invite("INV-WSX-IDX")
-    await register_and_login(client, code, "wsxidx")
+    await register_and_login(client, "wsxidx")
     conv_id = await _new_conversation(client, "Idx")
     ws = f"conv:{conv_id}"
 
@@ -257,9 +247,8 @@ async def test_file_index_lists_files_pruning_ignored(client, make_invite, _fs_d
     assert body["truncated"] is False
 
 
-async def test_file_index_local_workspace_rejected(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WSX-IDX-L")
-    await register_and_login(client, code, "wsxidxl")
+async def test_file_index_local_workspace_rejected(client, _fs_data_dir):
+    await register_and_login(client, "wsxidxl")
     conv_id = await _new_conversation(client, "LocalIdx")
     await client.put(f"/v1/conversations/{conv_id}/workspace/binding", json={"root_id": _ROOT})
     assert (

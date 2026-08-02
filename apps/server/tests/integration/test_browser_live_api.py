@@ -22,20 +22,17 @@ async def test_browser_live_requires_auth(client):
     assert (await client.get(f"/v1/conversations/{cid}/browser/live")).status_code == 401
 
 
-async def test_browser_live_unknown_conversation_is_404(client, make_invite):
-    code = await make_invite("INV-BL1")
-    await register_and_login(client, code, "bluser1")
+async def test_browser_live_unknown_conversation_is_404(client):
+    await register_and_login(client, "bluser1")
     cid = "11111111-1111-1111-1111-111111111111"
     assert (await client.get(f"/v1/conversations/{cid}/browser/live")).status_code == 404
 
 
-async def test_browser_live_non_owner_is_404(client, make_invite, new_client):
-    code = await make_invite("INV-BL2")
-    await register_and_login(client, code, "blowner")
+async def test_browser_live_non_owner_is_404(client, new_client):
+    await register_and_login(client, "blowner")
     conv = await _new_conversation(client, "mine")
 
     # IDOR: a different user must not attach to another user's browser live stream.
-    code2 = await make_invite("INV-BL3")
     async with new_client() as other:
-        await register_and_login(other, code2, "blintruder")
+        await register_and_login(other, "blintruder")
         assert (await other.get(f"/v1/conversations/{conv}/browser/live")).status_code == 404

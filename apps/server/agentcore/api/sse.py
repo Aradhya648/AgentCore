@@ -210,6 +210,7 @@ async def _queued_turn_generator(
     position: int,
     queue_depth: int,
     started: asyncio.Future[EventSink],
+    degraded_from: str | None = None,
 ) -> AsyncIterator[str]:
     """Emit ``turn_queued``, wait for drain, then consume the live turn sink (发送即有流).
 
@@ -234,6 +235,7 @@ async def _queued_turn_generator(
                 position=position,
                 queue_depth=queue_depth,
                 conversation_id=conversation_id,
+                degraded_from=degraded_from,
             )
         )
         sink = await started
@@ -259,6 +261,7 @@ def sse_queued_response(
     position: int,
     queue_depth: int,
     started: asyncio.Future[EventSink],
+    degraded_from: str | None = None,
 ) -> StreamingResponse:
     """SSE for an enqueued POST: ``turn_queued`` then same-connection turn stream."""
     return StreamingResponse(
@@ -268,6 +271,7 @@ def sse_queued_response(
             position=position,
             queue_depth=queue_depth,
             started=started,
+            degraded_from=degraded_from,
         ),
         media_type="text/event-stream",
         headers={

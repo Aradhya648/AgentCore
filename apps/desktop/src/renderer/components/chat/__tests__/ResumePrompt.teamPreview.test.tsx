@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * 开工卡可操作面：delegate / debate 均两键（授权开工·开赛 / 停止）；
- * continue + 非空备注 = 嘱咐注入；debate 无「调整」；无 per_call 入口。
+ * continue + 非空备注 = 嘱咐注入；debate 无「调整」。
  */
 
 import {
@@ -71,14 +71,10 @@ function makeTeamPreview(over: Record<string, unknown> = {}) {
     sides: [],
     maxRounds: 0,
     thorough: true,
-    offerResearchFirst: false,
-    researchFirstRecommended: false,
     question: "",
     context: "",
     assumptions: [],
     questions: [],
-    styleOptions: [],
-    formatOptions: [],
     intent: "kickoff",
     origin: "server",
     ...over,
@@ -264,19 +260,11 @@ describe("ResumePrompt · team_preview debate", () => {
           { key: "con", name: "反方", stance: "暂缓" },
         ],
         maxRounds: 5,
-        offerResearchFirst: true,
-        researchFirstRecommended: true,
       }),
     ];
     cleanup();
     render(<ResumePrompt />);
     expect(screen.queryByText("先多视角调研再辩")).toBeNull();
     expect(screen.getByText("授权开赛")).toBeTruthy();
-  });
-
-  it("delegate 即使 offerResearchFirst 也不显示第三键", () => {
-    pendingRef.current = [makeTeamPreview({ offerResearchFirst: true })];
-    render(<ResumePrompt />);
-    expect(screen.queryByText("先多视角调研再辩")).toBeNull();
   });
 });

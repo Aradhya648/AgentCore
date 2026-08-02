@@ -1,3 +1,4 @@
+import type { MessageDelivery } from "@/lib/composerDelivery";
 import { notifyError } from "@/lib/toast";
 import {
   BASE_URL,
@@ -11,7 +12,12 @@ import {
   pumpSseBody,
 } from "@/services/streamConversation";
 import { getRuntime, useConversationStore } from "@/stores/conversation";
-import type { SSEEvent, TurnQueuedPayload } from "@/types/events";
+import { useQueuedTurnsStore } from "@/stores/queuedTurns";
+import type {
+  SSEEvent,
+  TurnQueuedPayload,
+  TurnSteerAcceptedPayload,
+} from "@/types/events";
 import {
   claimPrimaryStream,
   isPrimaryStreamIdle,
@@ -22,9 +28,9 @@ import {
 
 export type MidFlightSendResult =
   | { kind: "received"; interjectionId: string }
-  /** @deprecated alias of received — keep until callers migrate */
-  | { kind: "delivered"; interjectionId: string }
-  | { kind: "queued"; position: number; queueDepth: number }
+  /** 经典+steer 真软插入 ack（``turn_steer_accepted``）。 */
+  | { kind: "steered"; steerId: string }
+  | { kind: "queued"; position: number; queueDepth: number; queueId: string }
   | { kind: "blocked"; code?: string }
   | { kind: "error" };
 
@@ -33,41 +39,55 @@ type DeliverMode = "open" | "buffering" | "live" | "aborted";
 /**
  * POST a user message while a turn is already streaming（发送即有流）.
  *
- * Coordination → short SSE confirm with ``user_interjection``（即时 dispatch，不经
- * 主路门；主时间线由 InterjectionTimeline 投影 execution.userInterjections）；
- * classic in-flight → ``turn_queued`` 后缓冲后续帧，直至 turn1 主路泵
- * 释放（含 message_end / followups / turn_saved），再插用户气泡并续流——守住
- * drain 边界双连接不交叉污染末条气泡。
+ * ``delivery=steer``：
+ * - 协调 → ``user_interjection`` 短确认（主时间线由 InterjectionTimeline 投影）
+ * - 经典 → ``turn_steer_accepted``（软插入 pending；下一工具步生效）
+ * - 不可注入 → ``turn_queued`` + ``degraded_from=steer``
+ * ``delivery=queue``（强制）→ ``turn_queued`` 后立即插用户气泡 + 排队轻态，
+ * 后续帧缓冲至 turn1 主路释放再续流。
  *
  * POST 在调用时刻发出（D9 FIFO 位次已占）；缓冲只推迟客户端 fold。
+ * Stop/abort **不** cancel 服务端队列（可见条仍可按项取消）。
  */
 export async function sendMidFlightMessage(
   conversationId: string,
   content: string,
-  attachments?: OutgoingAttachment[],
+  attachments: OutgoingAttachment[] | undefined,
+  delivery: MessageDelivery,
 ): Promise<MidFlightSendResult> {
-  const body: Record<string, unknown> = { content };
+  const body: Record<string, unknown> = { content, delivery };
   if (attachments && attachments.length > 0) body.attachments = attachments;
 
   const ac = new AbortController();
   let abortRegistered = false;
   let result: MidFlightSendResult = { kind: "error" };
-  let userInserted = false;
+  let userMessageId: string | null = null;
+  let trackedQueueId: string | null = null;
   /** 闭包内可变；对象字段避免 TS 把字面量 mode 收窄成永 false。 */
   const gate = { mode: "open" as DeliverMode };
   const buffer: SSEEvent[] = [];
   let queuedPrimaryToken: string | null = null;
   let unsubIdle: () => void = () => {};
 
-  // 与 turn1 停止键联动：排队等待中断连 → 丢缓冲、不 cancel 服务端队列（D9 detached）。
+  // 与 turn1 AbortSignal 联动：断连丢缓冲，**不** cancel 服务端队列（D9）。
+  // 注意：stopGeneration 诚实停止不 abort AbortSignal，排队连接可继续等 drain。
   const parentAbort = getRuntime(conversationId).abort;
   const onParentAbort = (): void => ac.abort();
   parentAbort?.signal.addEventListener("abort", onParentAbort);
-  const insertUserBeforeTurn2 = (): void => {
-    if (userInserted) return;
+
+  const insertQueuedUserBubble = (
+    queueId: string,
+    position: number,
+    queueDepth: number,
+    degradedFrom?: "steer",
+  ): void => {
+    if (userMessageId) return;
+    const id = crypto.randomUUID();
+    userMessageId = id;
+    trackedQueueId = queueId;
     useConversationStore.getState().addMessage(
       {
-        id: crypto.randomUUID(),
+        id,
         role: "user",
         content,
         createdAt: new Date().toISOString(),
@@ -88,20 +108,39 @@ export async function sendMidFlightMessage(
       },
       conversationId,
     );
-    userInserted = true;
+    useQueuedTurnsStore.getState().upsert({
+      queueId,
+      conversationId,
+      messageId: id,
+      content,
+      position,
+      queueDepth,
+      degradedFrom,
+    });
     if (!abortRegistered) {
       useConversationStore.getState().setAbort(ac, conversationId);
       abortRegistered = true;
     }
   };
 
+  const clearQueueLightState = (): void => {
+    if (!trackedQueueId) return;
+    useQueuedTurnsStore.getState().remove(conversationId, trackedQueueId);
+    trackedQueueId = null;
+  };
+
   const dispatchOne = (event: SSEEvent): void => {
-    if (
-      event.type === "message_start" &&
-      result.kind === "queued" &&
-      !userInserted
-    ) {
-      insertUserBeforeTurn2();
+    if (event.type === "message_start" && result.kind === "queued") {
+      // drain 开跑：清排队轻态，保留用户气泡。
+      clearQueueLightState();
+      if (!userMessageId) {
+        // 防御：未在 turn_queued 插泡（不应发生）——补插再续。
+        insertQueuedUserBubble(
+          result.queueId,
+          result.position,
+          result.queueDepth,
+        );
+      }
     }
     dispatchSSEEvent(event, { conversationId, source: "server" });
   };
@@ -211,14 +250,30 @@ export async function sendMidFlightMessage(
         return;
       }
 
+      if (event.type === "turn_steer_accepted") {
+        // 经典 soft-insert ack：不插主时间线气泡；toast 由 messageStream 呈现。
+        gate.mode = "live";
+        const p = event.payload as TurnSteerAcceptedPayload;
+        const sid = (p.steer_id || "").trim();
+        if (sid) result = { kind: "steered", steerId: sid };
+        dispatchSSEEvent(event, { conversationId, source: "server" });
+        return;
+      }
+
       if (event.type === "turn_queued") {
         const p = event.payload as TurnQueuedPayload;
-        result = {
-          kind: "queued",
-          position: p.position ?? 1,
-          queueDepth: p.queue_depth ?? 1,
-        };
-        // toast 立即呈现；后续帧等 turn1 主路释放。
+        const position = p.position ?? 1;
+        const queueDepth = p.queue_depth ?? 1;
+        const queueId = p.queue_id;
+        result = { kind: "queued", position, queueDepth, queueId };
+        // 立即主时间线用户气泡 + 排队轻态（产品：Queue 可见可取消）。
+        insertQueuedUserBubble(
+          queueId,
+          position,
+          queueDepth,
+          p.degraded_from === "steer" ? "steer" : undefined,
+        );
+        // toast / degraded 由 dispatch → messageStream 呈现。
         dispatchSSEEvent(event, { conversationId, source: "server" });
         gate.mode = "buffering";
         armIdleFlush();
@@ -254,7 +309,7 @@ export async function sendMidFlightMessage(
     return result;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      // 排队等待中停止：丢弃未放行缓冲（不 cancel 服务端回合 · D9 detached）。
+      // 排队等待中断连：丢未放行缓冲；**保留**排队气泡/条（Stop ≠ 取消排队）。
       gate.mode = "aborted";
       buffer.length = 0;
       return result;

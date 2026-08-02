@@ -1,6 +1,10 @@
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
+import {
+  loadRememberedUsername,
+  saveRememberedUsername,
+} from "@/lib/rememberedUsername";
 import { errorMessage } from "@/services/api";
 import { login, loginMfa } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth";
@@ -17,8 +21,10 @@ export function LoginPage() {
   const setPendingMfaToken = useAuthStore((s) => s.setPendingMfaToken);
 
   const [step, setStep] = useState<Step>(pendingMfaToken ? "mfa" : "credentials");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => loadRememberedUsername());
   const [password, setPassword] = useState("");
+  /** Default off — session persistence is opt-in via「保持登录」. */
+  const [persistSession, setPersistSession] = useState(false);
   const [totpCode, setTotpCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,7 +33,8 @@ export function LoginPage() {
     if (!username || !password || submitting) return;
     setSubmitting(true);
     try {
-      const outcome = await login(username, password);
+      const outcome = await login(username, password, persistSession);
+      saveRememberedUsername(username);
       if (outcome.kind === "mfa_required") {
         setPendingMfaToken(outcome.pendingToken);
         setStep("mfa");
@@ -62,6 +69,7 @@ export function LoginPage() {
         setSubmitting(false);
         return;
       }
+      saveRememberedUsername(username);
       if (outcome.user.role === "admin") setAuthenticated(outcome.user);
       else setForbidden(outcome.user);
     } catch (err) {
@@ -116,6 +124,16 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               disabled={submitting}
             />
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input accent-primary"
+                checked={persistSession}
+                onChange={(e) => setPersistSession(e.target.checked)}
+                disabled={submitting}
+              />
+              保持登录
+            </label>
             <Button
               type="submit"
               disabled={submitting || !username || !password}

@@ -25,9 +25,7 @@ from agentcore.tools.builtin.ask_user.schema import (
     ListArgError,
     OptionLabelError,
     normalize_assumptions,
-    normalize_format_options,
     normalize_questions,
-    normalize_style_options,
 )
 from agentcore.tools.builtin.ask_user.suspend import persist_suspension
 from agentcore.tools.protocol import ToolContext, ToolResult, ToolSchema
@@ -230,38 +228,6 @@ class AskUserTool:
                             "required": ["prompt"],
                         },
                     },
-                    "style_options": {
-                        "type": "array",
-                        "description": (
-                            "可选兼容字段：视觉风格候选（不记账、不硬闸；优先短问）。"
-                        ),
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {
-                                    "type": "string",
-                                    "description": "风格名。",
-                                },
-                            },
-                            "required": ["label"],
-                        },
-                    },
-                    "format_options": {
-                        "type": "array",
-                        "description": (
-                            "可选兼容字段：交付形态候选（不记账、不硬闸；优先短问）。"
-                        ),
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {
-                                    "type": "string",
-                                    "description": "交付形态名。",
-                                },
-                            },
-                            "required": ["label"],
-                        },
-                    },
                     "blocking": {
                         "type": "boolean",
                         "description": (
@@ -327,8 +293,6 @@ class AskUserTool:
                 arguments.get("questions"),
                 max_options=card_max_options(card),
             )
-            style_options = normalize_style_options(arguments.get("style_options"))
-            format_options = normalize_format_options(arguments.get("format_options"))
         except ListArgError as exc:
             logger.info(
                 "ask_user.list_arg_rejected",
@@ -388,9 +352,7 @@ class AskUserTool:
                 )
 
         if not blocking:
-            return self._post_nonblocking(
-                message, ctx_text, assumptions, questions, style_options, format_options
-            )
+            return self._post_nonblocking(message, ctx_text, assumptions, questions)
 
         checkpoint_id = new_id()
         from agentcore.runtime.suspension import captain_transcript
@@ -400,7 +362,6 @@ class AskUserTool:
             if card is not None
             else resolve_ask_checkpoint_intent(captain_transcript.get())
         )
-        # style_options / format_options：wire 兼容可传，不记账、不硬闸。
         required = checkpoint_required(
             checkpoint_id=checkpoint_id,
             conversation_id=self.conversation_id,
@@ -408,8 +369,6 @@ class AskUserTool:
             context=ctx_text,
             assumptions=assumptions,
             questions=questions,
-            style_options=style_options,
-            format_options=format_options,
             intent=intent,
         )
         # 结构化挂起 2b + D11: persist the durable frame BEFORE finalize. Save success
@@ -439,8 +398,6 @@ class AskUserTool:
                 ctx_text=ctx_text,
                 assumptions=assumptions,
                 questions=questions,
-                style_options=style_options,
-                format_options=format_options,
                 required_event=required,
                 intent=intent,
             )
@@ -483,8 +440,6 @@ class AskUserTool:
         ctx_text: str,
         assumptions: list[dict[str, Any]],
         questions: list[dict[str, Any]],
-        style_options: list[dict[str, Any]],
-        format_options: list[dict[str, Any]],
     ) -> ToolResult:
         """非阻塞发问 (Cursor 式)：抛出确认但不挂起——CEO 按既定默认续跑，答复后续并入。
 
@@ -518,8 +473,6 @@ class AskUserTool:
                 context=ctx_text,
                 assumptions=assumptions,
                 questions=questions,
-                style_options=style_options,
-                format_options=format_options,
             )
         )
         logger.info(

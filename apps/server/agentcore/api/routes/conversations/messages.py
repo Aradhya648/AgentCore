@@ -7,7 +7,7 @@ conversations (IDOR-safe). Sending runs the turn as a detached task tracked in t
 
 import asyncio
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse
@@ -319,10 +319,14 @@ async def send_message(
 
     发送即有流 (D9): this endpoint **always** returns SSE (never 202 JSON).
 
-    - **空闲** → 现行为：开跑并流式推送整个回合。
-    - **经典 in-flight（无协调）** → FIFO 入队，立即 ``turn_queued``，drain 启动后
-      **同一连接**续流该回合；等待中断连 → 回合仍 detached 跑，靠 attach/recovery。
-    - **协调模式** → 插话进 CEO 事件队列，SSE 上复用 ``user_interjection``（短流确认）。
+    ``delivery`` 必填（``steer`` | ``queue``；缺 → 422）：
+
+    - **空闲** → 开跑并流式推送整个回合（客户端仍带 ``delivery=steer``）。
+    - **协调活跃 + steer** → ``user_interjection``（短流确认）；CEO 可智能升格排队。
+    - **协调活跃 + queue** → **强制** FIFO（绕过插话），立即 ``turn_queued``。
+    - **经典 in-flight + queue** → FIFO ``turn_queued``，drain 后同连接续流。
+    - **经典 in-flight + steer** → 挂到 live turn 进程内 pending（``turn_steer_accepted``）；
+      无 accepting 窗口 / 回合已收口 → 回落 FIFO（``turn_queued.degraded_from=steer``）。
     - **热路 pending**（approval / escalation / …）仍 409。
 
     Gated before the stream starts (成本配额与计费.md §一) so a refused turn gets a
@@ -374,7 +378,7 @@ async def send_message(
     )
     await release_request_db_before_sse(session)
 
-    # In-flight turn → coordination inject or conversation-level queue (both SSE).
+    # In-flight turn → delivery 分流（steer 插话 / queue 强制 FIFO / classic steer 步注入）。
     existing = turn_runs.get(conversation_id)
     if existing is not None and not existing.task.done():
         from agentcore.core.types import new_id
@@ -383,11 +387,24 @@ async def send_message(
             CoordinationEventKind,
             active_coordination_for_conversation,
         )
-        from agentcore.runtime.events import user_interjection
+        from agentcore.runtime.events import turn_steer_accepted, user_interjection
         from agentcore.runtime.turn_queue import new_queued_turn, turn_queue
+        from agentcore.runtime.turn_steer import (
+            content_preview,
+            peek_count,
+        )
+        from agentcore.runtime.turn_steer import (
+            try_enqueue as try_enqueue_steer,
+        )
 
         coord = active_coordination_for_conversation(conversation_id)
-        if coord is not None and coord.active:
+        coord_active = coord is not None and coord.active
+        # 协调 + steer → 插话；queue 强制绕过；经典 + steer → 步边界注入（失败回落 queue）。
+        try_interject = body.delivery == "steer" and coord_active
+        degraded_from: str | None = None
+
+        if try_interject:
+            assert coord is not None
             interjection_id = new_id()
             raw_attachments = [a.model_dump() for a in body.attachments]
             # Delivered path: persist now so CEO / queue_user_message see workspace_path.
@@ -453,6 +470,44 @@ async def send_message(
                 confirm.close()
                 return sse_response(confirm, detach_on_disconnect=True)
 
+        elif body.delivery == "steer":
+            # 经典 in-flight + steer → 挂到 live turn pending；无 accepting 窗口 → 回落 queue。
+            raw_attachments = [a.model_dump() for a in body.attachments]
+            parked = try_enqueue_steer(
+                conversation_id=conversation_id,
+                content=body.content,
+                user_id=user.user_id,
+                attachments=raw_attachments,
+                requires_tools=needs_tools,
+                x_client_platform=x_client_platform,
+                llm_credentials=preflight.credentials,
+                llm_supports_tools=preflight.supports_tools,
+            )
+            if parked is not None:
+                pending = peek_count(conversation_id)
+                preview = content_preview(body.content)
+                # Multi-client toast on the live turn; sender gets a short confirm stream.
+                existing.sink.emit(
+                    turn_steer_accepted(
+                        steer_id=parked.steer_id,
+                        conversation_id=conversation_id,
+                        content=preview,
+                        pending=pending,
+                    )
+                )
+                confirm = EventSink()
+                confirm.emit_sse_only(
+                    turn_steer_accepted(
+                        steer_id=parked.steer_id,
+                        conversation_id=conversation_id,
+                        content=preview,
+                        pending=pending,
+                    )
+                )
+                confirm.close()
+                return sse_response(confirm, detach_on_disconnect=True)
+            degraded_from = "steer"
+
         started: asyncio.Future = asyncio.get_running_loop().create_future()
         # enqueue_and_ensure_drain（非裸 enqueue）：协调 fall-through 前的附件落盘 await
         # 期间宿主回合可能已结束——彼时队列还空，done-callback 的 schedule_drain 已 no-op；
@@ -476,6 +531,7 @@ async def send_message(
             position=status.position,
             queue_depth=status.queue_depth,
             started=started,
+            degraded_from=degraded_from,
         )
 
     sink = EventSink()
@@ -498,18 +554,52 @@ async def send_message(
     return sse_response(sink, detach_on_disconnect=True)
 
 
+@router.post(
+    "/{conversation_id}/queued-turns/{queue_id}/cancel",
+    response_model=StatusResponse,
+)
+async def cancel_queued_turn(
+    conversation_id: str,
+    queue_id: str,
+    user: AuthUser,
+    conv_repo: ConversationRepository = Depends(get_conversation_repo),
+):
+    """Cancel one FIFO queued turn before drain (同对话再发 · 按项取消).
+
+    Owner-gated like send. Removes the entry by ``queue_id``; already started / unknown
+    → 404. Stop does **not** clear the queue — cancel is the only per-item withdraw.
+    On success emits EPHEMERAL ``turn_queue_cancelled`` on the live turn sink (multi-client).
+    """
+    await _require_owned_conversation(conversation_id, user.user_id, conv_repo)
+    from agentcore.runtime.events import turn_queue_cancelled
+    from agentcore.runtime.turn_queue import turn_queue
+
+    item = turn_queue.cancel(conversation_id, queue_id)
+    if item is None:
+        raise NotFoundError("排队项不存在或已开始")
+    fut = item.started
+    if fut is not None and not fut.done():
+        fut.cancel()
+    run = turn_runs.get(conversation_id)
+    if run is not None and not run.task.done():
+        run.sink.emit(
+            turn_queue_cancelled(queue_id=queue_id, conversation_id=conversation_id)
+        )
+    return StatusResponse()
+
+
 @router.post("/{conversation_id}/stop", response_model=StopTurnResponse)
 async def stop_message(
     conversation_id: str,
     user: AuthUser,
-    mode: Annotated[Literal["cancel", "discard"], Query()] = "cancel",
     conv_repo: ConversationRepository = Depends(get_conversation_repo),
 ):
     """Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).
 
     Cascade-cancels the detached run + live coordination workers and closes with
     ``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing
-    is running. ``mode=discard`` is an alias of hard cancel for older clients.
+    is running. Does **not** clear FIFO queued turns — cancel those via
+    ``POST …/queued-turns/{queue_id}/cancel``.
     """
     await _require_owned_conversation(conversation_id, user.user_id, conv_repo)
     from agentcore.runtime.interaction_orphan import orphan_live_turn_hot_pending
@@ -523,7 +613,7 @@ async def stop_message(
         )
 
         stopped = cancel_coordination_on_user_stop(conversation_id)
-    return StopTurnResponse(stopped=stopped, mode=mode)
+    return StopTurnResponse(stopped=stopped)
 
 
 @router.get("/{conversation_id}/stream")

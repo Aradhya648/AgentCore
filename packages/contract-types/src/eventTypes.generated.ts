@@ -88,8 +88,10 @@ export type SSEEventType =
   | "tool_use_end"
   | "tool_use_progress"
   | "tool_use_start"
+  | "turn_queue_cancelled"
   | "turn_queued"
   | "turn_saved"
+  | "turn_steer_accepted"
   | "turn_warning"
   | "user_interjection"
   | "workspace_op_required";

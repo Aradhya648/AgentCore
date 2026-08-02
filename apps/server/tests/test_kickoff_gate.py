@@ -345,11 +345,9 @@ async def test_debate_top_level_must_kickoff():
     assert saved[0].primitive == "debate"
     assert saved[0].motion.startswith("该不该")
     # 开工卡 research_first 键已退役：不再 offer
-    assert saved[0].offer_research_first is False
     assert any(e.type is EventType.TEAM_PREVIEW_REQUIRED for e in sink._history)
     required = next(e for e in sink._history if e.type is EventType.TEAM_PREVIEW_REQUIRED)
     assert required.payload["primitive"] == "debate"
-    assert required.payload.get("offer_research_first") is not True
     # Must pause before debate.started (no moderator run_started yet).
     assert not any(
         e.type is EventType.RUN_STARTED and str(e.payload.get("run_id", "")).startswith("debate_")

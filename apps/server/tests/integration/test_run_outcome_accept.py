@@ -47,12 +47,11 @@ async def _seed_deterministic_failure(
 
 
 @pytest.mark.asyncio
-async def test_accept_outcome_records_and_is_idempotent(client, session_factory, make_invite):
+async def test_accept_outcome_records_and_is_idempotent(client, session_factory):
     turn_id = str(uuid4())
     run_id = "w1"
     username = f"accept_{uuid4().hex[:8]}"
-    invite_code = await make_invite(f"INV-ACCEPT-{uuid4().hex[:6]}")
-    await register_and_login(client, invite_code, username)
+    await register_and_login(client, username)
     user_id, conversation_id = await _resolve_user_and_conversation(
         session_factory, username, "accept idempotent"
     )
@@ -102,13 +101,12 @@ async def test_accept_outcome_records_and_is_idempotent(client, session_factory,
 
 
 @pytest.mark.asyncio
-async def test_accept_outcome_redirect_ignored_reason(client, session_factory, make_invite):
+async def test_accept_outcome_redirect_ignored_reason(client, session_factory):
     """redirect_ignored trigger: same accept-outcome path, reason recorded on the audit row."""
     turn_id = str(uuid4())
     run_id = "w1"
     username = f"redirect_{uuid4().hex[:8]}"
-    invite_code = await make_invite(f"INV-REDIR-{uuid4().hex[:6]}")
-    await register_and_login(client, invite_code, username)
+    await register_and_login(client, username)
     user_id, conversation_id = await _resolve_user_and_conversation(
         session_factory, username, "redirect ignored"
     )
@@ -149,13 +147,12 @@ async def test_accept_outcome_redirect_ignored_reason(client, session_factory, m
 
 @pytest.mark.asyncio
 async def test_accept_outcome_rejects_non_owner(
-    client, new_client, session_factory, make_invite
+    client, new_client, session_factory
 ):
     """IDOR: a user cannot record an accept on someone else's conversation (404, not 200)."""
     turn_id = str(uuid4())
     owner_name = f"owner_{uuid4().hex[:8]}"
-    owner_invite = await make_invite(f"INV-OWNER-{uuid4().hex[:6]}")
-    await register_and_login(client, owner_invite, owner_name)
+    await register_and_login(client, owner_name)
     owner_id, conversation_id = await _resolve_user_and_conversation(
         session_factory, owner_name, "owned"
     )
@@ -169,8 +166,7 @@ async def test_accept_outcome_rejects_non_owner(
 
     async with new_client() as attacker:
         attacker_name = f"attacker_{uuid4().hex[:8]}"
-        attacker_invite = await make_invite(f"INV-ATK-{uuid4().hex[:6]}")
-        await register_and_login(attacker, attacker_invite, attacker_name)
+        await register_and_login(attacker, attacker_name)
         r = await attacker.post(
             f"/v1/conversations/{conversation_id}/messages/{turn_id}/accept-outcome",
             json={"run_id": "w1", "reason": "deterministic_failure"},

@@ -360,6 +360,8 @@ export interface StreamConversationOptions {
   conversationId: string;
   content: string;
   attachments?: OutgoingAttachment[];
+  /** 必填分流（缺 → 服务端 422）。空闲开跑客户端仍带 ``steer``。 */
+  delivery: "steer" | "queue";
   signal?: AbortSignal;
 }
 
@@ -371,9 +373,10 @@ export async function streamConversation({
   conversationId,
   content,
   attachments,
+  delivery,
   signal,
 }: StreamConversationOptions): Promise<void> {
-  const payload: Record<string, unknown> = { content };
+  const payload: Record<string, unknown> = { content, delivery };
   if (attachments && attachments.length > 0) payload.attachments = attachments;
   await runMessageStream(
     `/v1/conversations/${conversationId}/messages`,
@@ -412,9 +415,6 @@ export interface ResumeConversationOptions {
   note: string;
   selected?: string[];
   /** Structured website style pick (s0/s1/…). */
-  styleId?: string;
-  /** Structured presentation format pick (f0/f1/…). */
-  formatId?: string;
   signal?: AbortSignal;
 }
 
@@ -424,16 +424,12 @@ export async function resumeConversation({
   decision,
   note,
   selected = [],
-  styleId,
-  formatId,
   signal,
 }: ResumeConversationOptions): Promise<void> {
   const body = JSON.stringify({
     decision,
     note,
     selected,
-    ...(styleId ? { style_id: styleId } : {}),
-    ...(formatId ? { format_id: formatId } : {}),
   });
   await runMessageStream(
     `/v1/conversations/${conversationId}/messages/${messageId}/resume`,

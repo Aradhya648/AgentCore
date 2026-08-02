@@ -200,7 +200,6 @@ describe("buildRevisionBadge", () => {
       buildRevisionBadge({
         isRevision: true,
         continuationIndex: 1,
-        revision: 2,
         round: 3,
         isDebate: true,
         beat: "statement",
@@ -217,7 +216,6 @@ describe("buildRevisionBadge", () => {
       buildRevisionBadge({
         isRevision: true,
         continuationIndex: 1,
-        revision: 2,
         round: 2,
         isDebate: true,
         beat: "cross_exam",
@@ -230,7 +228,6 @@ describe("buildRevisionBadge", () => {
       buildRevisionBadge({
         isRevision: true,
         continuationIndex: 3,
-        revision: 4,
         round: 2,
         isDebate: true,
         beat: "closing",
@@ -242,11 +239,11 @@ describe("buildRevisionBadge", () => {
     });
   });
 
-  it("debate falls back to revision when round missing", () => {
+  it("debate falls back to continuationIndex when round missing", () => {
     expect(
       buildRevisionBadge({
         isRevision: true,
-        revision: 2,
+        continuationIndex: 1,
         round: 0,
         isDebate: true,
       })?.label,
@@ -255,10 +252,18 @@ describe("buildRevisionBadge", () => {
 
   it("skips non-continuation", () => {
     expect(
-      buildRevisionBadge({ isRevision: false, revision: 2, isDebate: false }),
+      buildRevisionBadge({
+        isRevision: false,
+        continuationIndex: 1,
+        isDebate: false,
+      }),
     ).toBeNull();
     expect(
-      buildRevisionBadge({ isRevision: true, revision: 1, isDebate: false }),
+      buildRevisionBadge({
+        isRevision: true,
+        continuationIndex: 0,
+        isDebate: false,
+      }),
     ).toBeNull();
   });
 });
@@ -285,7 +290,6 @@ describe("buildAgentNodePresentation revision face", () => {
       baseNode({
         isRevision: true,
         continuationIndex: 1,
-        revision: 2,
         revisionSummary: "补一段风险对冲",
       }),
     );
@@ -303,7 +307,6 @@ describe("buildAgentNodePresentation revision face", () => {
       baseNode({
         isRevision: true,
         continuationIndex: 1,
-        revision: 2,
         round: 2,
         stance: "pro",
         debateBeat: "statement",
@@ -324,7 +327,7 @@ describe("buildAgentNodePresentation revision face", () => {
     const cx = buildAgentNodePresentation(
       baseNode({
         isRevision: true,
-        revision: 2,
+        continuationIndex: 1,
         round: 2,
         stance: "pro",
         debateBeat: "cross_exam",
@@ -334,7 +337,7 @@ describe("buildAgentNodePresentation revision face", () => {
     const closing = buildAgentNodePresentation(
       baseNode({
         isRevision: true,
-        revision: 3,
+        continuationIndex: 2,
         round: 2,
         stance: "con",
         debateBeat: "closing",
@@ -412,7 +415,7 @@ describe("buildAgentNodePresentation revision face", () => {
     const p = buildAgentNodePresentation(
       baseNode({
         isRevision: true,
-        revision: 2,
+        continuationIndex: 1,
         round: 2,
         group: "debate:debate",
         debateBeat: "statement",

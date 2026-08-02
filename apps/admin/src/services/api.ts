@@ -68,12 +68,15 @@ function csrfHeaders(method: string): Record<string, string> {
 
 // The credential/session endpoints whose 401 is *expected* (bad password, no
 // session yet) — they must NOT trigger the refresh-replay-then-logout flow.
-// `/v1/auth/invites` lives under the same prefix but is a protected admin
-// resource, so it gets the standard 401 handling like `/v1/admin/*`.
-const isAuthPath = (path: string): boolean =>
-  path.startsWith("/v1/auth/") && !path.startsWith("/v1/auth/invites");
+const isAuthPath = (path: string): boolean => path.startsWith("/v1/auth/");
 
-async function tryRefresh(): Promise<boolean> {
+/**
+ * Silent cookie refresh. Exported for cold-start bootstrap: `/v1/auth/me` is an
+ * auth path so {@link request} will not auto-refresh on its 401 — bootstrap must
+ * call this explicitly, then retry `/me`. Regular API 401s still go through the
+ * in-request refresh below (non-auth paths only, to avoid refresh recursion).
+ */
+export async function tryRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE_URL}/v1/auth/refresh`, {
       method: "POST",

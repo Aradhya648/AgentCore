@@ -36,9 +36,8 @@ async def test_bookmark_requires_auth(client):
     assert r.status_code == 401
 
 
-async def test_create_list_and_ids(client, make_invite, session_factory):
-    code = await make_invite("INV-BM-1")
-    await register_and_login(client, code, "bmuser1")
+async def test_create_list_and_ids(client, session_factory):
+    await register_and_login(client, "bmuser1")
     conv = await _new_conversation(client, "bm conv")
     mid = await _seed_message_id(session_factory, conv, "an important assistant reply")
 
@@ -64,9 +63,8 @@ async def test_create_list_and_ids(client, make_invite, session_factory):
     assert ids == [mid]
 
 
-async def test_bookmark_is_idempotent(client, make_invite, session_factory):
-    code = await make_invite("INV-BM-2")
-    await register_and_login(client, code, "bmuser2")
+async def test_bookmark_is_idempotent(client, session_factory):
+    await register_and_login(client, "bmuser2")
     conv = await _new_conversation(client)
     mid = await _seed_message_id(session_factory, conv, "dup me")
 
@@ -82,9 +80,8 @@ async def test_bookmark_is_idempotent(client, make_invite, session_factory):
     assert len((await client.get("/v1/bookmarks")).json()["data"]) == 1
 
 
-async def test_remove_bookmark_is_idempotent(client, make_invite, session_factory):
-    code = await make_invite("INV-BM-3")
-    await register_and_login(client, code, "bmuser3")
+async def test_remove_bookmark_is_idempotent(client, session_factory):
+    await register_and_login(client, "bmuser3")
     conv = await _new_conversation(client)
     mid = await _seed_message_id(session_factory, conv, "remove me")
     await client.post("/v1/bookmarks", json={"conversation_id": conv, "message_id": mid})
@@ -95,17 +92,15 @@ async def test_remove_bookmark_is_idempotent(client, make_invite, session_factor
     assert (await client.delete(f"/v1/bookmarks/{mid}")).status_code == 200
 
 
-async def test_bookmark_is_owner_scoped(client, make_invite, new_client, session_factory):
+async def test_bookmark_is_owner_scoped(client, new_client, session_factory):
     """A non-owner can neither bookmark another user's message nor read their data."""
-    code_a = await make_invite("INV-BM-4A")
-    await register_and_login(client, code_a, "bmowner")
+    await register_and_login(client, "bmowner")
     conv = await _new_conversation(client, "owner conv")
     mid = await _seed_message_id(session_factory, conv, "owner secret")
     await client.post("/v1/bookmarks", json={"conversation_id": conv, "message_id": mid})
 
-    code_b = await make_invite("INV-BM-4B")
     async with new_client() as other:
-        await register_and_login(other, code_b, "bmintruder")
+        await register_and_login(other, "bmintruder")
         # Cannot bookmark a message in a conversation they don't own.
         r = await other.post(
             "/v1/bookmarks", json={"conversation_id": conv, "message_id": mid}
@@ -119,9 +114,8 @@ async def test_bookmark_is_owner_scoped(client, make_invite, new_client, session
         assert (await other.get("/v1/bookmarks")).json()["data"] == []
 
 
-async def test_bookmark_missing_message_404(client, make_invite):
-    code = await make_invite("INV-BM-5")
-    await register_and_login(client, code, "bmuser5")
+async def test_bookmark_missing_message_404(client):
+    await register_and_login(client, "bmuser5")
     conv = await _new_conversation(client)
     r = await client.post(
         "/v1/bookmarks",
@@ -134,10 +128,9 @@ async def test_bookmark_missing_message_404(client, make_invite):
 
 
 async def test_soft_deleted_conversation_hides_bookmarks(
-    client, make_invite, session_factory
+    client, session_factory
 ):
-    code = await make_invite("INV-BM-6")
-    await register_and_login(client, code, "bmuser6")
+    await register_and_login(client, "bmuser6")
     conv = await _new_conversation(client, "to delete")
     mid = await _seed_message_id(session_factory, conv, "will vanish from 已收藏")
     await client.post("/v1/bookmarks", json={"conversation_id": conv, "message_id": mid})

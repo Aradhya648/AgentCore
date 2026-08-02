@@ -67,6 +67,8 @@ export function allowsSseEvent(phase: TurnPhase, eventType: string): boolean {
     eventType === "followups_unavailable" ||
     eventType === "citations" ||
     eventType === "evidence_ledger" ||
+    // 排队按项取消：Stop 过程中仍可清 UI（Stop ≠ 取消排队，但 cancel 事件须入折）。
+    eventType === "turn_queue_cancelled" ||
     // 异步团队：detached 可落在 message_end 前后；completed 常在 terminal 后同连接到达。
     eventType === "execution_detached" ||
     eventType === "execution_completed"

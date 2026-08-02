@@ -61,12 +61,14 @@ export function conversationSummary(
     pinned: partial.pinned ?? false,
     archived: partial.archived ?? false,
     deep_research_auto: partial.deep_research_auto ?? false,
+    context_compacted: partial.context_compacted ?? false,
     permission_axes: partial.permission_axes ?? {
       file_write: "session",
       command: "auto",
       team_kickoff: "skip",
       host: "ask",
     },
+    model_profile_id: partial.model_profile_id ?? null,
   };
 }
 

@@ -1,4 +1,5 @@
 import { FollowupChips } from "@/components/chat/FollowupChips";
+import { QueuedTurnsBar } from "@/components/chat/QueuedTurnsBar";
 import { TurnComposer } from "@/components/chat/message-input/TurnComposer";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -139,6 +140,7 @@ export function CanvasCommandBar({
               </IconButton>
             </div>
             <FollowupChips followups={followups} />
+            <QueuedTurnsBar conversationId={conversationId} />
             <TurnComposer
               placeholder="向 CEO 下达下一步指令…"
               allowBackground={allowBackground}

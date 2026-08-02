@@ -278,34 +278,31 @@ def test_debate_team_preview_research_first(projected):
     assert "team" not in [s["kind"] for s in p["process"]]
 
 
-def test_debate_pretrial_thorough_projection(projected):
-    """庭前带队：debatePretrial=done，取证员 parent=主辩。"""
-    p = projected["multi_agent_debate_pretrial_thorough"]
-    pt = p.get("debatePretrial")
-    assert pt is not None
-    assert pt["status"] == "done"
-    assert pt["evidenceReady"] is True
-    assert pt["completeness"] == "full"
-    assert pt["incomplete"] is False
-    assert pt["failedSides"] == []
-    assert len(pt["investigators"]) == 2
-    inv_parents = {i["parent_run_id"] for i in pt["investigators"]}
-    run_ids = {r["id"] for r in p["runs"]}
-    assert inv_parents <= run_ids
-    assert all(i["parent_run_id"].endswith(("_r1_pro", "_r1_con")) for i in pt["investigators"])
-
-
 def test_debate_pretrial_fast_projection(projected):
-    """庭前 fast：skipped + skipReason=fast，无取证员。"""
+    """庭前 fast：skipped + skipReason=fast，无取证员舰队。"""
     p = projected["multi_agent_debate_pretrial_fast"]
     pt = p.get("debatePretrial")
     assert pt is not None
     assert pt["status"] == "skipped"
     assert pt["skipReason"] == "fast"
-    assert pt["investigators"] == []
     assert pt["completeness"] == "empty"
     assert pt["incomplete"] is False
     assert not any("_inv_" in r["id"] for r in p["runs"])
+
+
+def test_debate_pretrial_no_pack_projection(projected):
+    """thorough 无 pack：skipped + no_pack，无舰队，进入立论。"""
+    p = projected["multi_agent_debate_pretrial_no_pack"]
+    pt = p.get("debatePretrial")
+    assert pt is not None
+    assert pt["status"] == "skipped"
+    assert pt["skipReason"] == "no_pack"
+    assert pt["completeness"] == "empty"
+    assert pt["incomplete"] is False
+    assert pt["externalEvidenceMode"] == "skip"
+    assert pt["externalEvidenceReason"] == "no_pack"
+    assert not any("_inv_" in r["id"] for r in p["runs"])
+    assert any(r["id"].endswith("_r1_pro") for r in p["runs"])
 
 
 def test_debate_pretrial_evidence_pack_full_projection(projected):
@@ -317,32 +314,26 @@ def test_debate_pretrial_evidence_pack_full_projection(projected):
     assert pt["skipReason"] == "evidence_pack"
     assert pt["completeness"] == "full"
     assert pt["incomplete"] is False
-    assert pt["failedSides"] == []
     assert pt["externalEvidenceMode"] == "skip"
     assert pt["externalEvidenceReason"] == "evidence_pack_full"
-    assert pt["retrievalBudgetPerInvestigator"] == 0
-    assert pt["investigators"] == []
     assert pt["evidenceReady"] is True
     assert not any("_inv_" in r["id"] for r in p["runs"])
 
 
-def test_debate_pretrial_evidence_pack_gap_fill_projection(projected):
-    """Evidence Pack 截断：有界 gap_fill + reason；一侧失败 → partial。"""
-    from agentcore.runtime.debate.constants import BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
-
-    p = projected["multi_agent_debate_pretrial_evidence_pack_gap_fill"]
+def test_debate_pretrial_evidence_pack_partial_projection(projected):
+    """Evidence Pack 截断：skip 外证舰队；completeness=partial。"""
+    p = projected["multi_agent_debate_pretrial_evidence_pack_partial"]
     pt = p.get("debatePretrial")
     assert pt is not None
-    assert pt["status"] == "degraded"
+    assert pt["status"] == "skipped"
+    assert pt["skipReason"] == "evidence_pack"
     assert pt["completeness"] == "partial"
-    assert pt["incomplete"] is True
-    assert pt["failedSides"] == ["con"]
-    assert pt["externalEvidenceMode"] == "gap_fill"
-    assert pt["externalEvidenceReason"] == "evidence_pack_gap"
-    assert pt["retrievalBudgetPerInvestigator"] == BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
-    assert len(pt["investigators"]) == 2
-    assert {i["ok"] for i in pt["investigators"]} == {True, False}
-    assert any("_inv_" in r["id"] for r in p["runs"])
+    assert pt["incomplete"] is False
+    assert pt["externalEvidenceMode"] == "skip"
+    assert pt["externalEvidenceReason"] == "evidence_pack_partial"
+    assert pt["evidenceReady"] is True
+    assert not any("_inv_" in r["id"] for r in p["runs"])
+    assert any(r["id"].endswith("_r1_pro") for r in p["runs"])
 
 
 def test_debate_team_preview_research_first_recommended(projected):

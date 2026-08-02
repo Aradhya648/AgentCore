@@ -45,9 +45,6 @@ export interface SidecarPermissionAxes {
   host: SidecarHostAxis;
 }
 
-/** @deprecated 旧三档互斥预设；新路径请用 `SidecarPermissionAxes`。 */
-export type SidecarPermissionPreset = "observe" | "workspace" | "full_trust";
-
 /** renderer 发起一次本地回合所需的入参（主进程据此驱动对应 root 的 sidecar）。 */
 export interface SidecarStartTurnRequest {
   /** 目标会话 id —— 回流的 `turn/event` 用它定位 renderer 侧的会话切片。 */
@@ -85,8 +82,6 @@ export interface SidecarStartTurnRequest {
   browserBridge?: SidecarBrowserBridge;
   /** 本会话当前权限轴。缺省 = sidecar 沿用当前值（初始默认少打断）。 */
   permissionAxes?: SidecarPermissionAxes;
-  /** @deprecated 请用 permissionAxes；sidecar 仍接受旧三档作配方映射。 */
-  permissionPreset?: SidecarPermissionPreset;
 }
 
 /** 一条历史消息（与引擎 `run_chat_pipeline` 的 history 形状对齐）。 */
@@ -191,7 +186,6 @@ export interface SidecarPausedTurn {
   context: string;
   assumptions: Record<string, unknown>[];
   questions: Record<string, unknown>[];
-  style_options: Record<string, unknown>[];
 }
 
 /** 续跑一个持久挂起的本地回合（结构化挂起 2b resume，经 sidecar 的 `resume` 方法）。 */
@@ -207,8 +201,8 @@ export interface SidecarResumeRequest {
   traceId: string;
   /** 挂起时已落库的原始 user 气泡 id —— outbox 幂等锚（同 startTurn.userMessageId）。 */
   userMessageId?: string;
-  /** continue（授权并开工）/ per_call（历史）/ adjust / stop / research_first（辩论·先调研再辩）。 */
-  decision: "continue" | "per_call" | "adjust" | "stop" | "research_first";
+  /** continue（授权并开工）/ adjust / stop / research_first（辩论·先调研再辩）。 */
+  decision: "continue" | "adjust" | "stop" | "research_first";
   /**
    * continue：可选开工嘱咐（非空则注入未跑队员，与 checkpoints CONTINUE+note 对齐）；
    * adjust：转向说明；stop：收尾语；research_first：忽略 note。
@@ -217,17 +211,12 @@ export interface SidecarResumeRequest {
   /** ask_user 的选项选择；plan_review 忽略。 */
   selected?: string[];
   /** Structured website style pick (s0/s1/…). */
-  styleId?: string;
-  /** Structured presentation format pick (f0/f1/…). */
-  formatId?: string;
   /** 云代理凭据（同 `startTurn`）——续跑要跑 LLM；重启后续跑会新拉起引擎，故须随带。 */
   inference?: SidecarInference;
   /** DesktopBrowserBridge 本回合凭证（同 `startTurn.browserBridge`）。 */
   browserBridge?: SidecarBrowserBridge;
   /** 本会话当前权限轴（同 `startTurn.permissionAxes`）。 */
   permissionAxes?: SidecarPermissionAxes;
-  /** @deprecated 请用 permissionAxes。 */
-  permissionPreset?: SidecarPermissionPreset;
 }
 
 /** A1+ 本机回合文件真 diff（相对 `AgentCore/baselines/{messageId}.zip`）。 */
@@ -305,11 +294,8 @@ export function buildSidecarResumeRpcParams(
     | "decision"
     | "note"
     | "selected"
-    | "styleId"
-    | "formatId"
     | "userMessageId"
     | "permissionAxes"
-    | "permissionPreset"
   >,
   inference?: SidecarInference,
   browserBridge?: SidecarBrowserBridge | null,
@@ -321,14 +307,11 @@ export function buildSidecarResumeRpcParams(
     decision: req.decision,
     note: req.note,
     selected: req.selected ?? [],
-    ...(req.styleId ? { styleId: req.styleId } : {}),
-    ...(req.formatId ? { formatId: req.formatId } : {}),
     ...(req.userMessageId ? { userMessageId: req.userMessageId } : {}),
     ...(inference ? { inference } : {}),
     // Explicit null clears sticky spawn-env leftovers on the Python side.
     ...(browserBridge !== undefined ? { browserBridge } : {}),
     ...(req.permissionAxes ? { permissionAxes: req.permissionAxes } : {}),
-    ...(req.permissionPreset ? { permissionPreset: req.permissionPreset } : {}),
   };
 }
 

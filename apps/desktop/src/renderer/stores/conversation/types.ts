@@ -2,9 +2,7 @@ import type { ErrorAction } from "@/lib/errors";
 import type { ExecutionJournal } from "@/stores/execution";
 import type {
   AskAssumption,
-  AskFormatOption,
   AskQuestion,
-  AskStyleOption,
   CeoReviewSummary,
   CheckpointDecision,
   CheckpointIntent,
@@ -24,9 +22,6 @@ export interface CheckpointDisplay {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  styleOptions: AskStyleOption[];
-  /** Presentation format presets (演讲/PPT 等交付形态)；缺省 []. */
-  formatOptions: AskFormatOption[];
   intent: CheckpointIntent;
   status: "pending" | "resolved";
   decision: CheckpointDecision | null;
@@ -40,8 +35,6 @@ export interface NonBlockingAskDisplay {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  styleOptions: AskStyleOption[];
-  formatOptions: AskFormatOption[];
 }
 
 export interface PlanReviewDisplay {
@@ -103,10 +96,6 @@ export interface TeamPreviewDisplay {
   sides: TeamPreviewSideDisplay[];
   maxRounds: number;
   thorough: boolean;
-  /** Debate kickoff: offer「先多视角调研再辩」(缺省 false). */
-  offerResearchFirst: boolean;
-  /** Debate kickoff: elevate research-first as visual primary (缺省 false). */
-  researchFirstRecommended: boolean;
   /** Phase 3：裁判模型；缺省不展示跨模型署名。 */
   moderatorModel?: string;
   moderatorOrigin?: "platform" | "byok";
@@ -148,6 +137,11 @@ export interface Conversation {
    * 由输入框的 {@link import("@/components/chat/message-input/ModelPicker").ModelPicker} 写入。
    */
   modelProfileId?: string | null;
+  /**
+   * 较早对话已压缩（`ConversationSummary.context_compacted`）。
+   * true 时展示轻提示；不携带摘要正文。
+   */
+  contextCompacted?: boolean;
 }
 
 export interface MessageAttachmentMeta {

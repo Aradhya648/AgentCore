@@ -793,7 +793,7 @@ class TestRunTool:
 
         needs_install_net = is_install_shaped_argv(argv) or check == "install"
         allows_restricted = _permission_allows_restricted_network(
-            context.permission_preset
+            context.permission_axes
         )
         is_local_backend = getattr(context.backend, "location", "server") == "local"
         if needs_install_net and not allows_restricted:

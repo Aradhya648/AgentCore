@@ -50,9 +50,8 @@ def _png(width: int = 80, height: int = 120) -> bytes:
     return buffer.getvalue()
 
 
-async def test_avatar_upload_serve_and_delete_roundtrip(client, new_client, make_invite, assets):
-    code = await make_invite("INV-AV-1")
-    await register_and_login(client, code, "ava")
+async def test_avatar_upload_serve_and_delete_roundtrip(client, new_client, assets):
+    await register_and_login(client, "ava")
 
     # No avatar to start.
     assert (await client.get("/v1/auth/me")).json()["avatar_url"] is None
@@ -89,9 +88,8 @@ async def test_avatar_upload_serve_and_delete_roundtrip(client, new_client, make
         assert (await anon.get(avatar_url)).status_code == 404
 
 
-async def test_avatar_upload_rejects_non_image(client, make_invite, assets):
-    code = await make_invite("INV-AV-2")
-    await register_and_login(client, code, "bob")
+async def test_avatar_upload_rejects_non_image(client, assets):
+    await register_and_login(client, "bob")
     r = await client.post(
         "/v1/users/me/avatar",
         content=b"not an image at all",
@@ -101,9 +99,8 @@ async def test_avatar_upload_rejects_non_image(client, make_invite, assets):
     assert assets.objects == {}
 
 
-async def test_avatar_upload_rejects_empty_body(client, make_invite, assets):
-    code = await make_invite("INV-AV-3")
-    await register_and_login(client, code, "cleo")
+async def test_avatar_upload_rejects_empty_body(client, assets):
+    await register_and_login(client, "cleo")
     r = await client.post(
         "/v1/users/me/avatar",
         content=b"",
@@ -112,9 +109,8 @@ async def test_avatar_upload_rejects_empty_body(client, make_invite, assets):
     assert r.status_code == 422
 
 
-async def test_avatar_upload_rejects_oversized(client, make_invite, assets, monkeypatch):
-    code = await make_invite("INV-AV-4")
-    await register_and_login(client, code, "dan")
+async def test_avatar_upload_rejects_oversized(client, assets, monkeypatch):
+    await register_and_login(client, "dan")
     # Shrink the cap below the test image so the size guard trips (Content-Length).
     monkeypatch.setattr(settings, "avatar_upload_max_bytes", 10)
     r = await client.post(
@@ -137,17 +133,15 @@ async def test_avatar_upload_and_delete_require_auth(client, assets):
     assert (await client.delete("/v1/users/me/avatar")).status_code == 401
 
 
-async def test_avatar_serve_404_when_user_has_none(client, new_client, make_invite, assets):
-    code = await make_invite("INV-AV-5")
-    await register_and_login(client, code, "evan")
+async def test_avatar_serve_404_when_user_has_none(client, new_client, assets):
+    await register_and_login(client, "evan")
     user_id = (await client.get("/v1/auth/me")).json()["id"]
     async with new_client() as anon:
         assert (await anon.get(f"/v1/users/{user_id}/avatar")).status_code == 404
 
 
-async def test_avatar_delete_is_idempotent(client, make_invite, assets):
-    code = await make_invite("INV-AV-6")
-    await register_and_login(client, code, "finn")
+async def test_avatar_delete_is_idempotent(client, assets):
+    await register_and_login(client, "finn")
     # Deleting with no avatar set still succeeds with the unchanged user.
     r = await client.delete("/v1/users/me/avatar")
     assert r.status_code == 200

@@ -83,8 +83,6 @@ def checkpoint_required(
     context: str = "",
     assumptions: list[dict[str, Any]] | None = None,
     questions: list[dict[str, Any]] | None = None,
-    style_options: list[dict[str, Any]] | None = None,
-    format_options: list[dict[str, Any]] | None = None,
     intent: AskCheckpointIntent | None = None,
 ) -> SSEEvent:
     payload: dict[str, Any] = {
@@ -94,8 +92,6 @@ def checkpoint_required(
         "context": context,
         "assumptions": assumptions or [],
         "questions": questions or [],
-        "style_options": style_options or [],
-        "format_options": format_options or [],
     }
     if intent is not None:
         payload["intent"] = intent
@@ -110,8 +106,6 @@ def question_posted(
     context: str = "",
     assumptions: list[dict[str, Any]] | None = None,
     questions: list[dict[str, Any]] | None = None,
-    style_options: list[dict[str, Any]] | None = None,
-    format_options: list[dict[str, Any]] | None = None,
 ) -> SSEEvent:
     return SSEEvent(
         type=EventType.QUESTION_POSTED,
@@ -122,8 +116,6 @@ def question_posted(
             "context": context,
             "assumptions": assumptions or [],
             "questions": questions or [],
-            "style_options": style_options or [],
-            "format_options": format_options or [],
         },
     )
 
@@ -187,8 +179,6 @@ def team_preview_required(
     sides: list[dict[str, Any]] | None = None,
     max_rounds: int = 0,
     thorough: bool = True,
-    offer_research_first: bool = False,
-    research_first_recommended: bool = False,
     moderator_model: str = "",
     moderator_origin: str = "",
     moderator_provider_id: str = "",
@@ -201,8 +191,6 @@ def team_preview_required(
     任务摘要 / 依赖；debate：``motion`` / ``sides`` / ``max_rounds`` / ``thorough``。
     ``tools`` = 将授权的执行能力（execution_class；文件改动由会话档信任，不再列入；
     debate 辩手只读 → 常空；full_auto / always_ask 亦可空）。
-    ``offer_research_first`` 仅辩论开工卡在零调研时为 true（缺省省略，旧 journal 兼容）。
-    ``research_first_recommended`` 零调研且命中多维取证触发词时为 true（缺省省略）。
     """
     payload: dict[str, Any] = {
         "checkpoint_id": checkpoint_id,
@@ -216,10 +204,6 @@ def team_preview_required(
         "max_rounds": max_rounds,
         "thorough": thorough,
     }
-    if offer_research_first:
-        payload["offer_research_first"] = True
-    if research_first_recommended:
-        payload["research_first_recommended"] = True
     if moderator_model:
         payload["moderator_model"] = moderator_model
         if moderator_origin:

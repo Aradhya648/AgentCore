@@ -54,8 +54,6 @@ function makePreview(
     sides: [],
     maxRounds: 0,
     thorough: true,
-    offerResearchFirst: false,
-    researchFirstRecommended: false,
     status: "resolved",
     decision: "continue",
     note: "",
@@ -209,17 +207,6 @@ describe("TeamPreviewCard", () => {
     expect(
       screen.getByRole("button", {
         name: /已选先调研 · 辩论未开赛/,
-      }),
-    ).toBeTruthy();
-  });
-
-  it("historical per_call resolves collapse to continue label", () => {
-    renderCard(
-      <TeamPreviewCard preview={makePreview({ decision: "per_call" })} />,
-    );
-    expect(
-      screen.getByRole("button", {
-        name: /已授权开工 · 首波已放行 · 2 名队员/,
       }),
     ).toBeTruthy();
   });

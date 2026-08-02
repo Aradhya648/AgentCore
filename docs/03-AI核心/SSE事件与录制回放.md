@@ -22,6 +22,10 @@ skip_if:
 - **`run_escalation`**：worker 调 `escalate` 瞬间即可见（DURABLE + `escalation_id`）；工具经 `on_escalate` 回调，不碰事件词表。escalate 仍非阻塞。
 - **幕序列 `act`**：协作图 = 幕序列；旧 journal 无 `act` → fold 合成单幕。编排 → [辩论编排](/docs/03-AI核心/辩论编排设计.md)；渲染 → [协作图 UX](/docs/04-前端/协作图与双视图UX.md)。
 - **`run_phase`**（✅）：worker mid-flight 活动相位（`thinking` / `tool` / `waiting_children` / `winding_down`）——EPHEMERAL；投影 `run.phase` / `phaseTool`。`queued`=`status:pending`，`skipped`=`status:skipped`。→ 见代码：`runtime/events/run.py:run_phase`
+- **`turn_queued`**（✅ EPHEMERAL）：同对话 FIFO 排队确认（`queue_id` / `position` / `queue_depth`；经典+steer 回落时带 `degraded_from: "steer"`）。
+- **`turn_queue_cancelled`**（✅ EPHEMERAL）：按项取消成功（`queue_id` / `conversation_id`）；多端清 UI。语义 → [运行时三模型 · 同对话再发](/docs/03-AI核心/运行时三模型与挂起.md#同对话再发steer--queue)。
+- **`turn_steer_accepted`**（✅ EPHEMERAL）：经典 in-flight 软插入确认（`steer_id` / `conversation_id` / 截断 `content` / `pending`）；toast「已插入，下一工具步生效」。**勿**复用 `user_interjection`。→ 见代码：`runtime/events/run.py:turn_steer_accepted` · `runtime/turn_steer.py`
+- **`user_interjection`**（✅ DURABLE）：协调中 Steer 插话；同 `interjection_id` 保最新 `status`（received / addressed / queued / failed）。→ 见代码：`runtime/events/run.py:user_interjection`
 
 `finish_reason` → 见代码 `FinishReason`。
 

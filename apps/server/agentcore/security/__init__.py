@@ -9,7 +9,6 @@ from agentcore.security.csrf import sign_csrf_token, verify_csrf_token
 from agentcore.security.keys import KeyEncryptor
 from agentcore.security.passwords import hash_password, verify_password
 from agentcore.security.refresh import (
-    generate_invite_code,
     generate_refresh_token,
     generate_temp_password,
     hash_refresh_token,
@@ -37,7 +36,6 @@ __all__ = [
     "decode_access_token_mfa_verified",
     "decode_inference_token",
     "decode_mfa_pending_token",
-    "generate_invite_code",
     "generate_refresh_token",
     "generate_temp_password",
     "hash_password",

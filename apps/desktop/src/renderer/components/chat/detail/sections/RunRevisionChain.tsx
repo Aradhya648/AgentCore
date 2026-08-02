@@ -75,7 +75,7 @@ export function RevisionChainSection({
               ? `第 ${run.round || version} 轮`
               : debateBeatLabel({
                   round: run.round,
-                  revision: version,
+                  continuationIndex: run.continuationIndex,
                   beat: debateBeatFromContext(run.receivedContext),
                 })
             : version === 1

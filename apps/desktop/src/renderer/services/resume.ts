@@ -319,14 +319,10 @@ export function surfaceResumeFromAssistant(
       sides: [],
       maxRounds: 0,
       thorough: true,
-      offerResearchFirst: false,
-      researchFirstRecommended: false,
       question: cp.question,
       context: cp.context,
       assumptions: cp.assumptions,
       questions: cp.questions,
-      styleOptions: cp.styleOptions,
-      formatOptions: cp.formatOptions,
       intent: cp.intent,
     });
     painted = true;
@@ -349,14 +345,10 @@ export function surfaceResumeFromAssistant(
         sides: [],
         maxRounds: 0,
         thorough: true,
-        offerResearchFirst: false,
-        researchFirstRecommended: false,
         question: "",
         context: "",
         assumptions: [],
         questions: [],
-        styleOptions: [],
-        formatOptions: [],
         intent: "decision",
       });
       painted = true;
@@ -378,8 +370,6 @@ export function surfaceResumeFromAssistant(
           sides: tp.sides,
           maxRounds: tp.maxRounds,
           thorough: tp.thorough,
-          offerResearchFirst: tp.offerResearchFirst,
-          researchFirstRecommended: tp.researchFirstRecommended,
           ...(tp.moderatorModel ? { moderatorModel: tp.moderatorModel } : {}),
           ...(tp.moderatorOrigin
             ? { moderatorOrigin: tp.moderatorOrigin }
@@ -392,8 +382,6 @@ export function surfaceResumeFromAssistant(
           context: "",
           assumptions: [],
           questions: [],
-          styleOptions: [],
-          formatOptions: [],
           // team_preview is the kickoff card — not a mid-turn decision ask.
           intent: "kickoff",
         });

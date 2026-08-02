@@ -137,11 +137,6 @@ def prepare_bind_tree_for_sandbox(root: Path) -> None:
     _apply(root, is_dir=True)
 
 
-def prepare_staged_workspace_for_sandbox(staging: Path) -> None:
-    """Backward-compatible alias for :func:`prepare_bind_tree_for_sandbox`."""
-    prepare_bind_tree_for_sandbox(staging)
-
-
 def snapshot_tree(root: Path) -> TreeState:
     """Fingerprint every regular file under ``root`` (pre-execution baseline)."""
     state: TreeState = {}
@@ -184,7 +179,7 @@ def stage_workspace(src: Path, dst: Path, *, max_bytes: int) -> TreeState:
                     "引导后在本机运行。"
                 )
             shutil.copy2(src_file, dst / rel_dir / name)
-    prepare_staged_workspace_for_sandbox(dst)
+    prepare_bind_tree_for_sandbox(dst)
     return snapshot_tree(dst)
 
 

@@ -123,9 +123,8 @@ async def test_rewrite_requires_auth(client):
 # --- BYOK preflight: 402 when keyless, 200 when keyed ---
 
 
-async def test_rewrite_refused_without_byok_key(client, make_invite, byok):
-    code = await make_invite("INV-RW-NOKEY")
-    await register_and_login(client, code, "rwuser1")
+async def test_rewrite_refused_without_byok_key(client, byok):
+    await register_and_login(client, "rwuser1")
 
     r = await client.post(_REWRITE_PATH, json=_VALID_BODY)
     assert r.status_code == 402, r.text
@@ -133,10 +132,9 @@ async def test_rewrite_refused_without_byok_key(client, make_invite, byok):
 
 
 async def test_rewrite_with_byok_key_returns_rewritten(
-    client, make_invite, session_factory, byok, stub_provider
+    client, session_factory, byok, stub_provider
 ):
-    code = await make_invite("INV-RW-KEY")
-    user_id = await register_and_login(client, code, "rwuser2")
+    user_id = await register_and_login(client, "rwuser2")
     await _store_key(session_factory, user_id=user_id, api_key="sk-byok-rw-1234")
 
     r = await client.post(_REWRITE_PATH, json=_VALID_BODY)
@@ -148,14 +146,13 @@ async def test_rewrite_with_byok_key_returns_rewritten(
 
 
 async def test_rewrite_blocked_when_over_quota_platform(
-    client, make_invite, session_factory, platform, stub_provider
+    client, session_factory, platform, stub_provider
 ):
     # stub_provider is defensive: the quota gate must refuse *before* a provider is
     # built, so the stub stays unused on the green path. But if the preflight ever
     # regressed, the assertion then fails on a canned 200 instead of making — and
     # billing — a real upstream LLM call.
-    code = await make_invite("INV-RW-QUOTA")
-    user_id = await register_and_login(client, code, "rwuser3")
+    user_id = await register_and_login(client, "rwuser3")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_OVER_MONTHLY_NANO
@@ -167,10 +164,9 @@ async def test_rewrite_blocked_when_over_quota_platform(
 
 
 async def test_rewrite_under_quota_platform_returns_rewritten(
-    client, make_invite, platform, stub_provider
+    client, platform, stub_provider
 ):
-    code = await make_invite("INV-RW-OK")
-    await register_and_login(client, code, "rwuser4")
+    await register_and_login(client, "rwuser4")
 
     r = await client.post(_REWRITE_PATH, json=_VALID_BODY)
     assert r.status_code == 200, r.text
@@ -180,9 +176,8 @@ async def test_rewrite_under_quota_platform_returns_rewritten(
 # --- schema validation (the route never runs on a malformed body) ---
 
 
-async def test_rewrite_rejects_empty_selection(client, make_invite, platform):
-    code = await make_invite("INV-RW-EMPTY")
-    await register_and_login(client, code, "rwuser5")
+async def test_rewrite_rejects_empty_selection(client, platform):
+    await register_and_login(client, "rwuser5")
 
     r = await client.post(_REWRITE_PATH, json={"selection": "", "instruction": "改"})
     assert r.status_code == 422, r.text

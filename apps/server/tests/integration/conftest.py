@@ -34,7 +34,6 @@ from agentcore.db.base import telemetry_engine as app_telemetry_engine
 from agentcore.db.repositories import (
     AdminMfaRepository,
     CredentialsRepository,
-    InviteRepository,
     UserRepository,
 )
 from agentcore.db.repositories.chat import OFFICIAL_CHAT_ID, OFFICIAL_CHAT_TITLE
@@ -49,7 +48,6 @@ TEST_PASSWORD = "password123"
 
 async def register_and_login(
     client: httpx.AsyncClient,
-    invite_code: str | None,
     username: str,
     *,
     platform: str = "desktop",
@@ -57,12 +55,8 @@ async def register_and_login(
 ) -> str:
     """Register a product user and complete cookie login (product sessions have no MFA).
 
-    ``invite_code`` is ignored (open registration); kept so existing call sites
-    that still pass a minted code keep working.
-
     Returns the signed-in user's id from ``LoginResponse.user``.
     """
-    del invite_code  # open registration — invite no longer required
     r = await client.post(
         "/v1/auth/register",
         json={"username": username, "password": password},
@@ -236,18 +230,6 @@ def _pin_billing_mode_byok(monkeypatch) -> None:
     """Pin billing_mode=byok so a local ``.env`` with ``BILLING_MODE=platform``
     cannot open the platform catalog for keyless-BYOK tests that expect 402."""
     monkeypatch.setattr(settings, "billing_mode", "byok")
-
-
-@pytest_asyncio.fixture
-async def make_invite(session_factory) -> Callable:
-    """Return an async helper that seeds an invite code into the test schema."""
-
-    async def _make(code: str = "INVITE-CODE") -> str:
-        async with session_factory() as session:
-            await InviteRepository(session).create(code=code)
-        return code
-
-    return _make
 
 
 @pytest_asyncio.fixture

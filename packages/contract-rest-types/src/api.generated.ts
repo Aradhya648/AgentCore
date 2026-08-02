@@ -647,82 +647,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/invites": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Invites */
-        get: operations["list_invites_v1_auth_invites_get"];
-        put?: never;
-        /** Create Invite */
-        post: operations["create_invite_v1_auth_invites_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/invites/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create Invites Batch
-         * @description Mint multiple single-use invite codes (admin batch issuance).
-         */
-        post: operations["create_invites_batch_v1_auth_invites_batch_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/invites/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Invite Stats */
-        get: operations["invite_stats_v1_auth_invites_stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/invites/{invite_id}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Revoke Invite
-         * @description Retire an unused invite (邀请码撤销). 404 unknown id; 422 if already used/revoked.
-         *     Returns the now-revoked invite so the client can update the row in place.
-         */
-        post: operations["revoke_invite_v1_auth_invites__invite_id__revoke_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/auth/login": {
         parameters: {
             query?: never;
@@ -1775,10 +1699,14 @@ export interface paths {
          *
          *     发送即有流 (D9): this endpoint **always** returns SSE (never 202 JSON).
          *
-         *     - **空闲** → 现行为：开跑并流式推送整个回合。
-         *     - **经典 in-flight（无协调）** → FIFO 入队，立即 ``turn_queued``，drain 启动后
-         *       **同一连接**续流该回合；等待中断连 → 回合仍 detached 跑，靠 attach/recovery。
-         *     - **协调模式** → 插话进 CEO 事件队列，SSE 上复用 ``user_interjection``（短流确认）。
+         *     ``delivery`` 必填（``steer`` | ``queue``；缺 → 422）：
+         *
+         *     - **空闲** → 开跑并流式推送整个回合（客户端仍带 ``delivery=steer``）。
+         *     - **协调活跃 + steer** → ``user_interjection``（短流确认）；CEO 可智能升格排队。
+         *     - **协调活跃 + queue** → **强制** FIFO（绕过插话），立即 ``turn_queued``。
+         *     - **经典 in-flight + queue** → FIFO ``turn_queued``，drain 后同连接续流。
+         *     - **经典 in-flight + steer** → 挂到 live turn 进程内 pending（``turn_steer_accepted``）；
+         *       无 accepting 窗口 / 回合已收口 → 回落 FIFO（``turn_queued.degraded_from=steer``）。
          *     - **热路 pending**（approval / escalation / …）仍 409。
          *
          *     Gated before the stream starts (成本配额与计费.md §一) so a refused turn gets a
@@ -1971,8 +1899,6 @@ export interface paths {
          *     pipeline 取消/失败 ⇒ interrupted_after_decision（D1：不复活决策卡）。
          *
          *     ``body.selected`` carries the user's ask_user picks (ignored for plan_review).
-         *     ``body.style_id`` is the structured website style pick when present.
-         *     ``body.format_id`` is the structured presentation format pick when present.
          *     Gated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota
          *     — all BEFORE settlement/claim, so a refused turn keeps its resumable frame.
          */
@@ -2020,6 +1946,30 @@ export interface paths {
          */
         put: operations["set_permission_axes_v1_conversations__conversation_id__permission_axes_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/queued-turns/{queue_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Queued Turn
+         * @description Cancel one FIFO queued turn before drain (同对话再发 · 按项取消).
+         *
+         *     Owner-gated like send. Removes the entry by ``queue_id``; already started / unknown
+         *     → 404. Stop does **not** clear the queue — cancel is the only per-item withdraw.
+         *     On success emits EPHEMERAL ``turn_queue_cancelled`` on the live turn sink (multi-client).
+         */
+        post: operations["cancel_queued_turn_v1_conversations__conversation_id__queued_turns__queue_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2208,7 +2158,8 @@ export interface paths {
          *
          *     Cascade-cancels the detached run + live coordination workers and closes with
          *     ``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing
-         *     is running. ``mode=discard`` is an alias of hard cancel for older clients.
+         *     is running. Does **not** clear FIFO queued turns — cancel those via
+         *     ``POST …/queued-turns/{queue_id}/cancel``.
          */
         post: operations["stop_message_v1_conversations__conversation_id__stop_post"];
         delete?: never;
@@ -4481,50 +4432,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/users/me/memory/conversation-history-access": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get My Conversation History Access
-         * @description Workers may always search/read this account's past conversation logs (定案 A).
-         */
-        get: operations["get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get"];
-        /**
-         * Set My Conversation History Access
-         * @description Compatibility no-op: access is product-always-on; body ignored, never persists false.
-         */
-        put: operations["set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/users/me/memory/enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set My Memory Enabled
-         * @description Compatibility no-op: memory is product-always-on; body ignored, never persists false.
-         */
-        put: operations["set_my_memory_enabled_v1_users_me_memory_enabled_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/users/me/memory/files/{kind}": {
         parameters: {
             query?: never;
@@ -5981,13 +5888,6 @@ export interface components {
             /** @default less_interrupt */
             policy: components["schemas"]["AutonomyPolicy"];
         };
-        /** BatchCreateInviteRequest */
-        BatchCreateInviteRequest: {
-            /** Count */
-            count: number;
-            /** Expires In Days */
-            expires_in_days?: number | null;
-        };
         /** BigFive */
         BigFive: {
             /**
@@ -6310,8 +6210,7 @@ export interface components {
          *     ``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on
          *     success; ``already_active`` (start when one is running — still active); ``no_session``
          *     (no live session to take over); ``not_active`` (end when none is running).
-         *     ``turn_running`` is retained for wire compat but is never produced after D8 (anytime
-         *     takeover). ``active`` reflects the resulting state; ``started_at`` is set while active.
+         *     ``active`` reflects the resulting state; ``started_at`` is set while active.
          */
         BrowserTakeoverState: {
             /** Active */
@@ -6320,7 +6219,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "started" | "ended" | "already_active" | "turn_running" | "no_session" | "not_active";
+            reason: "started" | "ended" | "already_active" | "no_session" | "not_active";
             /** Record Id */
             record_id?: string | null;
             /** Session Id */
@@ -6593,18 +6492,18 @@ export interface components {
          *
          *     ``CONTINUE`` / ``ADJUST`` / ``STOP`` are shared by ask_user / plan_review /
          *     team_preview (开工卡). On the kickoff card, ``CONTINUE`` means grant + start
-         *     (non-empty ``note`` steers all unrun workers — former adjust semantics);
-         *     ``PER_CALL`` means start with per-call approval (no delegation grant) — enum
-         *     retained for historical timelines / API clients; the kickoff UI no longer
-         *     offers it. ``PER_CALL`` is kickoff-only — ask_user / plan_review ignore it.
+         *     (non-empty ``note`` steers all unrun workers — former adjust semantics).
          *     ``ADJUST`` remains for debate kickoff (开赛嘱咐：note 只注入首轮焦点，
          *     不改 motion / sides；与 CONTINUE+note 同构) and plan_review steer,
          *     plus historical non-debate kickoff resolves.
          *     ``RESEARCH_FIRST`` is debate kickoff only: 不开赛，回灌固定文案令 CEO 立即挂
          *     ``multi_lens_research``（与 STOP 同构的恢复分支；非辩论开工卡须拒绝/降级）。
+         *
+         *     Note: ``DelegationAuthorizationDecision.per_call`` is a different dialect
+         *     (委派授权卡) — not part of this enum.
          * @enum {string}
          */
-        CheckpointDecision: "continue" | "per_call" | "adjust" | "stop" | "research_first" | "timeout" | "orphaned";
+        CheckpointDecision: "continue" | "adjust" | "stop" | "research_first" | "timeout" | "orphaned";
         /**
          * Citation
          * @description A web source consulted for an assistant message (source-card data).
@@ -6756,22 +6655,6 @@ export interface components {
             turns: number;
             usage: components["schemas"]["UsageBreakdown"];
         };
-        /** ConversationHistoryAccessRequest */
-        ConversationHistoryAccessRequest: {
-            /**
-             * Enabled
-             * @description Ignored (compat); conversation-log access is product-always-on
-             */
-            enabled: boolean;
-        };
-        /**
-         * ConversationHistoryAccessResponse
-         * @description Cross-session conversation-log access (always on; 定案 A).
-         */
-        ConversationHistoryAccessResponse: {
-            /** Enabled */
-            enabled: boolean;
-        };
         /** ConversationListResponse */
         ConversationListResponse: {
             /** Data */
@@ -6790,6 +6673,11 @@ export interface components {
              * @default false
              */
             archived: boolean;
+            /**
+             * Context Compacted
+             * @default false
+             */
+            context_compacted: boolean;
             /**
              * Created At
              * Format: date-time
@@ -6976,11 +6864,6 @@ export interface components {
             message?: string | null;
             /** User Id */
             user_id: string;
-        };
-        /** CreateInviteRequest */
-        CreateInviteRequest: {
-            /** Expires In Days */
-            expires_in_days?: number | null;
         };
         /** CreateLlmModelProfileRequest */
         CreateLlmModelProfileRequest: {
@@ -7171,7 +7054,7 @@ export interface components {
         };
         /**
          * DelegationAuthorizationDecision
-         * @description Settlement dialect for kickoff capability-authorization choices.
+         * @description Settlement dialect for per-delegation tool authorization choices.
          * @enum {string}
          */
         DelegationAuthorizationDecision: "grant_delegation" | "per_call" | "deny" | "orphaned";
@@ -8090,48 +7973,6 @@ export interface components {
             /** Title */
             title: string;
         };
-        /** InviteListResponse */
-        InviteListResponse: {
-            /** Data */
-            data: components["schemas"]["InviteResponse"][];
-            /** Page */
-            page?: number | null;
-            /** Page Size */
-            page_size?: number | null;
-            /** Total */
-            total: number;
-        };
-        /** InviteResponse */
-        InviteResponse: {
-            /** Code */
-            code: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created By */
-            created_by: string | null;
-            /** Created By Username */
-            created_by_username?: string | null;
-            /** Expires At */
-            expires_at: string | null;
-            /** Id */
-            id: string;
-            /** Revoked At */
-            revoked_at?: string | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "active" | "used" | "expired" | "revoked";
-            /** Used At */
-            used_at: string | null;
-            /** Used By */
-            used_by: string | null;
-            /** Used By Username */
-            used_by_username?: string | null;
-        };
         /** InviteSharedSpaceMemberRequest */
         InviteSharedSpaceMemberRequest: {
             /**
@@ -8142,19 +7983,6 @@ export interface components {
             role: "editor" | "viewer";
             /** User Id */
             user_id: string;
-        };
-        /** InviteStatsResponse */
-        InviteStatsResponse: {
-            /** Active */
-            active: number;
-            /** Expired */
-            expired: number;
-            /** Revoked */
-            revoked: number;
-            /** Total */
-            total: number;
-            /** Used */
-            used: number;
         };
         /**
          * KeyInputEvent
@@ -8321,6 +8149,12 @@ export interface components {
         LoginRequest: {
             /** Password */
             password: string;
+            /**
+             * Persist Session
+             * @description true: persistent cookies + long refresh TTL. false: session cookies (no Max-Age) + short absolute refresh ceiling; bearer still returns tokens with short refresh_expires_in.
+             * @default true
+             */
+            persist_session: boolean;
             /** Username */
             username: string;
         };
@@ -8350,14 +8184,6 @@ export interface components {
         MarkReadRequest: {
             /** Last Read Message Id */
             last_read_message_id: string;
-        };
-        /** MemoryEnabledRequest */
-        MemoryEnabledRequest: {
-            /**
-             * Enabled
-             * @description Ignored (compat); memory is product-always-on
-             */
-            enabled: boolean;
         };
         /**
          * MemoryFileResponse
@@ -9037,8 +8863,7 @@ export interface components {
          *     Surfaced on conversation reopen so the client can re-render the right resume card
          *     by ``kind`` and offer the kind-appropriate actions → the resume endpoint
          *     (kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;
-         *     plan_review: continue / adjust / stop; ``per_call`` retained for historical
-         *     resolves only).
+         *     plan_review: continue / adjust / stop).
          *     ``message_id`` is both the pause key and the id the resumed assistant message will
          *     reuse, so an optimistic bubble reconciles cleanly.
          *
@@ -9047,8 +8872,8 @@ export interface components {
          *     ``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /
          *     ``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload
          *     ``question`` (the framing / opening line) + ``context`` + the optional opening
-         *     content ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``
-         *     (empty for a compact mid-task fork). The unused set is empty for the other kinds.
+         *     content ``assumptions`` / ``questions`` (empty for a compact mid-task fork). The
+         *     unused set is empty for the other kinds.
          */
         PausedTurnSummary: {
             /** Assumptions */
@@ -9067,10 +8892,6 @@ export interface components {
              * @default
              */
             form: string;
-            /** Format Options */
-            format_options?: {
-                [key: string]: unknown;
-            }[];
             /** Intent */
             intent?: ("kickoff" | "decision" | "proposal_pick" | "risk_ack" | "organize_plan" | "daily_review") | null;
             kind: components["schemas"]["SuspensionKind"];
@@ -9086,11 +8907,6 @@ export interface components {
              * @default
              */
             motion: string;
-            /**
-             * Offer Research First
-             * @default false
-             */
-            offer_research_first: boolean;
             /** Pending */
             pending?: {
                 [key: string]: unknown;
@@ -9109,21 +8925,12 @@ export interface components {
             questions?: {
                 [key: string]: unknown;
             }[];
-            /**
-             * Research First Recommended
-             * @default false
-             */
-            research_first_recommended: boolean;
             /** Sides */
             sides?: {
                 [key: string]: unknown;
             }[];
             /** Steps */
             steps?: {
-                [key: string]: unknown;
-            }[];
-            /** Style Options */
-            style_options?: {
                 [key: string]: unknown;
             }[];
             /**
@@ -9639,19 +9446,11 @@ export interface components {
          *     for plan_review / accept the CEO direction for ask_user), ``adjust`` (inject
          *     ``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``
          *     carries the option(s) the user picked from an ask_user menu (ignored for
-         *     plan_review; the server drops any pick not actually offered). ``style_id`` is the
-         *     structured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in
-         *     ``selected``. ``format_id`` is the structured presentation format pick
-         *     (``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only
+         *     plan_review; the server drops any pick not actually offered). The engine-only
          *     ``timeout`` is never sent by a client.
          */
         ResumeTurnRequest: {
             decision: components["schemas"]["CheckpointDecision"];
-            /**
-             * Format Id
-             * @description Optional structured presentation format pick (f0/f1/…). Preferred over scanning selected; ignored when not a presentation kickoff.
-             */
-            format_id?: string | null;
             /**
              * Note
              * @default
@@ -9659,11 +9458,6 @@ export interface components {
             note: string;
             /** Selected */
             selected?: string[];
-            /**
-             * Style Id
-             * @description Optional structured website style pick (s0/s1/…). Preferred over scanning selected; ignored when not a website kickoff.
-             */
-            style_id?: string | null;
         };
         /**
          * RewriteRequest
@@ -9917,6 +9711,11 @@ export interface components {
             attachments?: components["schemas"]["MessageAttachment"][];
             /** Content */
             content: string;
+            /**
+             * Delivery
+             * @enum {string}
+             */
+            delivery: "steer" | "queue";
             /**
              * Requires Tools
              * @default false
@@ -10525,15 +10324,8 @@ export interface components {
          *
          *     ``stopped`` is True when a live detached run was found and signalled; False when
          *     nothing was running (already finished / never started), so the call is idempotent.
-         *     ``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.
          */
         StopTurnResponse: {
-            /**
-             * Mode
-             * @default cancel
-             * @enum {string}
-             */
-            mode: "cancel" | "discard";
             /** Stopped */
             stopped: boolean;
         };
@@ -12630,186 +12422,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_invites_v1_auth_invites_get: {
-        parameters: {
-            query?: {
-                page?: number;
-                page_size?: number;
-                status?: ("active" | "used" | "expired" | "revoked") | null;
-                search?: string | null;
-            };
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InviteListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_invite_v1_auth_invites_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreateInviteRequest"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InviteResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_invites_batch_v1_auth_invites_batch_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatchCreateInviteRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InviteListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    invite_stats_v1_auth_invites_stats_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InviteStatsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revoke_invite_v1_auth_invites__invite_id__revoke_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                invite_id: string;
-            };
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InviteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -15309,6 +14921,42 @@ export interface operations {
             };
         };
     };
+    cancel_queued_turn_v1_conversations__conversation_id__queued_turns__queue_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+                queue_id: string;
+            };
+            cookie?: {
+                access_token?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_conversation_recovery_v1_conversations__conversation_id__recovery_get: {
         parameters: {
             query?: never;
@@ -15641,9 +15289,7 @@ export interface operations {
     };
     stop_message_v1_conversations__conversation_id__stop_post: {
         parameters: {
-            query?: {
-                mode?: "cancel" | "discard";
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -20857,113 +20503,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryWriteResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationHistoryAccessResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConversationHistoryAccessRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationHistoryAccessResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_my_memory_enabled_v1_users_me_memory_enabled_put: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                access_token?: string | null;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MemoryEnabledRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MemoryResponse"];
                 };
             };
             /** @description Validation Error */

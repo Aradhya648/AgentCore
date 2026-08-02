@@ -348,7 +348,6 @@ export const SCENARIOS: Scenario[] = [
         toolCount: 1,
         isRevision: true,
         continuationIndex: 1,
-        revision: 2,
       }),
       captain("rcap", "completed", "已交付重写后的第 2 章，其余章节沿用初稿。"),
     ],

@@ -39,12 +39,6 @@ export async function getMessageCostDisplay(
   }
 }
 
-/** @deprecated Prefer {@link getMessageCostDisplay}; kept for callers that only need billed total. */
-export async function getMessageCostTotal(messageId: string): Promise<number> {
-  const d = await getMessageCostDisplay(messageId);
-  return d && !d.estimated ? d.nano : 0;
-}
-
 // --- Account dashboard (设置·用量) ---
 
 export type CostBreakdown = Schemas["CostBreakdown"];

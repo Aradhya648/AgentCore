@@ -143,6 +143,13 @@ class EventType(StrEnum):
     # 同对话 FIFO 排队（D9 · 发送即有流）：in-flight 时 POST …/messages 立即在响应 SSE 上
     # 发射；队列 drain 启动该回合后**同一连接**续流。EPHEMERAL——传输态排队提示，不落 journal。
     TURN_QUEUED = "turn_queued"
+    # 同对话排队项取消（同对话再发 P0）：POST …/queued-turns/{queue_id}/cancel 成功后发射；
+    # 多端清 UI。EPHEMERAL——不落 journal。
+    TURN_QUEUE_CANCELLED = "turn_queue_cancelled"
+    # 经典 in-flight 软插入确认（同对话再发 P1）：POST …/messages delivery=steer 挂到
+    # 当前 turn 的进程内 pending 后发射；下一 ReAct 步边界注入 LLM 窗。EPHEMERAL——
+    # 客户端 toast「已插入，下一工具步生效」；勿复用 user_interjection。
+    TURN_STEER_ACCEPTED = "turn_steer_accepted"
     # 异步团队产出投递（批次 1）：执行与附着回合解耦后的一等状态。
     # DURABLE——落宿主 turn journal；前端 v1 静态「后台运行中」/完成后刷新（实时通道二期）。
     EXECUTION_DETACHED = "execution_detached"

@@ -191,6 +191,24 @@ KEY_FIELDS: dict[str, dict[str, str]] = {
         "reason": "str",
         "salvaged": "bool",
     },
+    "compaction.done": {
+        "conversation_id": "str",
+        "folded": "int",
+        "kept": "int",
+        "summary_chars": "int",
+        "trigger_input_tokens": "int",
+    },
+    "compaction.failed": {
+        "conversation_id": "str",
+        "error": "str",
+    },
+    "compaction.timeout": {
+        "conversation_id": "str",
+    },
+    "compaction.schedule_failed": {
+        "conversation_id": "str",
+        "error": "str",
+    },
 }
 
 KEY_DESC: dict[str, str] = {
@@ -230,6 +248,10 @@ KEY_DESC: dict[str, str] = {
     "billing.background_platform_auth_fallback": (
         "后台 chrome 平台 key 被上游 auth 拒绝后一次回落用户 BYOK"
     ),
+    "compaction.done": "长对话压缩成功（folded/kept/summary_chars）",
+    "compaction.failed": "长对话压缩失败（顶层异常；不推水位）",
+    "compaction.timeout": "长对话压缩 LLM 超时（空摘要；不推水位）",
+    "compaction.schedule_failed": "压缩调度 due 判定异常",
 }
 
 

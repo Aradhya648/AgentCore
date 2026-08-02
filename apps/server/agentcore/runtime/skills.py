@@ -385,7 +385,8 @@ repair_code；禁 none 当修码默认）。`build_feature` / `build_website` \
 _DEBATE_AND_REVIEW = """\
 <debate_and_review>
 【入口分流·按意图】正文分流前置：① 用户明确点名开辩 / 模拟庭审 / 终局对抗（含模拟法庭 / 庭审对抗 / \
-对簿公堂等）→ 本 skill，直调 `debate`——取证由辩论内建「庭前取证」阶段保证，【勿】再先拦去 \
+对簿公堂等）→ 本 skill，直调 `debate`——取证作为质量前提由辩论机制保证（案卷桥 / 可选 Evidence Pack / \
+发言期对称有界检索入台账；**非**庭前调查员舰队、**非**开工前先拦调研），【勿】再先拦去 \
 `deep_multi_lens_research`；② 公共事件跨域研判 → `consult_skill(deep_multi_lens_research)` \
 （MLR → 命题卡 → 推进卡）；③ 一起弄懂/多路摸清（未明示成文）→ `parallel_brief`；明示成文 → \
 `research_report`；④ 意图模糊（既像公共研判又像开辩）→ 保守缺省走 MLR，并在回复里说明\
@@ -431,7 +432,7 @@ _DEBATE_AND_REVIEW = """\
 runtime 真调默认对阵（平台 allowlist 前两名 `PLATFORM_MODELS[0]` vs `[1]`，或\
 「1 平台 + 已配 BYOK DeepSeek」）；凑不齐则失败并提示去配模型。\
 留空且【无】`cross_model` = 同模型场（跟本 turn 主模型），【不是】跨模型。\
-完整三元组（`model`+`origin`+byok 时 `provider_id`）亦可直通。取证员跟本方辩手同一三元组；\
+完整三元组（`model`+`origin`+byok 时 `provider_id`）亦可直通。\
 用户点名裁判 → 填 `moderator_model` 提及（同辩手消歧）；未点名 → 系统默认（可与辩手同模）。\
 红队 / 圆桌本阶段可不填 per-side。
 
@@ -521,8 +522,7 @@ _ASK_USER_KICKOFF = """\
 
 【何时问】关键高杠杆没说清、明显会做错/返工 → 短问。小事或有稳妥默认 → 直接干 / `delegate`，\
 可在正文标注假设。意图都复述不出 → 先正文一句澄清，或短 ask——**禁止**开场提案墙、\
-**禁止**「一键开做」仪式、**禁止**为场面硬填 `style_options` / `format_options`（兼容字段可空；\
-不记账、不硬闸；建站默认风格由机制软注入 DESIGN）。\
+**禁止**「一键开做」仪式（缺信息靠短问，错了再改；建站默认风格由机制软注入 DESIGN）。\
 方向 / 方案 choice 的 `label` / `detail` / `message` 写清**本轮交付边界**（如「先出设计契约」/\
 「MVP：仅目标追踪条」）；选完仍立刻派，范围跟选项走——**禁止**暗示「选完即全仓开工」。
 
@@ -531,7 +531,6 @@ _ASK_USER_KICKOFF = """\
 - `assumptions`：可选，低影响可逆默认（只读陈列）。
 - `questions`：可选，最多 5；高杠杆才问；可预填 `default`；choice 可配 `detail` / `recommended`\
 （`recommended` 至多一项；**禁止**把「（推荐）」写进 `label`，倾向只走字段）。
-- `style_options` / `format_options`：兼容遗留，非必填、不驱动引擎闸门。
 - 专用 `card`：`proposal_pick` / `risk_ack` / `organize_plan`（恰好 1 题）——见 ask_user_midtask。
 
 【软件 / 应用】交付形态不清时短问或写明默认；**禁止**静默默认单 HTML。
@@ -703,7 +702,7 @@ _DEEP_MULTI_LENS_RESEARCH = """\
 用户批准后再辩】。一起弄懂/学术多切口/未明示成文的多路摸清 → 【勿】用本 skill，改 \
 `playbook="parallel_brief"`；用户明示要报告/论文/落盘成文 → `research_report`。\
 用户明确点名开辩 / 模拟庭审 / 终局对抗（含【""" + _MULTI_LENS_COURTROOM_TRIGGERS_JOINED + """】等）→ \
-【勿】用本 skill 拦截，改 `consult_skill(debate_and_review)` 直调 `debate`（庭前取证由辩论机制保证）。\
+【勿】用本 skill 拦截，改 `consult_skill(debate_and_review)` 直调 `debate`（取证前提由辩论机制保证：案卷桥 / Evidence Pack / 发言期台账，非调查员舰队）。\
 意图模糊（既像公共研判又像开辩）→ 保守缺省走本 skill，并在回复里说明「也可直接开辩」。\
 这与律师作业（接案 / 文书 / 诉讼策略、先对抗后研判）不同：本域是公共事件多维取证，不是替律师打官司。
 
@@ -810,8 +809,8 @@ _BUILD_WEBSITE = f"""\
 槽位：{_BUILD_WEBSITE_PLAYBOOK.slots}
 
 开工顺序：
-1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ 可 `ask_user` **短问**一句（不必填 \
-`style_options`；默认风格由机制写入 DESIGN），或直接派并在 assumptions/正文写明默认。\
+1. 关键未齐（类型/受众/风格等）或用户只说「做个网站」→ 可 `ask_user` **短问**一句（\
+默认风格由机制写入 DESIGN），或直接派并在 assumptions/正文写明默认。\
 **勿先** consult 本 skill 再问。
 2. **规格已齐**（用户已点名风格/站点类型/交付范围等）→ **直接** `delegate(playbook="build_website", …)`，\
 **勿先** consult；`playbook_args.site` 等只填用户已给事实，\
@@ -836,7 +835,7 @@ _BUILD_TOOLSHED = f"""\
 槽位：{_BUILD_TOOLSHED_PLAYBOOK.slots}
 
 开工顺序：
-1. 关键未齐时可 `ask_user` 短问风格/产品边界（不必填 `style_options`）；有稳妥默认 → 直接派。
+1. 关键未齐时可 `ask_user` 短问风格/产品边界；有稳妥默认 → 直接派。
 2. 调 `delegate`：`playbook="build_toolshed"`；`playbook_args.site` 填产品控制台简述，\
 可选 `sections` / `stack` / `audience`——**只传事实输入**，【禁止】自拟视觉施工图。
 3. 流水线为三串（文案 → 前端 DESIGN+整页+轻量 CONTRACT → 独立 QA）；\

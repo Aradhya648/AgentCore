@@ -7,6 +7,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { SimpleTooltip } from "@/components/ui/tooltip";
+import { useConversations } from "@/hooks/useConversations";
 import { useFolders } from "@/hooks/useFolders";
 import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useModels } from "@/hooks/useModels";
@@ -44,6 +45,7 @@ import {
 import type { SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentChips } from "./AttachmentChips";
+import { ComposerContextCompactedHint } from "./ComposerContextCompactedHint";
 import { ComposerNoLocalChip } from "./ComposerNoLocalChip";
 import { ComposerPendingHintNotice } from "./ComposerPendingHintNotice";
 import { ComposerWorkspaceChip } from "./ComposerWorkspaceChip";
@@ -130,6 +132,11 @@ export function TurnComposer({
     defaultChatSupportsTools(llmProviders, modelCatalog?.current?.provider_id),
   );
   const conversationId = useConversationStore((s) => s.currentConversationId);
+  const conversations = useConversations();
+  const contextCompacted = Boolean(
+    conversationId &&
+      conversations.find((c) => c.id === conversationId)?.contextCompacted,
+  );
   const hasPausedDecision = usePausedTurnStore((s) =>
     conversationId
       ? s.pending.some((p) => p.conversationId === conversationId)
@@ -391,7 +398,9 @@ export function TurnComposer({
 
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      setValue((v) => `${v}\n`);
+      // 生成中强制 queue；空闲与 Enter 同路径（默认 steer），勿伪装传 queue。
+      if (serverUnhealthy) return;
+      void handleSend(isGenerating ? { delivery: "queue" } : undefined);
       return;
     }
 
@@ -399,7 +408,7 @@ export function TurnComposer({
       e.preventDefault();
       // N4-A：离线硬禁用（与发送按钮一致；handleSend 仍有兜底）。
       if (serverUnhealthy) return;
-      // 生成中也发送：handleSend 内部走 mid-flight 插话分支。
+      // P1：空闲 / 生成中默认 steer（「插入」）；强制 queue 见 Ctrl/Cmd+Enter。
       void handleSend();
     }
   };
@@ -443,11 +452,13 @@ export function TurnComposer({
     </SimpleTooltip>
   ) : null;
 
-  // 生成中：主槽位只留停止（实心）；有草稿时次要 muted「插话」+ Enter 仍走 mid-flight。
-  // N4-A：只读离线硬禁用发送（含插话）。
+  // 生成中：主槽位只留停止（实心）；有草稿时次要弱发送 = 插入（steer）。
+  // N4-A：只读离线硬禁用发送。
   const sendBlocked = serverUnhealthy;
   const hasDraft = Boolean(value.trim());
   const interjectDisabled = !hasDraft || sendBlocked;
+  const midFlightLabel = "插入";
+  const midFlightHint = "插入当前回合（Enter）；Ctrl/Cmd+Enter 强制排队";
   const sendControls = isGenerating ? (
     <>
       {hasDraft ? (
@@ -456,8 +467,8 @@ export function TurnComposer({
           tone="default"
           onClick={() => void handleSend()}
           disabled={interjectDisabled}
-          aria-label="发送插话"
-          title={sendBlocked ? "离线时无法发送" : "发送插话（Enter 亦可）"}
+          aria-label={midFlightLabel}
+          title={sendBlocked ? "离线时无法发送" : midFlightHint}
         >
           <Send size={14} />
         </IconButton>
@@ -596,6 +607,9 @@ export function TurnComposer({
       {/* 断连提示：仅在心跳判定服务器不可达时出现，主动告知「发送前」状态。 */}
       <ComposerConnectionNotice />
 
+      {/* 会话字段徽章：较早对话已压缩（旗标 only，无摘要正文）。 */}
+      <ComposerContextCompactedHint show={contextCompacted} />
+
       {/* 挂起弱提示：有待确认/续跑卡时常驻；不强拦发送（发送前二次确认见 useComposerSend）。 */}
       <ComposerPendingHintNotice show={showPendingHint} />
 
@@ -610,14 +624,15 @@ export function TurnComposer({
         </div>
       )}
 
-      {/* 生成中插话提示：有草稿时出现；主按钮仍是停止，Enter/弱发送=插话。 */}
+      {/* 生成中再发提示：有草稿时出现；主按钮仍是停止；P1 默认插入。 */}
       {isGenerating && hasDraft && !showPendingHint && (
         <div
           aria-live="polite"
+          data-testid="composer-midflight-hint"
           className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground"
         >
           <Loader2 size={12} className="shrink-0 animate-spin" />
-          Enter 或点发送将作为插话交给团队；无关内容会排到下一回合
+          Enter 或点发送将插入当前回合；Ctrl/Cmd+Enter 强制排队
         </div>
       )}
 

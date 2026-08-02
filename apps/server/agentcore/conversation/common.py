@@ -40,7 +40,7 @@ from agentcore.workspace.locate import LocalBinding
 
 logger = get_logger(__name__)
 
-# Fire-and-forget early title mint (cloud SSE). In-process like schedule_compaction:
+# Fire-and-forget early title mint (cloud SSE). In-process like schedule_compaction_if_due:
 # ``_inflight`` dedupes a burst; ``_tasks`` holds refs so a pass is not GC'd mid-flight.
 _title_inflight: set[str] = set()
 _title_tasks: set[asyncio.Task] = set()
@@ -521,9 +521,3 @@ async def default_permission_axes_for_user(session: AsyncSession, user_id: str):
     from agentcore.core.types import recipe_to_axes
 
     return recipe_to_axes(await resolve_autonomy_policy(session, user_id))
-
-
-# Back-compat aliases used by older call sites during the axes migration.
-resolve_permission_preset = resolve_permission_axes
-default_permission_preset_for_user = default_permission_axes_for_user
-parse_permission_preset = parse_permission_axes

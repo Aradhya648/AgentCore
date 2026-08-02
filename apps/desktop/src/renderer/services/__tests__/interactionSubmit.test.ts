@@ -74,8 +74,6 @@ describe("submitInteraction path table", () => {
       "continue",
       "",
       undefined,
-      undefined,
-      undefined,
     );
     expect(store().get("cp1")?.status).toBe("resolved");
   });
@@ -99,8 +97,6 @@ describe("submitInteraction path table", () => {
       "continue",
       "先做公开竞品",
       undefined,
-      undefined,
-      undefined,
     );
     expect(store().get("tp1")?.status).toBe("resolved");
   });
@@ -119,14 +115,9 @@ describe("submitInteraction path table", () => {
       },
     });
     expect(result).toBe("ok");
-    expect(resumeMock).toHaveBeenCalledWith(
-      "srv-ask",
-      "continue",
-      "选 A",
-      ["a"],
-      undefined,
-      undefined,
-    );
+    expect(resumeMock).toHaveBeenCalledWith("srv-ask", "continue", "选 A", [
+      "a",
+    ]);
   });
 
   it("cold path: runResume failure does not markResolved", async () => {

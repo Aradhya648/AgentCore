@@ -1,4 +1,4 @@
-"""Auth, profile, and invite request/response schemas."""
+"""Auth and profile request/response schemas."""
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
@@ -23,6 +23,14 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=1, max_length=256)
+    persist_session: bool = Field(
+        True,
+        description=(
+            "true: persistent cookies + long refresh TTL. "
+            "false: session cookies (no Max-Age) + short absolute refresh ceiling; "
+            "bearer still returns tokens with short refresh_expires_in."
+        ),
+    )
 
 
 class LoginMfaRequest(BaseModel):
@@ -163,43 +171,3 @@ class TokenRevokeRequest(BaseModel):
 
     refresh_token: str = Field(..., min_length=1, max_length=512)
 
-
-class CreateInviteRequest(BaseModel):
-    # None = never expires; otherwise the code is valid for this many days.
-    expires_in_days: int | None = Field(None, ge=1, le=365)
-
-
-class BatchCreateInviteRequest(BaseModel):
-    count: int = Field(..., ge=1, le=100)
-    expires_in_days: int | None = Field(None, ge=1, le=365)
-
-
-class InviteResponse(BaseModel):
-    id: str
-    code: str
-    # active = issuable; used = consumed (terminal); expired = lapsed unused;
-    # revoked = retired by an admin before use (邀请码撤销).
-    status: Literal["active", "used", "expired", "revoked"]
-    created_by: str | None
-    used_by: str | None
-    created_by_username: str | None = None
-    used_by_username: str | None = None
-    created_at: datetime
-    expires_at: datetime | None
-    used_at: datetime | None
-    revoked_at: datetime | None = None
-
-
-class InviteListResponse(BaseModel):
-    data: list[InviteResponse]
-    total: int
-    page: int | None = None
-    page_size: int | None = None
-
-
-class InviteStatsResponse(BaseModel):
-    total: int
-    active: int
-    used: int
-    expired: int
-    revoked: int

@@ -67,8 +67,6 @@ async def resume_chat_pipeline(
     decision: CheckpointDecision,
     note: str,
     selected: list[str] | None = None,
-    style_id: str | None = None,
-    format_id: str | None = None,
     sink: EventSink,
     backend: WorkspaceBackend,
     history: list[dict] | None = None,
@@ -100,8 +98,7 @@ async def resume_chat_pipeline(
     is billed ONCE here, under the ORIGINAL ``message_id`` so the assistant row + ledger
     reuse it. A downstream checkpoint can pause again — the same hooks re-persist a fresh
     frame, so resume is fully re-entrant. ``selected`` carries the user's option picks
-    (ask_user only). ``style_id`` is the structured website style pick when present.
-    ``format_id`` is the structured presentation format pick when present.
+    (ask_user only).
     Returns the same result shape as :func:`run_chat_pipeline`.
 
     ``board_id`` marks the resumed turn as a 白板会话 (AI协作白板.md §六 M2): re-derived by
@@ -190,7 +187,7 @@ async def resume_chat_pipeline(
             (getattr(suspension, "plan", None) and getattr(suspension.plan, "nodes", None))
             or permission_axes.implies_deep_research_auto
         ),
-        permission_preset=(
+        permission_axes=(
             json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
     )
@@ -288,8 +285,6 @@ async def resume_chat_pipeline(
             decision=decision,
             note=note,
             selected=selected,
-            style_id=style_id,
-            format_id=format_id,
             history=history,
             sink=sink,
             delegate_tool=wired.delegate_tool,

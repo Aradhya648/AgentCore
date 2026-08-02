@@ -8,12 +8,14 @@ folded into a single rolling, structured summary (已确立事实 / 决策 / 未
 
 Design (mirrors the offline memory consolidation pattern):
 
-- **Trigger** — token-based, off the hot path: after a turn whose input tokens cross
-  ``compaction_trigger_input_tokens`` (DeepSeek-reported, the real prompt size),
-  ``schedule_compaction`` fires a background pass. Self-throttling: a fold shrinks the
-  next turn's prompt back under the threshold, so it only re-fires once the tail grows
-  past it again. A missed fire (restart / crash) self-heals on the next over-threshold
-  turn — no sweeper needed.
+- **Trigger (dual)** — after each turn finalize (cloud + local), ``schedule_compaction_if_due``
+  arms a background pass when either (a) ``input_tokens ≥ compaction_trigger_input_tokens``
+  or (b) the DB watermark-after batch yields a non-empty ``_select_fold`` with
+  ``compaction_message_trigger_min_fold``. Never use turn ``history_len`` (summary blocks
+  inflate it). Self-throttle on success: the fold shrinks the foldable tail; next due needs
+  another 16 foldable msgs or 32k tokens. Failure leaves the watermark untouched and arms a
+  short in-process cooldown (``compaction_failure_cooldown_seconds``) so neither trigger
+  re-schedules until it expires (``_inflight`` still dedupes in-flight).
 - **Watermark** — ``compacted_through`` (the created_at of the last folded message)
   makes a re-fire idempotent and lets a long backlog fold INCREMENTALLY, oldest-first,
   across several passes until it catches up.
@@ -32,6 +34,7 @@ best-effort enrichment.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Sequence
 
 from agentcore.billing.gate import run_background_llm
@@ -52,7 +55,7 @@ logger = get_logger(__name__)
 
 # Folding reads a window and writes structured prose — heavier than a title, so a
 # longer ceiling than the memory extract. On timeout we yield nothing; the state is
-# left intact and the next over-threshold turn retries.
+# left intact and the next due turn retries (after failure cooldown).
 _COMPACT_TIMEOUT_SECONDS = 45.0
 
 
@@ -103,6 +106,28 @@ def _select_fold(batch: Sequence[Message], *, recency: int, min_fold: int) -> li
     return list(batch[:fold_count])
 
 
+def compaction_message_due(
+    batch: Sequence[Message],
+    *,
+    recency: int | None = None,
+    min_fold: int | None = None,
+) -> bool:
+    """Pure message-side due check: isomorphic to ``_select_fold`` non-empty.
+
+    Uses ``compaction_message_trigger_min_fold`` by default (schedule gate), not the
+    internal ``compaction_min_fold_messages`` (empty-run LLM guard inside compact).
+    """
+    return bool(
+        _select_fold(
+            batch,
+            recency=settings.compaction_recency_messages if recency is None else recency,
+            min_fold=(
+                settings.compaction_message_trigger_min_fold if min_fold is None else min_fold
+            ),
+        )
+    )
+
+
 def _render_fold(old_summary: str, messages: Sequence[Message]) -> str:
     """The user-turn payload: the prior rolling summary + the片段 to merge into it."""
     lines = [
@@ -131,7 +156,14 @@ def _truncate_head_tail(content: str, limit: int) -> str:
     return truncate_head_tail(content, limit, marker=_COMPACT_ELISION_MARKER)
 
 
-async def _summarize(provider, old_summary: str, messages: Sequence[Message], *, model: str) -> str:
+async def _summarize(
+    provider,
+    old_summary: str,
+    messages: Sequence[Message],
+    *,
+    model: str,
+    conversation_id: str,
+) -> str:
     """One flash, non-thinking call → the updated rolling summary ("" on failure)."""
     system = _COMPACT_SYSTEM_PROMPT.replace(
         "__BUDGET__", str(settings.compaction_summary_char_budget)
@@ -150,11 +182,35 @@ async def _summarize(provider, old_summary: str, messages: Sequence[Message], *,
             provider.complete(request), timeout=_COMPACT_TIMEOUT_SECONDS
         )
     except TimeoutError:
-        logger.warning("compaction.timeout")
+        logger.warning("compaction.timeout", conversation_id=conversation_id)
         return ""
     return _truncate_head_tail(
         (response.content or "").strip(), settings.compaction_summary_char_budget
     )
+
+
+async def _load_unfolded_batch(conversation_id: str) -> list[Message]:
+    """Watermark-after (or full) message batch for due / fold — oldest-first, capped."""
+    async with async_session_factory() as session:
+        conv = await ConversationRepository(session).get_by_id_unscoped(conversation_id)
+        if conv is None:
+            return []
+        recency = settings.compaction_recency_messages
+        batch_cap = settings.compaction_max_fold_messages + recency
+        msg_repo = MessageRepository(session)
+        if conv.compacted_through is None:
+            rows, _total = await msg_repo.list_by_conversation(conversation_id, limit=batch_cap)
+            return list(rows)
+        rows, _more = await msg_repo.list_after(
+            conversation_id, after=conv.compacted_through, limit=batch_cap
+        )
+        return list(rows)
+
+
+async def _is_message_due(conversation_id: str) -> bool:
+    """DB message trigger: ``_select_fold`` on watermark-after batch (min_fold)."""
+    batch = await _load_unfolded_batch(conversation_id)
+    return compaction_message_due(batch)
 
 
 async def compact_conversation(
@@ -204,7 +260,13 @@ async def compact_conversation(
             model = resolve_user_model(credentials)
             provider = build_provider(credentials, purpose="platform_internal")
             try:
-                return await _summarize(provider, old_summary, fold_msgs, model=model)
+                return await _summarize(
+                    provider,
+                    old_summary,
+                    fold_msgs,
+                    model=model,
+                    conversation_id=conversation_id,
+                )
             finally:
                 close = getattr(provider, "close", None)
                 if close is not None:
@@ -214,12 +276,14 @@ async def compact_conversation(
         # both sides: skip WITHOUT advancing the watermark so a later pass can retry.
         bg = await run_background_llm(user_id, purpose="compaction", runner=_runner)
         if bg is None:
+            _mark_failure_cooldown(conversation_id)
             return False
         summary = bg.value
 
         # Empty output (timeout / error / refusal): leave the stored state intact and
-        # let the next over-threshold turn retry — never persist a blank summary.
+        # let a later due turn retry after cooldown — never persist a blank summary.
         if not summary.strip():
+            _mark_failure_cooldown(conversation_id)
             return False
 
         async with async_session_factory() as session:
@@ -229,6 +293,7 @@ async def compact_conversation(
                 compacted_through=new_watermark,
                 input_tokens=trigger_input_tokens,
             )
+        _clear_failure_cooldown(conversation_id)
         logger.info(
             "compaction.done",
             conversation_id=conversation_id,
@@ -239,36 +304,84 @@ async def compact_conversation(
         )
         return True
     except Exception as e:  # never break anything — the turn already completed
+        _mark_failure_cooldown(conversation_id)
         logger.warning("compaction.failed", conversation_id=conversation_id, error=str(e))
         return False
 
 
 # --- Trigger (live path) -----------------------------------------------------
-# Fire-and-forget after an over-threshold turn, in-process (single-server posture,
-# like consolidation / approvals). ``_inflight`` dedupes a burst of over-threshold
-# turns onto one pass per conversation; ``_tasks`` holds references so a pass is not
-# GC'd mid-flight and can be flushed on shutdown.
+# Fire-and-forget after a due turn, in-process (single-server posture, like
+# consolidation / approvals). ``_inflight`` dedupes a burst of due turns onto one
+# pass per conversation; ``_failure_cooldown_until`` blocks re-schedule after a
+# failed pass; ``_tasks`` holds references so a pass is not GC'd mid-flight
+# and can be flushed on shutdown.
 _inflight: set[str] = set()
+_failure_cooldown_until: dict[str, float] = {}
 _tasks: set[asyncio.Task] = set()
 
 
-def schedule_compaction(conversation_id: str, input_tokens: int) -> None:
-    """Arm a background fold IF this turn's prompt crossed the token threshold.
+def _mark_failure_cooldown(conversation_id: str) -> None:
+    """Arm in-process failure cooldown for this conversation (no-op if disabled)."""
+    secs = settings.compaction_failure_cooldown_seconds
+    if secs <= 0:
+        return
+    _failure_cooldown_until[conversation_id] = time.monotonic() + secs
 
-    No-op when disabled, below threshold, or a pass for this conversation is already
-    in flight. Sync (like ``schedule_consolidation``) — called inline from the turn's
-    async tail; it only schedules.
-    """
-    if not settings.compaction_enabled:
-        return
-    if input_tokens < settings.compaction_trigger_input_tokens:
-        return
+
+def _clear_failure_cooldown(conversation_id: str) -> None:
+    _failure_cooldown_until.pop(conversation_id, None)
+
+
+def _in_failure_cooldown(conversation_id: str) -> bool:
+    """True while a prior failure cooldown is still active; expires lazily."""
+    until = _failure_cooldown_until.get(conversation_id)
+    if until is None:
+        return False
+    if time.monotonic() >= until:
+        _failure_cooldown_until.pop(conversation_id, None)
+        return False
+    return True
+
+
+def _arm_compaction(conversation_id: str, input_tokens: int) -> None:
+    """Schedule one background fold; caller must have already decided due + not inflight."""
     if conversation_id in _inflight:
         return
     _inflight.add(conversation_id)
     task = asyncio.ensure_future(_run(conversation_id, input_tokens))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+async def schedule_compaction_if_due(conversation_id: str, input_tokens: int) -> None:
+    """Arm a background fold IF token or message trigger is due. Best-effort; never raises.
+
+    ``due = (input_tokens ≥ trigger) OR (_select_fold on DB batch with message_trigger_min_fold)``.
+    Awaits only the due check (cheap DB read when tokens are under threshold); the fold itself
+    stays fire-and-forget. In-flight conversations and failure-cooldown conversations are
+    no-ops; failures do not advance the watermark.
+    """
+    if not settings.compaction_enabled:
+        return
+    if _in_failure_cooldown(conversation_id):
+        logger.debug("compaction.cooldown_skip", conversation_id=conversation_id)
+        return
+    if conversation_id in _inflight:
+        return
+    try:
+        due = input_tokens >= settings.compaction_trigger_input_tokens
+        if not due:
+            due = await _is_message_due(conversation_id)
+        if not due:
+            return
+        _arm_compaction(conversation_id, input_tokens)
+    except Exception as e:
+        _mark_failure_cooldown(conversation_id)
+        logger.warning(
+            "compaction.schedule_failed",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
 
 
 async def _run(conversation_id: str, input_tokens: int) -> None:

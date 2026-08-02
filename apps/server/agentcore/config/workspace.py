@@ -57,8 +57,11 @@ class WorkspaceSettings(BaseModel):
     gvisor_enabled: bool = False
     # Path to the runsc binary (default: on PATH).
     gvisor_runsc_path: str = "runsc"
-    # runsc runtime state directory (containers, sandboxes).
-    gvisor_runtime_root: str = "/tmp/agentcore-sandbox"
+    # runsc runtime state directory (containers, sandboxes). Must live on the
+    # DATA_DIR volume — container /tmp overlay makes runsc mkdir fail with EINVAL.
+    # Local default tracks ``data_dir``; compose sets ``/data/sandbox`` when
+    # ``DATA_DIR=/data``.
+    gvisor_runtime_root: str = "./data/sandbox"
 
     # ── gVisor 灰度护栏（部署与运维.md §云端执行灰度 / 安全权限与治理.md §五）──
     # Global cap on concurrently RUNNING cloud sandbox executions per API process

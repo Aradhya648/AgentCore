@@ -102,9 +102,8 @@ async def test_attach_requires_auth(client):
     assert (await client.get(f"/v1/conversations/{cid}/stream")).status_code == 401
 
 
-async def test_attach_204_when_no_run(client, make_invite):
-    code = await make_invite("INV-ATT1")
-    await register_and_login(client, code, "attachidle")
+async def test_attach_204_when_no_run(client):
+    await register_and_login(client, "attachidle")
     conv = await _new_conversation(client, "idle")
 
     # No live run → 204, so the client falls back to the persisted transcript.
@@ -117,9 +116,8 @@ async def test_attach_204_when_no_run(client, make_invite):
 # disconnect, which ASGITransport can't model (it never sends http.disconnect, so the
 # infinite SSE tail would deadlock the stream exit). A real socket close lets uvicorn
 # cancel the attach generator for real — the production path.
-async def test_attach_replays_history_then_tails(live_client, make_invite):
-    code = await make_invite("INV-ATT2")
-    await register_and_login(live_client, code, "attachlive")
+async def test_attach_replays_history_then_tails(live_client):
+    await register_and_login(live_client, "attachlive")
     conv = await _new_conversation(live_client, "live")
 
     # Stand-in detached run with some transcript already accumulated.
@@ -152,12 +150,10 @@ async def test_attach_replays_history_then_tails(live_client, make_invite):
     assert turn_runs.get(conv) is None
 
 
-async def test_attach_rejects_non_owner(client, make_invite, new_client):
-    code = await make_invite("INV-ATT3")
-    await register_and_login(client, code, "attachowner")
+async def test_attach_rejects_non_owner(client, new_client):
+    await register_and_login(client, "attachowner")
     conv = await _new_conversation(client, "mine")
 
-    code2 = await make_invite("INV-ATT4")
     async with new_client() as other:
-        await register_and_login(other, code2, "attachintruder")
+        await register_and_login(other, "attachintruder")
         assert (await other.get(f"/v1/conversations/{conv}/stream")).status_code == 404

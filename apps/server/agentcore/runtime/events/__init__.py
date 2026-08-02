@@ -88,7 +88,9 @@ from agentcore.runtime.events.run import (
     run_tool_progress,
     team_note_posted,
     team_synthesis_preview,
+    turn_queue_cancelled,
     turn_queued,
+    turn_steer_accepted,
     user_interjection,
 )
 from agentcore.runtime.events.sink import EventSink
@@ -169,6 +171,8 @@ __all__ = [
     "delivery_status",
     "user_interjection",
     "turn_queued",
+    "turn_queue_cancelled",
+    "turn_steer_accepted",
     "execution_detached",
     "execution_completed",
     "run_completed",

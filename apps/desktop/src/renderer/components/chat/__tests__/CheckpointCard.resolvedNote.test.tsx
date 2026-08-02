@@ -17,8 +17,6 @@ const resolvedKickoff: CheckpointDisplay = {
   context: "",
   assumptions: [],
   questions: [],
-  styleOptions: [],
-  formatOptions: [],
   intent: "kickoff",
   status: "resolved",
   decision: "continue",

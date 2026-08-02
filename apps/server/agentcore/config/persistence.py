@@ -57,13 +57,23 @@ class PersistenceSettings(BaseModel):
     # documents tree at startup. Idempotent + best-effort; safe to leave on (a no-op once done).
     memory_documents_migration_enabled: bool = True
 
+    # Dual-trigger compaction (长对话压缩定案 P0): schedule when token≥threshold OR
+    # DB watermark-after batch passes ``_select_fold`` with message_trigger_min_fold.
+    # Do NOT use turn ``history_len`` (summary block inflates it → false due).
+    # Internal ``compaction_min_fold_messages`` stays 4 (skip trivial LLM spend); decoupled
+    # from the message-side schedule trigger (16) so we do not re-fold every ~2 user turns.
     compaction_enabled: bool = True
-    compaction_trigger_input_tokens: int = 64_000
-    compaction_recency_messages: int = 20
+    compaction_trigger_input_tokens: int = 32_000
+    compaction_recency_messages: int = 12
+    compaction_message_trigger_min_fold: int = 16
     compaction_min_fold_messages: int = 4
     compaction_max_fold_messages: int = 200
     compaction_context_max_messages: int = 300
     compaction_summary_char_budget: int = 4_000
+    # After a failed compact (LLM skip / empty / timeout / exception), both token and
+    # message triggers refuse to schedule until this cooldown elapses. 0 = no cooldown.
+    # In-process only (same posture as ``_inflight``); multi-worker skew is acceptable.
+    compaction_failure_cooldown_seconds: int = 90
 
     # Standing tasks / 定时自动化 L1: in-process DB poll of next_run_at + lease.
     standing_task_scheduler_enabled: bool = True

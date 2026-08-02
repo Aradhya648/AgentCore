@@ -1,6 +1,11 @@
 import { surfaceResumeFromLiveTurn } from "@/services/resume";
 import { traceTurnEnd } from "@/services/sseTrace";
-import { notifyTurnQueued } from "@/services/turns/queuedNotify";
+import { clearQueuedTurnLocally } from "@/services/turns/cancelQueuedTurn";
+import {
+  notifySteerAccepted,
+  notifySteerDegradedToQueue,
+  notifyTurnQueued,
+} from "@/services/turns/queuedNotify";
 import {
   completeTurnPhase,
   getRuntime,
@@ -15,6 +20,7 @@ import {
   useExecutionStore,
 } from "@/stores/execution";
 import { clearInteractionPrompts } from "@/stores/interactionPrompts";
+import { useQueuedTurnsStore } from "@/stores/queuedTurns";
 import type {
   ContentDeltaPayload,
   ContentResetPayload,
@@ -24,6 +30,7 @@ import type {
   ReasoningDeltaPayload,
   SSEEvent,
   ToolProgressPayload,
+  TurnQueueCancelledPayload,
   TurnQueuedPayload,
   TurnWarningPayload,
 } from "@/types/events";
@@ -46,6 +53,18 @@ function finalizeTurnTrace(conversationId: string): void {
   traceTurnEnd(conversationId, lastA?.process);
 }
 
+/** drain 开跑：若时间线末条是队头用户气泡，清其排队轻态（气泡保留）。 */
+function clearQueueLightIfDraining(conversationId: string): void {
+  const list = useQueuedTurnsStore.getState().list(conversationId);
+  if (list.length === 0) return;
+  const msgs = getRuntime(conversationId).messages;
+  const last = msgs[msgs.length - 1];
+  const head = list[0];
+  if (last?.role === "user" && last.id === head.messageId) {
+    useQueuedTurnsStore.getState().remove(conversationId, head.queueId);
+  }
+}
+
 export function handleMessageStreamEvent(
   event: SSEEvent,
   ctx: DispatchContext,
@@ -55,9 +74,23 @@ export function handleMessageStreamEvent(
   switch (event.type) {
     case "turn_queued": {
       // EPHEMERAL（不进 journal / conformance ProjectedTurn）——与 fold 穷尽 no-op
-      // 对齐；live 仅呈现既有「已排队」toast，随后同连接自然续流。
+      // 对齐；live toast +（midFlight 已插）排队轻态。
       const p = event.payload as TurnQueuedPayload;
       notifyTurnQueued(p.position ?? 1, p.queue_depth ?? 1);
+      if (p.degraded_from === "steer") {
+        notifySteerDegradedToQueue();
+      }
+      return true;
+    }
+    case "turn_steer_accepted": {
+      // EPHEMERAL：经典+steer 软插入 ack → toast；fold 穷尽 no-op。
+      notifySteerAccepted();
+      return true;
+    }
+    case "turn_queue_cancelled": {
+      // EPHEMERAL：多端同步清排队 UI（本地 cancel 已清则幂等 no-op）。
+      const p = event.payload as TurnQueueCancelledPayload;
+      clearQueuedTurnLocally(conversationId, p.queue_id);
       return true;
     }
     case "turn_warning": {
@@ -72,6 +105,7 @@ export function handleMessageStreamEvent(
       // Resume = same-turn continuation: if an assistant already matches the
       // server message_id, reuse it (idempotent). Never delete+create.
       const store = useConversationStore.getState();
+      const wasGenerating = getRuntime(conversationId).isGenerating;
       // 跨回合回放 / 同连接下一回合：上一回合 message_end 已进 terminal，须先拨回
       // streaming，否则 ensureStreamingAssistant 与后续生长帧会被门禁丢掉。
       if (isTerminalPhase(getTurnPhase(conversationId))) {
@@ -100,6 +134,10 @@ export function handleMessageStreamEvent(
         discardAllPendingChunks(conversationId);
         store.resetAssistantForNewTurn(payload.message_id, conversationId);
         store.setGenerating(true, conversationId);
+      }
+      // 新回合开跑（非同回合 resume）：清队头排队轻态。
+      if (!wasGenerating || !existing) {
+        clearQueueLightIfDraining(conversationId);
       }
       store.stampPendingTurnWarning(conversationId);
       if (payload.trace_id)

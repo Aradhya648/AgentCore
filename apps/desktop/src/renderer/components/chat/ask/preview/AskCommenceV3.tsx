@@ -10,10 +10,8 @@ import {
   ChoiceQuestion,
   CommenceFooter,
   CommenceNote,
-  FormatPills,
   PlanChips,
   PreviewShell,
-  StylePills,
   useCommencePreviewAnswer,
 } from "./AskCommenceShared";
 
@@ -131,17 +129,7 @@ export function AskCommenceV3({ content }: { content: AskUserContent }) {
           <div className="space-y-2 border-t border-border/50 pt-3">
             <p className="text-xs text-muted-foreground">起步计划</p>
             <PlanChips assumptions={content.assumptions} quiet />
-            {isLast && (
-              <>
-                <StylePills content={content} answer={answer} disabled={busy} />
-                <FormatPills
-                  content={content}
-                  answer={answer}
-                  disabled={busy}
-                />
-                <CommenceNote answer={answer} disabled={busy} compact />
-              </>
-            )}
+            {isLast && <CommenceNote answer={answer} disabled={busy} compact />}
           </div>
         </div>
 

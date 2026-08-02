@@ -49,9 +49,8 @@ async def test_register_closed_returns_403(client, monkeypatch):
     assert "注册已关闭" in r.text
 
 
-async def test_conversation_crud_for_owner(client, make_invite):
-    code = await make_invite("INV-2")
-    await register_and_login(client, code, "carol")
+async def test_conversation_crud_for_owner(client):
+    await register_and_login(client, "carol")
 
     r = await client.post("/v1/conversations", json={"title": "hello"})
     assert r.status_code == 201
@@ -69,14 +68,12 @@ async def test_conversation_crud_for_owner(client, make_invite):
     assert (await client.get("/v1/conversations")).json()["total"] == 0
 
 
-async def test_idor_user_cannot_touch_others_conversation(client, new_client, make_invite):
-    code1 = await make_invite("INV-A")
-    await register_and_login(client, code1, "owner")
+async def test_idor_user_cannot_touch_others_conversation(client, new_client):
+    await register_and_login(client, "owner")
     conv_id = (await client.post("/v1/conversations", json={"title": "secret"})).json()["id"]
 
-    code2 = await make_invite("INV-B")
     async with new_client() as attacker:
-        await register_and_login(attacker, code2, "attacker")
+        await register_and_login(attacker, "attacker")
 
         assert (await attacker.get(f"/v1/conversations/{conv_id}")).status_code == 404
         assert (
@@ -84,7 +81,10 @@ async def test_idor_user_cannot_touch_others_conversation(client, new_client, ma
         ).status_code == 404
         assert (await attacker.delete(f"/v1/conversations/{conv_id}")).status_code == 404
         assert (
-            await attacker.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
+            await attacker.post(
+                f"/v1/conversations/{conv_id}/messages",
+                json={"content": "hi", "delivery": "steer"},
+            )
         ).status_code == 404
         assert (await attacker.get("/v1/conversations")).json()["total"] == 0
 
@@ -93,9 +93,8 @@ async def test_idor_user_cannot_touch_others_conversation(client, new_client, ma
     assert r.status_code == 200 and r.json()["title"] == "secret"
 
 
-async def test_refresh_rotates_cookie(client, make_invite):
-    code = await make_invite("INV-3")
-    await register_and_login(client, code, "dave")
+async def test_refresh_rotates_cookie(client):
+    await register_and_login(client, "dave")
 
     old_refresh = client.cookies.get("refresh_token")
     r = await client.post("/v1/auth/refresh")
@@ -107,13 +106,12 @@ async def test_refresh_rotates_cookie(client, make_invite):
     assert (await client.get("/v1/auth/me")).status_code == 200
 
 
-async def test_refresh_reuse_detected_revokes_family(client, new_client, make_invite, monkeypatch):
+async def test_refresh_reuse_detected_revokes_family(client, new_client, monkeypatch):
     # Close the benign-concurrency grace window so an already-rotated token reads
     # as a genuine replay/leak (the security property under test). The within-grace
     # benign path is covered by tests/test_auth_service.py.
     monkeypatch.setattr("agentcore.auth.service._REFRESH_REUSE_GRACE", timedelta(0))
-    code = await make_invite("INV-4")
-    await register_and_login(client, code, "erin")
+    await register_and_login(client, "erin")
 
     r1 = client.cookies.get("refresh_token")
     assert (await client.post("/v1/auth/refresh")).status_code == 200
@@ -131,9 +129,8 @@ async def test_refresh_reuse_detected_revokes_family(client, new_client, make_in
         assert resp.status_code == 401
 
 
-async def test_login_lockout_after_repeated_failures(client, make_invite):
-    code = await make_invite("INV-5")
-    await register_and_login(client, code, "frank")
+async def test_login_lockout_after_repeated_failures(client):
+    await register_and_login(client, "frank")
 
     for _ in range(5):
         r = await client.post(
@@ -146,9 +143,8 @@ async def test_login_lockout_after_repeated_failures(client, make_invite):
     assert r.status_code == 401
 
 
-async def test_logout_clears_cookies(client, make_invite):
-    code = await make_invite("INV-6")
-    await register_and_login(client, code, "gina")
+async def test_logout_clears_cookies(client):
+    await register_and_login(client, "gina")
     assert (await client.get("/v1/auth/me")).status_code == 200
 
     assert (await client.post("/v1/auth/logout")).status_code == 200
@@ -156,13 +152,12 @@ async def test_logout_clears_cookies(client, make_invite):
     assert (await client.get("/v1/auth/me")).status_code == 401
 
 
-async def test_refresh_cookie_path_carries_reverse_proxy_prefix(client, make_invite, monkeypatch):
+async def test_refresh_cookie_path_carries_reverse_proxy_prefix(client, monkeypatch):
     # Behind the prod Nginx the API is mounted at /api/, so the browser's real refresh
     # path is /api/v1/auth/refresh. RFC 6265 path-matching only sends the cookie if its
     # Path is a prefix of that — a bare /v1/auth scope silently drops it (forced
     # re-login once the access token expires). COOKIE_PATH_PREFIX must carry the mount.
     monkeypatch.setattr(settings, "cookie_path_prefix", "/api")
-    await make_invite("INV-PREFIX")
     r = await client.post(
         "/v1/auth/register",
         json={"username": "pat", "password": _PW},
@@ -179,12 +174,93 @@ async def test_refresh_cookie_path_carries_reverse_proxy_prefix(client, make_inv
     assert "Path=/" in access and "Path=/api/v1/auth" not in access, access
 
 
+def _cookie_has_persistent_expiry(header: str) -> bool:
+    lower = header.lower()
+    return "max-age=" in lower or "expires=" in lower
+
+
+async def test_login_default_persist_sets_cookie_max_age(client):
+    await client.post(
+        "/v1/auth/register",
+        json={"username": "persist_def", "password": _PW},
+    )
+    r = await client.post(
+        "/v1/auth/login",
+        json={"username": "persist_def", "password": _PW},
+    )
+    assert r.status_code == 200
+    set_cookies = r.headers.get_list("set-cookie")
+    access = next(c for c in set_cookies if c.startswith("access_token="))
+    refresh = next(c for c in set_cookies if c.startswith("refresh_token="))
+    assert _cookie_has_persistent_expiry(access), access
+    assert _cookie_has_persistent_expiry(refresh), refresh
+
+
+async def test_login_persist_false_sets_session_cookies(client):
+    await client.post(
+        "/v1/auth/register",
+        json={"username": "ephem_cookie", "password": _PW},
+    )
+    r = await client.post(
+        "/v1/auth/login",
+        json={
+            "username": "ephem_cookie",
+            "password": _PW,
+            "persist_session": False,
+        },
+    )
+    assert r.status_code == 200
+    set_cookies = r.headers.get_list("set-cookie")
+    access = next(c for c in set_cookies if c.startswith("access_token="))
+    refresh = next(c for c in set_cookies if c.startswith("refresh_token="))
+    assert not _cookie_has_persistent_expiry(access), access
+    assert not _cookie_has_persistent_expiry(refresh), refresh
+    # Session still authorizes; refresh keeps session-cookie policy.
+    assert (await client.get("/v1/auth/me")).status_code == 200
+    refreshed = await client.post("/v1/auth/refresh")
+    assert refreshed.status_code == 200
+    refresh_cookies = refreshed.headers.get_list("set-cookie")
+    access2 = next(c for c in refresh_cookies if c.startswith("access_token="))
+    refresh2 = next(c for c in refresh_cookies if c.startswith("refresh_token="))
+    assert not _cookie_has_persistent_expiry(access2), access2
+    assert not _cookie_has_persistent_expiry(refresh2), refresh2
+
+
+async def test_token_login_persist_false_short_refresh_expires_in(client):
+    await client.post(
+        "/v1/auth/register",
+        json={"username": "ephem_bearer", "password": _PW},
+    )
+    long = (
+        await client.post(
+            "/v1/auth/token",
+            json={"username": "ephem_bearer", "password": _PW},
+        )
+    ).json()
+    short = (
+        await client.post(
+            "/v1/auth/token",
+            json={
+                "username": "ephem_bearer",
+                "password": _PW,
+                "persist_session": False,
+            },
+        )
+    ).json()
+    assert long["refresh_expires_in"] == settings.jwt_refresh_token_expire_days * 86400
+    assert (
+        short["refresh_expires_in"]
+        == settings.ephemeral_refresh_family_max_hours * 3600
+    )
+    assert short["refresh_expires_in"] < long["refresh_expires_in"]
+    assert short["access_token"] and short["refresh_token"]
+
+
 # --- self-service account ops (账户设置: 改密码 / 改资料 / 注销) ---
 
 
-async def test_change_password_keeps_session_and_rotates_secret(client, make_invite):
-    code = await make_invite("INV-CP-1")
-    await register_and_login(client, code, "harry")
+async def test_change_password_keeps_session_and_rotates_secret(client):
+    await register_and_login(client, "harry")
 
     r = await client.post(
         "/v1/auth/change-password",
@@ -205,9 +281,8 @@ async def test_change_password_keeps_session_and_rotates_secret(client, make_inv
     ).status_code == 200
 
 
-async def test_change_password_wrong_current_rejected(client, make_invite):
-    code = await make_invite("INV-CP-2")
-    await register_and_login(client, code, "iris")
+async def test_change_password_wrong_current_rejected(client):
+    await register_and_login(client, "iris")
     r = await client.post(
         "/v1/auth/change-password",
         json={"current_password": "wrong-pw", "new_password": "newpassword456"},
@@ -223,9 +298,8 @@ async def test_change_password_requires_auth(client):
     assert r.status_code == 401
 
 
-async def test_update_profile_changes_display_name_and_email(client, make_invite):
-    code = await make_invite("INV-UP-1")
-    await register_and_login(client, code, "jack")
+async def test_update_profile_changes_display_name_and_email(client):
+    await register_and_login(client, "jack")
 
     r = await client.patch(
         "/v1/auth/me",
@@ -240,16 +314,14 @@ async def test_update_profile_changes_display_name_and_email(client, make_invite
     assert me["display_name"] == "Jack Jones" and me["email"] == "jack@example.com"
 
 
-async def test_update_profile_rejects_duplicate_email(client, new_client, make_invite):
-    code1 = await make_invite("INV-UP-2")
-    await register_and_login(client, code1, "kate")
+async def test_update_profile_rejects_duplicate_email(client, new_client):
+    await register_and_login(client, "kate")
     assert (
         await client.patch("/v1/auth/me", json={"email": "shared@example.com"})
     ).status_code == 200
 
-    code2 = await make_invite("INV-UP-3")
     async with new_client() as other:
-        await register_and_login(other, code2, "liam")
+        await register_and_login(other, "liam")
         r = await other.patch("/v1/auth/me", json={"email": "shared@example.com"})
         assert r.status_code == 422
 
@@ -258,9 +330,8 @@ async def test_update_profile_requires_auth(client):
     assert (await client.patch("/v1/auth/me", json={"display_name": "x"})).status_code == 401
 
 
-async def test_delete_account_anonymizes_and_frees_username(client, make_invite):
-    code = await make_invite("INV-DEL-1")
-    await register_and_login(client, code, "mona")
+async def test_delete_account_anonymizes_and_frees_username(client):
+    await register_and_login(client, "mona")
     # give the account data so the route's conversation cascade actually runs
     assert (await client.post("/v1/conversations", json={"title": "to be gone"})).status_code == 201
 
@@ -272,7 +343,6 @@ async def test_delete_account_anonymizes_and_frees_username(client, make_invite)
         await client.post("/v1/auth/login", json={"username": "mona", "password": _PW})
     ).status_code == 401
     # the username was anonymized away → a brand-new account can reclaim it
-    await make_invite("INV-DEL-2")
     r = await client.post(
         "/v1/auth/register",
         json={"username": "mona", "password": _PW},
@@ -280,9 +350,8 @@ async def test_delete_account_anonymizes_and_frees_username(client, make_invite)
     assert r.status_code == 201, r.text
 
 
-async def test_delete_account_wrong_password_rejected(client, make_invite):
-    code = await make_invite("INV-DEL-3")
-    await register_and_login(client, code, "nate")
+async def test_delete_account_wrong_password_rejected(client):
+    await register_and_login(client, "nate")
     r = await client.request("DELETE", "/v1/auth/me", json={"password": "wrong-pw"})
     assert r.status_code == 401
     # the account is untouched and still usable
@@ -297,8 +366,7 @@ async def test_delete_account_requires_auth(client):
 # --- bearer-token flow (mobile web / Capacitor shell, M2) ---
 
 
-async def test_token_login_returns_tokens_and_authorizes_via_bearer(client, make_invite):
-    await make_invite("INV-TOK-1")
+async def test_token_login_returns_tokens_and_authorizes_via_bearer(client):
     r = await client.post(
         "/v1/auth/register",
         json={"username": "mobile1", "password": _PW},
@@ -328,11 +396,10 @@ async def test_bearer_invalid_token_rejected(client):
     assert r.status_code == 401
 
 
-async def test_token_refresh_rotates_via_body_and_detects_reuse(client, make_invite, monkeypatch):
+async def test_token_refresh_rotates_via_body_and_detects_reuse(client, monkeypatch):
     # Close the grace window so the old token re-presented after rotation reads as
     # a genuine reuse (benign within-grace concurrency is unit-tested separately).
     monkeypatch.setattr("agentcore.auth.service._REFRESH_REUSE_GRACE", timedelta(0))
-    await make_invite("INV-TOK-2")
     await client.post(
         "/v1/auth/register",
         json={"username": "mobile2", "password": _PW},
@@ -358,8 +425,7 @@ async def test_token_refresh_rotates_via_body_and_detects_reuse(client, make_inv
     ).status_code == 401
 
 
-async def test_token_revoke_kills_refresh(client, make_invite):
-    await make_invite("INV-TOK-3")
+async def test_token_revoke_kills_refresh(client):
     await client.post(
         "/v1/auth/register",
         json={"username": "mobile3", "password": _PW},
@@ -375,186 +441,6 @@ async def test_token_revoke_kills_refresh(client, make_invite):
     assert (
         await client.post("/v1/auth/token/refresh", json={"refresh_token": tok["refresh_token"]})
     ).status_code == 401
-
-
-# --- invite issuance (admin) ---
-
-
-async def test_invite_endpoints_require_auth(client):
-    assert (await client.post("/v1/auth/invites", json={})).status_code == 401
-    assert (await client.post("/v1/auth/invites/batch", json={"count": 2})).status_code == 401
-    assert (await client.get("/v1/auth/invites")).status_code == 401
-    assert (await client.get("/v1/auth/invites/stats")).status_code == 401
-
-
-async def test_admin_issues_invite(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    r = await client.post("/v1/auth/invites", json={})
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["status"] == "active" and body["code"]
-
-    assert (await client.get("/v1/auth/invites")).json()["total"] == 1
-
-    # Open registration succeeds without consuming the invite.
-    r = await client.post(
-        "/v1/auth/register",
-        json={"username": "rookie", "password": _PW},
-    )
-    assert r.status_code == 201, r.text
-    assert (await client.get("/v1/auth/invites")).json()["data"][0]["status"] == "active"
-
-
-async def test_admin_batch_issues_invites(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    r = await client.post("/v1/auth/invites/batch", json={"count": 3})
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["total"] == 3
-    assert len(body["data"]) == 3
-    codes = {item["code"] for item in body["data"]}
-    assert len(codes) == 3
-    assert all(item["status"] == "active" for item in body["data"])
-
-    assert (await client.get("/v1/auth/invites")).json()["total"] == 3
-
-
-async def test_batch_invite_rejects_invalid_count(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-    assert (await client.post("/v1/auth/invites/batch", json={"count": 0})).status_code == 422
-    assert (await client.post("/v1/auth/invites/batch", json={"count": 101})).status_code == 422
-
-
-async def test_list_invites_paginated_and_filtered(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    await client.post("/v1/auth/invites/batch", json={"count": 5})
-
-    page1 = (await client.get("/v1/auth/invites", params={"page": 1, "page_size": 2})).json()
-    assert page1["total"] == 5
-    assert page1["page"] == 1
-    assert page1["page_size"] == 2
-    assert len(page1["data"]) == 2
-
-    page3 = (await client.get("/v1/auth/invites", params={"page": 3, "page_size": 2})).json()
-    assert len(page3["data"]) == 1
-
-    active = (await client.get("/v1/auth/invites", params={"status": "active"})).json()
-    assert active["total"] == 5
-    assert all(row["status"] == "active" for row in active["data"])
-
-
-async def test_list_invites_search_by_code(client, make_admin, make_invite):
-    await make_invite("ALPHA-SEARCH-01")
-    await make_invite("ALPHA-SEARCH-02")
-    await make_invite("BETA-OTHER-03")
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    matched = (await client.get("/v1/auth/invites", params={"search": "ALPHA"})).json()
-    assert matched["total"] == 2
-    assert all("ALPHA" in row["code"] for row in matched["data"])
-
-    single = (await client.get("/v1/auth/invites", params={"search": "BETA"})).json()
-    assert single["total"] == 1
-    assert single["data"][0]["code"] == "BETA-OTHER-03"
-
-
-async def test_invite_stats_counts_by_status(client, make_admin, make_invite):
-    await make_invite("STATS-A")
-    await make_invite("STATS-B")
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    stats = (await client.get("/v1/auth/invites/stats")).json()
-    assert stats == {
-        "total": 2,
-        "active": 2,
-        "used": 0,
-        "expired": 0,
-        "revoked": 0,
-    }
-    assert (await client.get("/v1/auth/invites")).json()["total"] == stats["total"]
-
-
-async def test_non_admin_cannot_access_invites(client, make_invite):
-    code = await make_invite("INV-USER")
-    await register_and_login(client, code, "regular")
-    assert (await client.post("/v1/auth/invites", json={})).status_code == 403
-    assert (await client.post("/v1/auth/invites/batch", json={"count": 2})).status_code == 403
-    assert (await client.get("/v1/auth/invites")).status_code == 403
-    assert (await client.get("/v1/auth/invites/stats")).status_code == 403
-
-
-# --- invite revocation (邀请码撤销) ---
-
-
-async def test_admin_revokes_invite(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-
-    body = (await client.post("/v1/auth/invites", json={})).json()
-    invite_id = body["id"]
-
-    r = await client.post(f"/v1/auth/invites/{invite_id}/revoke")
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "revoked"
-
-    listed = (await client.get("/v1/auth/invites")).json()["data"]
-    assert listed[0]["status"] == "revoked"
-
-    # Registration is open and no longer gated by invite status.
-    r = await client.post(
-        "/v1/auth/register",
-        json={"username": "toolate", "password": _PW},
-    )
-    assert r.status_code == 201, r.text
-
-
-async def test_revoke_used_invite_rejected(client, make_admin, session_factory):
-    from datetime import UTC, datetime
-
-    from agentcore.db.models import Invite
-
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-    body = (await client.post("/v1/auth/invites", json={})).json()
-    invite_id = body["id"]
-
-    async with session_factory() as session:
-        invite = await session.get(Invite, invite_id)
-        assert invite is not None
-        invite.used_by = str(uuid4())
-        invite.used_at = datetime.now(UTC)
-        await session.commit()
-
-    assert (await client.post(f"/v1/auth/invites/{invite_id}/revoke")).status_code == 422
-
-
-async def test_revoke_invite_twice_rejected(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-    invite_id = (await client.post("/v1/auth/invites", json={})).json()["id"]
-    assert (await client.post(f"/v1/auth/invites/{invite_id}/revoke")).status_code == 200
-    assert (await client.post(f"/v1/auth/invites/{invite_id}/revoke")).status_code == 422
-
-
-async def test_revoke_unknown_invite_404(client, make_admin):
-    username, password = await make_admin()
-    await login_admin(client, username, password)
-    assert (await client.post(f"/v1/auth/invites/{uuid4()}/revoke")).status_code == 404
-
-
-async def test_non_admin_cannot_revoke_invite(client, make_invite):
-    code = await make_invite("INV-REVOKE-USER")
-    await register_and_login(client, code, "regular2")
-    assert (await client.post(f"/v1/auth/invites/{uuid4()}/revoke")).status_code == 403
 
 
 async def test_admin_cannot_login_on_desktop(client, make_admin):
@@ -606,9 +492,8 @@ async def test_mfa_status_reports_required_flag(client, make_admin, monkeypatch)
 # --- sessions (device management) ---
 
 
-async def test_list_sessions_aggregates_and_marks_current(client, new_client, make_invite):
-    await make_invite("INV-SESS-1")
-    await register_and_login(client, "INV-SESS-1", "sess_alice")
+async def test_list_sessions_aggregates_and_marks_current(client, new_client):
+    await register_and_login(client, "sess_alice")
 
     async with new_client() as other:
         r = await other.post(
@@ -627,30 +512,26 @@ async def test_list_sessions_aggregates_and_marks_current(client, new_client, ma
     assert currents[0]["created_at"] and currents[0]["last_used_at"]
 
 
-async def test_sessions_cross_user_family_404(client, new_client, make_invite):
-    await make_invite("INV-SESS-A")
-    await register_and_login(client, "INV-SESS-A", "sess_owner")
+async def test_sessions_cross_user_family_404(client, new_client):
+    await register_and_login(client, "sess_owner")
     family_id = (await client.get("/v1/auth/sessions")).json()["data"][0]["id"]
 
-    await make_invite("INV-SESS-B")
     async with new_client() as attacker:
-        await register_and_login(attacker, "INV-SESS-B", "sess_attacker")
+        await register_and_login(attacker, "sess_attacker")
         assert (
             await attacker.delete(f"/v1/auth/sessions/{family_id}")
         ).status_code == 404
 
 
-async def test_revoke_session_blocks_refresh(client, make_invite):
-    await make_invite("INV-SESS-2")
-    await register_and_login(client, "INV-SESS-2", "sess_bob")
+async def test_revoke_session_blocks_refresh(client):
+    await register_and_login(client, "sess_bob")
     family_id = (await client.get("/v1/auth/sessions")).json()["data"][0]["id"]
     assert (await client.delete(f"/v1/auth/sessions/{family_id}")).status_code == 200
     assert (await client.post("/v1/auth/refresh")).status_code == 401
 
 
-async def test_revoke_others_keeps_current(client, new_client, make_invite):
-    await make_invite("INV-SESS-3")
-    await register_and_login(client, "INV-SESS-3", "sess_carol")
+async def test_revoke_others_keeps_current(client, new_client):
+    await register_and_login(client, "sess_carol")
 
     async with new_client() as other:
         r = await other.post(
@@ -669,7 +550,7 @@ async def test_revoke_others_keeps_current(client, new_client, make_invite):
         assert resp.status_code == 401
 
 
-async def test_family_max_days_rejects_refresh(client, make_invite, session_factory, monkeypatch):
+async def test_family_max_days_rejects_refresh(client, session_factory, monkeypatch):
     from datetime import UTC, datetime
 
     from sqlalchemy import select, update
@@ -677,8 +558,7 @@ async def test_family_max_days_rejects_refresh(client, make_invite, session_fact
     from agentcore.db.models import RefreshToken
 
     monkeypatch.setattr(settings, "refresh_family_max_days", 1)
-    await make_invite("INV-SESS-4")
-    await register_and_login(client, "INV-SESS-4", "sess_dave")
+    await register_and_login(client, "sess_dave")
 
     async with session_factory() as session:
         result = await session.execute(select(RefreshToken))

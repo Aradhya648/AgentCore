@@ -73,9 +73,8 @@ def _service_factory(strategy: AgentActivationStrategy):
     return _factory
 
 
-async def _create_authed_run(client, make_invite, *, invite_code: str, username: str) -> str:
-    invite = await make_invite(invite_code)
-    await register_and_login(client, invite, username, password=TEST_PASSWORD)
+async def _create_authed_run(client, *, username: str) -> str:
+    await register_and_login(client, username, password=TEST_PASSWORD)
     create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 7})
     assert create_res.status_code == 201, create_res.text
     return create_res.json()["id"]
@@ -129,12 +128,12 @@ def _force_llm_tick_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_conversation_path_speak_to(client, make_invite, session_factory):
+async def test_conversation_path_speak_to(client, session_factory):
     """speak_to → InteractionBus conversation → sim_event + relations + SSE."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
     try:
-        run_id = await _create_authed_run(client, make_invite, invite_code="INT03-CONV", username="int03-conv")
+        run_id = await _create_authed_run(client, username="int03-conv")
         speak = {
             "action": "speak_to",
             "target_name": "王婶",
@@ -172,12 +171,12 @@ async def test_conversation_path_speak_to(client, make_invite, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_trade_path_propose_trade(client, make_invite, session_factory):
+async def test_trade_path_propose_trade(client, session_factory):
     """propose_trade → trade execution → sim_event + balances + SSE."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
     try:
-        run_id = await _create_authed_run(client, make_invite, invite_code="INT03-TRADE", username="int03-trade")
+        run_id = await _create_authed_run(client, username="int03-trade")
         trade = {
             "action": "propose_trade",
             "target_name": "王婶",
@@ -221,12 +220,12 @@ async def test_trade_path_propose_trade(client, make_invite, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_vote_path_propose_vote(client, make_invite, session_factory):
+async def test_vote_path_propose_vote(client, session_factory):
     """propose_vote → ballot collection → sim_event + governance + SSE."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
     try:
-        run_id = await _create_authed_run(client, make_invite, invite_code="INT03-VOTE", username="int03-vote")
+        run_id = await _create_authed_run(client, username="int03-vote")
         motion = "是否同意本周市场休市一天？"
         # run_vote tallies EVERY agent standing in 镇政厅 (needs ≥2), and yes/no/abstain
         # each need a distinct body. Gather 3 residents that survive the max_agents=5
@@ -285,7 +284,7 @@ async def test_vote_path_propose_vote(client, make_invite, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_price_surge_injection_changes_perception(client, make_invite):
+async def test_price_surge_injection_changes_perception(client):
     """Inject price_surge → scheduler applies → agents perceive higher prices."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
@@ -298,8 +297,7 @@ async def test_price_surge_injection_changes_perception(client, make_invite):
         return real_build(persona, perception, text_mode=text_mode)
 
     try:
-        run_id = await _create_authed_run(
-            client, make_invite, invite_code="INT03-INJECT", username="int03-inject"
+        run_id = await _create_authed_run(client, username="int03-inject"
         )
         stay = {
             "action": "stay_here",

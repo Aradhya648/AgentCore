@@ -91,7 +91,6 @@ async def test_register_defers_commit_then_commits_once():
         users=users,  # type: ignore[arg-type]
         credentials=creds,  # type: ignore[arg-type]
         refresh_tokens=SimpleNamespace(),  # type: ignore[arg-type]
-        invites=SimpleNamespace(),  # type: ignore[arg-type]
         session=session,  # type: ignore[arg-type]
     )
     user = await svc.register(username="atomic", password=_PW)
@@ -110,7 +109,6 @@ async def test_register_skips_final_commit_when_credentials_fail():
         users=users,  # type: ignore[arg-type]
         credentials=creds,  # type: ignore[arg-type]
         refresh_tokens=SimpleNamespace(),  # type: ignore[arg-type]
-        invites=SimpleNamespace(),  # type: ignore[arg-type]
         session=session,  # type: ignore[arg-type]
     )
     with pytest.raises(RuntimeError, match="credentials insert failed"):
@@ -139,7 +137,6 @@ async def test_change_password_single_commit():
         users=users,
         credentials=creds,
         refresh_tokens=tokens,
-        invites=SimpleNamespace(),  # type: ignore[arg-type]
         session=session,  # type: ignore[arg-type]
     )
     pair = await svc.change_password(

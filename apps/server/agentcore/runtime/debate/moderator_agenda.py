@@ -139,12 +139,10 @@ async def frame_round(
             else ""
         )
         completeness = getattr(config, "evidence_completeness", "full") or "full"
-        failed_sides = list(getattr(config, "pretrial_failed_sides", None) or [])
         incomplete_block = ""
         if completeness != "full":
-            sides = "、".join(failed_sides) if failed_sides else "共享包或一方取证"
             incomplete_block = (
-                f"\n【庭前取证完整度={completeness}】缺口涉及：{sides}。"
+                f"\n【庭前取证完整度={completeness}】"
                 "开场白与首轮焦点须【显式承认证据不完整】，禁止宣称双方已充分取证；"
                 "把可核实缺口标进争议焦点，勿用「材料已齐」口吻掩盖。\n"
             )

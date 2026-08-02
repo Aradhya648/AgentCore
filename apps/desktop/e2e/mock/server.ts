@@ -105,7 +105,6 @@ function syncRecoveryFromEvents(
           context: "",
           assumptions: [],
           questions: [],
-          style_options: [],
           steps: [],
           pending: [],
           workers: Array.isArray(payload.workers)
@@ -122,10 +121,6 @@ function syncRecoveryFromEvents(
             : [],
           max_rounds: Number(payload.max_rounds ?? 0),
           thorough: payload.thorough !== false,
-          offer_research_first: Boolean(payload.offer_research_first),
-          research_first_recommended: Boolean(
-            payload.research_first_recommended,
-          ),
           intent: "kickoff",
         },
       ];

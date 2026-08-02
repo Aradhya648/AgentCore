@@ -117,7 +117,6 @@ export interface ProjectedRunCheckpoint {
   status: "pending" | "resolved";
   decision:
     | "continue"
-    | "per_call"
     | "adjust"
     | "stop"
     | "research_first"
@@ -361,12 +360,6 @@ export type ProjectedInteraction =
       note: string | null;
     };
 
-/** @deprecated Use {@link ProjectedInteraction}; kept as alias during P3 migration. */
-export type PendingInteraction = Extract<
-  ProjectedInteraction,
-  { status: "pending" }
->;
-
 /** 庭前取证投影（`debate_pretrial_*` 折叠；权威=completed）。 */
 export interface DebatePretrialProjection {
   status: "running" | "done" | "skipped" | "degraded" | string;
@@ -377,13 +370,6 @@ export interface DebatePretrialProjection {
     side_key: string;
     tasks: Array<{ query: string; purpose?: string }>;
     source: string;
-  }>;
-  investigators: Array<{
-    side_key: string;
-    run_id: string;
-    parent_run_id: string;
-    ok: boolean;
-    task_query?: string;
   }>;
   evidenceLedgerCount: number;
   fallbackSelfSearch: boolean;
@@ -397,15 +383,10 @@ export interface DebatePretrialProjection {
    * 明确 incomplete 字段时才有值；缺则未知（勿用 completeness 缺省推 incomplete）。
    */
   incomplete?: boolean;
-  /** 未有效交付的 side_key。 */
-  failedSides: string[];
-  investigatorCountPerSide?: number;
-  /** 外证计划 mode：skip / gap_fill / investigators。 */
-  externalEvidenceMode?: string | null;
-  /** 外证跳过/允许原因（evidence_pack_full / evidence_pack_gap / …）。 */
+  /** 外证计划 mode：生产仅 skip。 */
+  externalEvidenceMode?: "skip" | string | null;
+  /** 外证跳过原因（evidence_pack_full / evidence_pack_partial / no_pack / fast / …）。 */
   externalEvidenceReason?: string | null;
-  /** 庭前取证员/补证 per-run 检索预算。 */
-  retrievalBudgetPerInvestigator?: number;
 }
 
 export interface ProjectedTurn {

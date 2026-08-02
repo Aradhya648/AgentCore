@@ -86,6 +86,9 @@ class ConversationSummary(BaseModel):
     deep_research_auto: bool = False
     # 会话级模型组合（模型组合配置）。None = 跟随账号默认组合。
     model_profile_id: str | None = None
+    # True iff ORM has both compaction_summary and compacted_through.
+    # Flag only — never expose rolling-summary text to clients.
+    context_compacted: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -97,6 +100,23 @@ class ConversationSummary(BaseModel):
         if isinstance(value, dict):
             return PermissionAxes.from_mapping(value).to_dict()
         return value
+
+
+def conversation_summary_from_orm(
+    conv: object,
+    *,
+    message_count: int | None = None,
+) -> ConversationSummary:
+    """Assemble ``ConversationSummary`` with ``context_compacted`` (no summary body)."""
+    summary = ConversationSummary.model_validate(conv)
+    compacted = bool(
+        getattr(conv, "compaction_summary", None)
+        and getattr(conv, "compacted_through", None)
+    )
+    updates: dict[str, object] = {"context_compacted": compacted}
+    if message_count is not None:
+        updates["message_count"] = message_count
+    return summary.model_copy(update=updates)
 
 
 class ConversationListResponse(BaseModel):
@@ -140,10 +160,6 @@ class AutoTitleResponse(BaseModel):
     """Resulting conversation title (existing or freshly minted)."""
 
     title: str
-
-
-# Back-compat export alias for OpenAPI / import churn during migration.
-PermissionPresetUpdate = PermissionAxesUpdate
 
 
 class CreateFolderRequest(BaseModel):

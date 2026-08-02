@@ -25,8 +25,8 @@ export type ChatMemberState = Schemas["ChatSummary"]["state"];
 export type ChatSenderType = Schemas["ChatMessageDetail"]["sender_type"];
 /** Message body kind (generated from `ChatMessageDetail.content_type`). */
 export type MessageContentType = Schemas["ChatMessageDetail"]["content_type"];
-/** Who may DM this user (generated; read-compat still maps legacy `contacts`). */
-export type WhoCanDm = Schemas["DirectorySettings"]["who_can_dm"] | "contacts";
+/** Who may DM this user (generated from `DirectorySettings.who_can_dm`). */
+export type WhoCanDm = Schemas["DirectorySettings"]["who_can_dm"];
 
 /** Who may send this user a friend request. */
 export type WhoCanFriend = Schemas["DirectorySettings"]["who_can_friend"];
@@ -88,11 +88,11 @@ type UserSearchResponse = Schemas["UserSearchResponse"];
 type ChatMessageListResponse = Schemas["ChatMessageListResponse"];
 type BlockListResponse = Schemas["BlockListResponse"];
 
-/** Map legacy `contacts` → `friends` for UI selection (read-compat). */
+/** Normalize who-can-DM for UI selection (`friends` / `anyone` only). */
 export function normalizeWhoCanDm(
   value: WhoCanDm | string | null | undefined,
 ): "anyone" | "friends" {
-  if (value === "friends" || value === "contacts") return "friends";
+  if (value === "friends") return "friends";
   return "anyone";
 }
 /** A page of a chat's messages (oldest first), paging echoed back. */

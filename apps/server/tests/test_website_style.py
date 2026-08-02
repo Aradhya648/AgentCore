@@ -1,4 +1,4 @@
-"""P1a website style dual-gate + DESIGN helpers + structured resume wire."""
+"""Website style ledger + DESIGN helpers (场面 resume wire 已退役)."""
 
 from pathlib import Path
 
@@ -18,7 +18,6 @@ from agentcore.runtime.runs.website_style import (
     get_style_confirmation,
     record_style_confirmation,
     rehydrate_style_confirmation,
-    resolve_style_from_resume,
     snapshot_website_style_for_pause,
     style_from_journal_entries,
 )
@@ -27,46 +26,6 @@ from agentcore.tools.builtin.ask_user import AskUserTool
 from agentcore.tools.protocol import ToolContext
 from agentcore.tools.sandbox.subprocess import SubprocessSandbox
 from agentcore.workspace.server import ServerWorkspace
-
-
-def test_resolve_style_from_resume_by_explicit_style_id():
-    opts = [{"id": "s0", "label": "深色科技"}, {"id": "s1", "label": "简约商务"}]
-    conf = resolve_style_from_resume(opts, style_id="s1", note="· 风格：深色科技")
-    assert conf is not None
-    assert conf.style_id == "s1"
-    assert conf.label == "简约商务"
-
-
-def test_resolve_style_from_resume_by_selected_sn():
-    opts = [{"id": "s0", "label": "深色科技"}, {"id": "s1", "label": "简约商务"}]
-    conf = resolve_style_from_resume(
-        opts, selected=["中小商家", "s1"], note="就按这个方案开做："
-    )
-    assert conf is not None
-    assert conf.style_id == "s1"
-
-
-def test_resolve_style_from_resume_prose_alone_does_not_confirm():
-    opts = [{"id": "s0", "label": "深色科技"}, {"id": "s1", "label": "简约商务"}]
-    conf = resolve_style_from_resume(
-        opts, note="就按这个方案开做：\n· 风格：简约商务\n"
-    )
-    assert conf is None
-
-
-def test_resolve_style_from_resume_invalid_style_id_rejected():
-    opts = [{"id": "s0", "label": "A"}, {"id": "s1", "label": "B"}]
-    # Explicit invalid id must not fall through to selected / note.
-    conf = resolve_style_from_resume(
-        opts, style_id="s9", selected=["s0"], note="· 风格：A"
-    )
-    assert conf is None
-
-
-def test_resolve_style_from_resume_selected_label_not_enough():
-    opts = [{"id": "s0", "label": "深色科技"}, {"id": "s1", "label": "简约商务"}]
-    conf = resolve_style_from_resume(opts, selected=["简约商务"])
-    assert conf is None
 
 
 def test_ledger_record_and_full_auto_default():

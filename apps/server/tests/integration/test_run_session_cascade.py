@@ -8,9 +8,8 @@ from agentcore.db.repositories.runs import RunSessionRepository
 from tests.integration.conftest import register_and_login
 
 
-async def test_soft_delete_cascades_run_sessions(client, make_invite, session_factory):
-    code = await make_invite("INV-CASCADE-SOFT")
-    uid = await register_and_login(client, code, "cascsoft")
+async def test_soft_delete_cascades_run_sessions(client, session_factory):
+    uid = await register_and_login(client, "cascsoft")
     async with session_factory() as s:
         conv = await ConversationRepository(s).create(user_id=uid, title="cascade-soft")
         cid = conv.id
@@ -30,9 +29,8 @@ async def test_soft_delete_cascades_run_sessions(client, make_invite, session_fa
         assert left.scalars().first() is None
 
 
-async def test_hard_delete_cascades_run_sessions(client, make_invite, session_factory):
-    code = await make_invite("INV-CASCADE-HARD")
-    uid = await register_and_login(client, code, "caschard")
+async def test_hard_delete_cascades_run_sessions(client, session_factory):
+    uid = await register_and_login(client, "caschard")
     async with session_factory() as s:
         conv = await ConversationRepository(s).create(user_id=uid, title="cascade-hard")
         cid = conv.id

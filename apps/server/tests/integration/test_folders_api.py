@@ -55,9 +55,8 @@ async def test_folders_require_auth(client):
     assert (await client.get("/v1/conversations/grouped")).status_code == 401
 
 
-async def test_create_cloud_and_local_folders(client, make_invite):
-    code = await make_invite("INV-F1")
-    await register_and_login(client, code, "folderuser1")
+async def test_create_cloud_and_local_folders(client):
+    await register_and_login(client, "folderuser1")
 
     r = await client.post("/v1/folders", json={"name": "Cloud Proj", "mode": "cloud"})
     assert r.status_code == 201, r.text
@@ -88,22 +87,19 @@ async def test_create_cloud_and_local_folders(client, make_invite):
     assert {f["id"] for f in r.json()} == {cloud["id"], local["id"]}
 
 
-async def test_create_folder_requires_mode(client, make_invite):
-    code = await make_invite("INV-F-MODE")
-    await register_and_login(client, code, "foldermode")
+async def test_create_folder_requires_mode(client):
+    await register_and_login(client, "foldermode")
     assert (await client.post("/v1/folders", json={"name": "NoMode"})).status_code == 422
 
 
-async def test_create_local_folder_requires_root(client, make_invite):
-    code = await make_invite("INV-F-LROOT")
-    await register_and_login(client, code, "folderlroot")
+async def test_create_local_folder_requires_root(client):
+    await register_and_login(client, "folderlroot")
     r = await client.post("/v1/folders", json={"name": "Local", "mode": "local"})
     assert r.status_code == 422, r.text
 
 
-async def test_create_cloud_folder_rejects_local_binding(client, make_invite):
-    code = await make_invite("INV-F12")
-    await register_and_login(client, code, "folderuser12")
+async def test_create_cloud_folder_rejects_local_binding(client):
+    await register_and_login(client, "folderuser12")
     r = await client.post(
         "/v1/folders",
         json={"name": "Cloud", "mode": "cloud", "local_root_id": _ROOT},
@@ -111,9 +107,8 @@ async def test_create_cloud_folder_rejects_local_binding(client, make_invite):
     assert r.status_code == 422, r.text
 
 
-async def test_create_rejects_local_dir_field(client, make_invite):
-    code = await make_invite("INV-F-LDIR")
-    await register_and_login(client, code, "folderldir")
+async def test_create_rejects_local_dir_field(client):
+    await register_and_login(client, "folderldir")
     r = await client.post(
         "/v1/folders",
         json={"name": "X", "mode": "cloud", "local_dir": "/tmp"},
@@ -121,10 +116,9 @@ async def test_create_rejects_local_dir_field(client, make_invite):
     assert r.status_code == 422, r.text
 
 
-async def test_create_local_folder_reuses_same_binding(client, make_invite):
+async def test_create_local_folder_reuses_same_binding(client):
     """Same (root, subpath) POST returns the existing row with HTTP 200."""
-    code = await make_invite("INV-F-REUSE")
-    await register_and_login(client, code, "folderreuse")
+    await register_and_login(client, "folderreuse")
 
     body = {
         "name": "First",
@@ -151,10 +145,9 @@ async def test_create_local_folder_reuses_same_binding(client, make_invite):
     assert len(listed) == 1
 
 
-async def test_create_local_folder_different_subpath_is_distinct(client, make_invite):
+async def test_create_local_folder_different_subpath_is_distinct(client):
     """Different subpaths under the same root remain separate projects."""
-    code = await make_invite("INV-F-SUB")
-    await register_and_login(client, code, "foldersub")
+    await register_and_login(client, "foldersub")
 
     r_a = await client.post(
         "/v1/folders",
@@ -183,11 +176,10 @@ async def test_create_local_folder_different_subpath_is_distinct(client, make_in
 
 
 async def test_create_local_folder_empty_subpath_normalizes_for_reuse(
-    client, make_invite
+    client
 ):
     """Empty-string local_subpath normalizes to NULL and reuses root binding."""
-    code = await make_invite("INV-F-EMPTYSUB")
-    await register_and_login(client, code, "folderemptysub")
+    await register_and_login(client, "folderemptysub")
 
     r1 = await client.post(
         "/v1/folders",
@@ -213,9 +205,8 @@ async def test_create_local_folder_empty_subpath_normalizes_for_reuse(
     assert r2.json()["id"] == r1.json()["id"]
 
 
-async def test_grouped_reflects_birth_membership(client, make_invite):
-    code = await make_invite("INV-F2")
-    await register_and_login(client, code, "folderuser2")
+async def test_grouped_reflects_birth_membership(client):
+    await register_and_login(client, "folderuser2")
 
     folder_id = await _create_cloud_folder(client, "Proj")
     grouped_conv_r = await client.post(
@@ -232,10 +223,9 @@ async def test_grouped_reflects_birth_membership(client, make_invite):
     assert [c["id"] for c in body["ungrouped"]] == [loose_conv]
 
 
-async def test_patch_conversation_folder_gone(client, make_invite):
+async def test_patch_conversation_folder_gone(client):
     """Birth-time membership: PATCH /conversations/{id}/folder no longer exists."""
-    code = await make_invite("INV-F7")
-    await register_and_login(client, code, "folderuser7")
+    await register_and_login(client, "folderuser7")
     folder_id = await _create_cloud_folder(client, "Proj")
     conv = await _new_conversation(client, "started")
 
@@ -245,9 +235,8 @@ async def test_patch_conversation_folder_gone(client, make_invite):
     assert r.status_code == 404, r.text
 
 
-async def test_create_in_folder_files_at_creation(client, make_invite):
-    code = await make_invite("INV-F9")
-    await register_and_login(client, code, "folderuser9")
+async def test_create_in_folder_files_at_creation(client):
+    await register_and_login(client, "folderuser9")
     folder_id = await _create_cloud_folder(client, "Born")
 
     r = await client.post(
@@ -262,9 +251,8 @@ async def test_create_in_folder_files_at_creation(client, make_invite):
     assert [c["id"] for c in body["folders"][0]["conversations"]] == [conv_id]
 
 
-async def test_create_in_missing_folder_404(client, make_invite):
-    code = await make_invite("INV-F10")
-    await register_and_login(client, code, "folderuser10")
+async def test_create_in_missing_folder_404(client):
+    await register_and_login(client, "folderuser10")
     r = await client.post(
         "/v1/conversations",
         json={"title": "x", "folder_id": "00000000-0000-0000-0000-000000000000"},
@@ -272,9 +260,8 @@ async def test_create_in_missing_folder_404(client, make_invite):
     assert r.status_code == 404, r.text
 
 
-async def test_grouped_reports_message_count(client, make_invite, session_factory):
-    code = await make_invite("INV-F11")
-    await register_and_login(client, code, "folderuser11")
+async def test_grouped_reports_message_count(client, session_factory):
+    await register_and_login(client, "folderuser11")
     conv = await _new_conversation(client, "counts")
 
     body = (await client.get("/v1/conversations/grouped")).json()
@@ -287,9 +274,8 @@ async def test_grouped_reports_message_count(client, make_invite, session_factor
     assert body["ungrouped"][0]["message_count"] == 2
 
 
-async def test_update_folder_renames_only(client, make_invite):
-    code = await make_invite("INV-F4")
-    await register_and_login(client, code, "folderuser4")
+async def test_update_folder_renames_only(client):
+    await register_and_login(client, "folderuser4")
     folder_id = (
         await client.post(
             "/v1/folders",
@@ -315,9 +301,8 @@ async def test_update_folder_renames_only(client, make_invite):
     assert match["local_root_id"] == _ROOT
 
 
-async def test_delete_folder_archives_conversations(client, make_invite):
-    code = await make_invite("INV-F5")
-    await register_and_login(client, code, "folderuser5")
+async def test_delete_folder_archives_conversations(client):
+    await register_and_login(client, "folderuser5")
     folder_id = await _create_cloud_folder(client, "Temp")
     r = await client.post(
         "/v1/conversations", json={"title": "keep me", "folder_id": folder_id}
@@ -343,11 +328,10 @@ async def test_delete_folder_archives_conversations(client, make_invite):
 
 
 async def test_soft_delete_folder_hides_workspace_from_hub(
-    client, make_invite, _fs_data_dir
+    client, _fs_data_dir
 ):
     """Soft-deleted ``folder:<id>`` must not appear in list or resolve via locate."""
-    code = await make_invite("INV-F-SOFT-WS")
-    await register_and_login(client, code, "foldersoftws")
+    await register_and_login(client, "foldersoftws")
     folder_id = await _create_cloud_folder(client, "SoftGone")
     ws = f"folder:{folder_id}"
     await client.put(f"/v1/workspaces/{ws}/files/keep.txt", content=b"x")
@@ -360,12 +344,11 @@ async def test_soft_delete_folder_hides_workspace_from_hub(
 
 
 async def test_permanent_delete_folder_wipes_conversations_and_cloud_space(
-    client, make_invite, session_factory, monkeypatch, _fs_data_dir
+    client, session_factory, monkeypatch, _fs_data_dir
 ):
     """彻底删除: member chats gone, shared cloud files + snapshots purged."""
     monkeypatch.setattr(permanent_delete_mod, "async_session_factory", session_factory)
-    code = await make_invite("INV-F7P")
-    user_id = await register_and_login(client, code, "folderuser7p")
+    user_id = await register_and_login(client, "folderuser7p")
     folder_id = await _create_cloud_folder(client, "Gone")
     r = await client.post(
         "/v1/conversations", json={"title": "wipe me", "folder_id": folder_id}
@@ -395,7 +378,7 @@ async def test_permanent_delete_folder_wipes_conversations_and_cloud_space(
 
 
 async def test_permanent_delete_local_folder_keeps_os_sentinel(
-    client, make_invite, session_factory, monkeypatch, _fs_data_dir, tmp_path: Path
+    client, session_factory, monkeypatch, _fs_data_dir, tmp_path: Path
 ):
     """Local project wipe clears DB/server data only — never the user's OS directory."""
     monkeypatch.setattr(permanent_delete_mod, "async_session_factory", session_factory)
@@ -405,8 +388,7 @@ async def test_permanent_delete_local_folder_keeps_os_sentinel(
     os_sentinel.mkdir()
     (os_sentinel / "important.txt").write_text("do-not-touch", encoding="utf-8")
 
-    code = await make_invite("INV-F7L")
-    await register_and_login(client, code, "folderuser7l")
+    await register_and_login(client, "folderuser7l")
     r = await client.post(
         "/v1/folders",
         json={
@@ -433,14 +415,12 @@ async def test_permanent_delete_local_folder_keeps_os_sentinel(
     assert (os_sentinel / "important.txt").read_text(encoding="utf-8") == "do-not-touch"
 
 
-async def test_folder_isolation_between_users(client, make_invite, new_client):
-    code1 = await make_invite("INV-F6A")
-    await register_and_login(client, code1, "owneruser")
+async def test_folder_isolation_between_users(client, new_client):
+    await register_and_login(client, "owneruser")
     folder_id = await _create_cloud_folder(client, "Mine")
 
-    code2 = await make_invite("INV-F6B")
     async with new_client() as other:
-        await register_and_login(other, code2, "intruder")
+        await register_and_login(other, "intruder")
 
         assert (await other.get("/v1/folders")).json() == []
         assert (

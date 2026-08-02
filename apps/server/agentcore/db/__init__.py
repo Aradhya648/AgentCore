@@ -4,7 +4,6 @@ from agentcore.db.base import Base, async_session_factory, get_session, telemetr
 from agentcore.db.models import (
     Conversation,
     Credentials,
-    Invite,
     Message,
     RefreshToken,
     User,
@@ -20,7 +19,6 @@ __all__ = [
     "Conversation",
     "ConversationRepository",
     "Credentials",
-    "Invite",
     "Message",
     "MessageRepository",
     "RefreshToken",

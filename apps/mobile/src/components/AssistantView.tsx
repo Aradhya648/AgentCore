@@ -150,7 +150,7 @@ export function AssistantContent({
   /** 辩论进行中的逐轮叙事 (fold 的 `debateRounds`)：`debate` 收场产物未到时实时叠出主持人逐
    *  轮焦点 / 小结 / 裁判；收场后让位给 {@link DebateView} 的全量双产物。 */
   debateRounds?: DebateNarrativeRound[];
-  /** 庭前取证（fold 的 `debatePretrial`）；开赛后首轮前 / 收场复盘。 */
+  /** 庭前取证（fold 的 `debatePretrial`）；开赛后首轮前 / 收场复盘。组卷轻态，无舰队。 */
   debatePretrial?:
     | import("@agentcore/protocol-conformance").DebatePretrialProjection
     | null;

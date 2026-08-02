@@ -32,6 +32,7 @@ from agentcore.api.schemas import (
     PermissionAxesUpdate,
     StatusResponse,
     UpdateConversationRequest,
+    conversation_summary_from_orm,
 )
 from agentcore.conversation.common import (
     default_permission_axes_for_user,
@@ -66,9 +67,9 @@ def _summary_with_count(conv: Conversation, counts: dict[str, int]) -> Conversat
     ``MessageRepository.counts_for_conversations``) and pass the map here so the
     sidebar gets each chat's count without an N+1; absent ids default to 0.
     """
-    summary = ConversationSummary.model_validate(conv)
-    summary.message_count = counts.get(conv.id, 0)
-    return summary
+    return conversation_summary_from_orm(
+        conv, message_count=counts.get(conv.id, 0)
+    )
 
 
 @router.post("", response_model=ConversationSummary, status_code=201)
@@ -99,7 +100,7 @@ async def create_conversation(
         local_container_root_id=(body.local_container_root_id if body.folder_id is None else None),
         permission_axes=axes,
     )
-    return ConversationSummary.model_validate(conv)
+    return conversation_summary_from_orm(conv)
 
 
 @router.post("/{conversation_id}/duplicate", response_model=ConversationSummary, status_code=201)
@@ -132,9 +133,7 @@ async def duplicate_conversation(
         deep_research_auto=bool(getattr(src, "deep_research_auto", False)),
     )
     count = await msg_repo.copy_all(conversation_id, new_conv.id)
-    summary = ConversationSummary.model_validate(new_conv)
-    summary.message_count = count
-    return summary
+    return conversation_summary_from_orm(new_conv, message_count=count)
 
 
 @router.get("", response_model=ConversationListResponse)
@@ -211,7 +210,7 @@ async def get_conversation(
     conv = await repo.get_by_id(conversation_id, user_id=user.user_id)
     if not conv:
         raise NotFoundError("对话不存在")
-    return ConversationSummary.model_validate(conv)
+    return conversation_summary_from_orm(conv)
 
 
 @router.post("/{conversation_id}/auto-title", response_model=AutoTitleResponse)
@@ -294,7 +293,7 @@ async def set_permission_axes(
             previous=previous,
             next_axes=next_axes,
         )
-    return ConversationSummary.model_validate(conv)
+    return conversation_summary_from_orm(conv)
 
 
 @router.patch("/{conversation_id}", response_model=ConversationSummary)
@@ -338,7 +337,7 @@ async def update_conversation(
         )
         if updated:
             conv = updated
-    return ConversationSummary.model_validate(conv)
+    return conversation_summary_from_orm(conv)
 
 
 @router.delete("/{conversation_id}", response_model=StatusResponse)

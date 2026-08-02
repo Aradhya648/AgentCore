@@ -34,8 +34,6 @@ const proposalContent: AskUserContent = {
       ],
     },
   ],
-  styleOptions: [],
-  formatOptions: [],
 };
 
 const riskContent: AskUserContent = {
@@ -56,8 +54,6 @@ const riskContent: AskUserContent = {
       ],
     },
   ],
-  styleOptions: [],
-  formatOptions: [],
 };
 
 function renderCard(
@@ -104,8 +100,6 @@ const dailyReviewContent: AskUserContent = {
       ],
     },
   ],
-  styleOptions: [],
-  formatOptions: [],
 };
 
 describe("AskUserCard intent variants", () => {
@@ -130,13 +124,7 @@ describe("AskUserCard intent variants", () => {
     expect((adopt as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(adopt);
-    expect(onSubmit).toHaveBeenCalledWith(
-      "continue",
-      "",
-      ["方案 C：外包试点"],
-      null,
-      null,
-    );
+    expect(onSubmit).toHaveBeenCalledWith("continue", "", ["方案 C：外包试点"]);
   });
 
   it("risk_ack 行式多选，严重度与建议处理灰字；提交带 selected", async () => {
@@ -154,13 +142,10 @@ describe("AskUserCard intent variants", () => {
     fireEvent.click(screen.getByText("回滚演练"));
     fireEvent.click(screen.getByRole("button", { name: "确认并继续" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(
-      "continue",
-      "",
-      ["[高] 密钥轮换", "[中] 回滚演练"],
-      null,
-      null,
-    );
+    expect(onSubmit).toHaveBeenCalledWith("continue", "", [
+      "[高] 密钥轮换",
+      "[中] 回滚演练",
+    ]);
   });
 
   it("daily_review 默认全选，取消勾选后提交带 selected", async () => {
@@ -183,47 +168,10 @@ describe("AskUserCard intent variants", () => {
     fireEvent.click(screen.getByText("主题：周报节奏"));
     fireEvent.click(screen.getByRole("button", { name: /确认落盘/ }));
 
-    expect(onSubmit).toHaveBeenCalledWith(
-      "continue",
-      "",
-      ["偏好简洁回复", "规则：先问再改文件"],
-      null,
-      null,
-    );
-  });
-
-  it("kickoff wire 走通用澄清壳；交付形态 continue 直传 format_id 与 selected fN", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    const content: AskUserContent = {
-      question: "演讲怎么交付？",
-      context: "",
-      assumptions: [],
-      questions: [],
-      styleOptions: [],
-      formatOptions: [
-        { id: "f0", label: "PowerPoint（.pptx）" },
-        { id: "f1", label: "Marp Markdown" },
-      ],
-    };
-    render(
-      <MemoryRouter>
-        <TooltipProvider>
-          <AskUserCard content={content} intent="kickoff" onSubmit={onSubmit} />
-        </TooltipProvider>
-      </MemoryRouter>,
-    );
-    expect(document.querySelector('[data-ask-intent="decision"]')).toBeTruthy();
-    expect(document.querySelector('[data-ask-card="decision"]')).toBeTruthy();
-    expect(screen.getByText("交付形态")).toBeTruthy();
-    fireEvent.click(screen.getByText("Marp Markdown"));
-    fireEvent.click(screen.getByRole("button", { name: /^提交$/ }));
-    expect(onSubmit).toHaveBeenCalledWith(
-      "continue",
-      expect.stringContaining("· 形态：Marp Markdown"),
-      ["f1"],
-      null,
-      "f1",
-    );
+    expect(onSubmit).toHaveBeenCalledWith("continue", "", [
+      "偏好简洁回复",
+      "规则：先问再改文件",
+    ]);
   });
 
   it("collectAskSelected 扁平化多题 picks", () => {

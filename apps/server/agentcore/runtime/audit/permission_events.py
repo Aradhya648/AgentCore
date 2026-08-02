@@ -54,7 +54,3 @@ async def record_permission_axes_change(
             error=str(e),
             event_id=new_id(),
         )
-
-
-# Back-compat alias
-record_permission_preset_change = record_permission_axes_change

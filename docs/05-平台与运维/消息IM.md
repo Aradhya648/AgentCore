@@ -177,7 +177,7 @@ skip_if:
 | `DELETE` | `/friends/requests/{id}` | 仅 `from_user` 取消 pending |
 | `DELETE` | `/friends/{user_id}` | 删除好友 |
 | `POST` | `/chats/dm` | **改门**：已是好友 → 正常开/回 DM；非好友且对方 `who_can_dm=friends` → **403**；非好友且对方 `anyone` → 沿用 pending 消息请求 |
-| `GET`/`PATCH` | `/directory` | 扩展 `who_can_friend`；`who_can_dm` 枚举 `anyone`\|`friends`（兼容读旧 `contacts` 当 `friends` 一版后可删） |
+| `GET`/`PATCH` | `/directory` | 扩展 `who_can_friend`；`who_can_dm` 枚举 `anyone`\|`friends`（旧 `contacts` 读兼容已退役） |
 | 既有 | `/blocks*` | 拉黑时级联解好友 + 取消 pending 申请 |
 
 Firehose：`{ type: "friend_request", action: "created"|"accepted"|"rejected"|"cancelled", request: {...} }` 推给相关方。

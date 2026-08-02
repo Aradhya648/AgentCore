@@ -33,6 +33,13 @@ BASE = os.environ.get("PROBE_BASE_URL", "http://127.0.0.1:8000")
 USER = os.environ.get("DEV_USERNAME", "dev")
 PASSWORD = os.environ.get("DEV_PASSWORD", "devpassword")
 ROOT_NAME = "hello-cli-s1"
+# Former sidecar ``permissionPreset: full_trust`` → managed recipe axes.
+_PERMISSION_AXES_MANAGED: dict[str, str] = {
+    "file_write": "session",
+    "command": "auto",
+    "team_kickoff": "skip",
+    "host": "session",
+}
 
 
 def _venv_python() -> list[str]:
@@ -341,7 +348,7 @@ def main() -> int:
                 "userId": user_id,
                 "workspaceRoot": str(WS.resolve()),
                 "approvalsEnabled": False,
-                "permissionPreset": "full_trust",
+                "permissionAxes": _PERMISSION_AXES_MANAGED,
                 "dataDir": str(DATA_DIR),
                 "inference": inference,
             },
@@ -360,7 +367,7 @@ def main() -> int:
                 "userMessage": prompt_text,
                 "history": [],
                 "inference": inference,
-                "permissionPreset": "full_trust",
+                "permissionAxes": _PERMISSION_AXES_MANAGED,
             },
             timeout=900,
         )
@@ -400,7 +407,7 @@ def main() -> int:
                     "decision": "continue",
                     "note": "Proceed with the hello-cli implementation as specified.",
                     "inference": inference,
-                    "permissionPreset": "full_trust",
+                    "permissionAxes": _PERMISSION_AXES_MANAGED,
                 },
                 timeout=900,
             )
@@ -434,7 +441,7 @@ def main() -> int:
                         "note": "Approved — implement and finish.",
                         "selected": [],
                         "inference": inference,
-                        "permissionPreset": "full_trust",
+                        "permissionAxes": _PERMISSION_AXES_MANAGED,
                     },
                     timeout=900,
                 )

@@ -21,18 +21,11 @@ import { pickAndOpenLocalProject } from "@/lib/openLocalProject";
 import { usePersistentDisclosure } from "@/stores/disclosure";
 import type {
   AskAssumption,
-  AskFormatOption,
   AskOption,
   AskQuestion,
-  AskStyleOption,
   CheckpointIntent,
 } from "@/types/events";
-import {
-  ChevronRight,
-  FolderOpen,
-  Loader2,
-  SlidersHorizontal,
-} from "lucide-react";
+import { ChevronRight, FolderOpen, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -52,8 +45,6 @@ export interface AskUserContent {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  styleOptions: AskStyleOption[];
-  formatOptions: AskFormatOption[];
 }
 
 export type AskTone =
@@ -84,12 +75,6 @@ export function useAskAnswer(
   });
   const [otherOn, setOtherOn] = useState<Record<string, boolean>>({});
   const [otherText, setOtherText] = useState<Record<string, string>>({});
-  const [styleId, setStyleId] = useState<string | null>(
-    content.styleOptions[0]?.id ?? null,
-  );
-  const [formatId, setFormatId] = useState<string | null>(
-    content.formatOptions[0]?.id ?? null,
-  );
   const [note, setNote] = useState("");
 
   const toggleChoice = (q: AskQuestion, opt: string) => {
@@ -128,25 +113,14 @@ export function useAskAnswer(
 
   // How many decisions already carry a value — surfaced on the opening CTA so a
   // 想省事 user sees the card is ready to ship as-is.
-  const presetCount =
-    content.questions.filter(
-      (q) =>
-        (answers[q.id] ?? []).length > 0 ||
-        (otherOn[q.id] && (otherText[q.id] ?? "").trim().length > 0),
-    ).length +
-    (styleId ? 1 : 0) +
-    (formatId ? 1 : 0);
+  const presetCount = content.questions.filter(
+    (q) =>
+      (answers[q.id] ?? []).length > 0 ||
+      (otherOn[q.id] && (otherText[q.id] ?? "").trim().length > 0),
+  ).length;
 
   const compose = (_intent: CheckpointIntent) =>
-    composeAnswer(
-      content,
-      answers,
-      otherOn,
-      otherText,
-      styleId,
-      formatId,
-      note,
-    );
+    composeAnswer(content, answers, otherOn, otherText, note);
 
   /** Compose with one question forced to `value` (bind_local_folder resolve path). */
   const composeWithAnswer = (
@@ -159,8 +133,6 @@ export function useAskAnswer(
       { ...answers, [questionId]: [value] },
       { ...otherOn, [questionId]: false },
       otherText,
-      styleId,
-      formatId,
       note,
     );
 
@@ -168,10 +140,6 @@ export function useAskAnswer(
     answers,
     otherOn,
     otherText,
-    styleId,
-    setStyleId,
-    formatId,
-    setFormatId,
     note,
     setNote,
     toggleChoice,
@@ -328,64 +296,6 @@ export function AskQuestionFields({
       ))}
 
       {bindError && <p className="text-xs text-destructive">{bindError}</p>}
-
-      {content.styleOptions.length > 0 && (
-        <div>
-          <p className="flex items-center gap-1 text-xs font-medium text-foreground">
-            <SlidersHorizontal size={13} className="text-muted-foreground" />
-            风格基调
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {content.styleOptions.map((s) => {
-              const active = s.id === answer.styleId;
-              return (
-                <Button
-                  key={s.id}
-                  variant="ghost"
-                  disabled={disabled}
-                  onClick={() =>
-                    !disabled && answer.setStyleId(active ? null : s.id)
-                  }
-                  className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
-                    active ? tone.optActive : tone.optIdle
-                  }`}
-                >
-                  {s.label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {content.formatOptions.length > 0 && (
-        <div>
-          <p className="flex items-center gap-1 text-xs font-medium text-foreground">
-            <SlidersHorizontal size={13} className="text-muted-foreground" />
-            交付形态
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {content.formatOptions.map((s) => {
-              const active = s.id === answer.formatId;
-              return (
-                <Button
-                  key={s.id}
-                  variant="ghost"
-                  disabled={disabled}
-                  onClick={() =>
-                    !disabled && answer.setFormatId(active ? null : s.id)
-                  }
-                  className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
-                    active ? tone.optActive : tone.optIdle
-                  }`}
-                >
-                  {s.label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -653,26 +563,17 @@ function QuestionField({
   );
 }
 
-/** Compose the user's picks + style + format + free note into ONE readable answer the CEO / worker
- * can act on (答复模型 α): each answered question, the chosen style/format, and any note. Plain
- * text for the LLM; structured ``style_id`` / ``format_id`` / ``selected`` sN/fN tokens ride the
- * resume wire separately (dual-gate — prose alone does not confirm style/format).
- * Exported for unit tests (bind_local_folder answer composition). */
+/** Compose the user's picks + free note into ONE readable answer the CEO / worker
+ * can act on (答复模型 α). Exported for unit tests (bind_local_folder answer composition). */
 export function composeAnswer(
   content: AskUserContent,
   answers: Record<string, string[]>,
   otherOn: Record<string, boolean>,
   otherText: Record<string, string>,
-  styleId: string | null,
-  formatId: string | null,
   note: string,
 ): string {
   const trimmed = note.trim();
-  if (
-    content.questions.length === 0 &&
-    content.styleOptions.length === 0 &&
-    content.formatOptions.length === 0
-  ) {
+  if (content.questions.length === 0) {
     return trimmed;
   }
   const lines: string[] = [];
@@ -684,10 +585,6 @@ export function composeAnswer(
     if (values.length) lines.push(`· ${q.prompt}：${values.join("、")}`);
     else if (q.default) lines.push(`· ${q.prompt}：（按你的默认）`);
   }
-  const style = content.styleOptions.find((s) => s.id === styleId);
-  if (style) lines.push(`· 风格：${style.label}`);
-  const format = content.formatOptions.find((s) => s.id === formatId);
-  if (format) lines.push(`· 形态：${format.label}`);
   if (trimmed) lines.push(`· 补充：${trimmed}`);
   if (lines.length === 0) return trimmed;
   return ["我的答复：", ...lines].join("\n");

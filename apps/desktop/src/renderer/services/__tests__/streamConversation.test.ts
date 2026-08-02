@@ -175,6 +175,7 @@ describe("streamConversation (refused turn)", () => {
       conversationId: "c1",
       content: "hi",
       attachments: [],
+      delivery: "steer",
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(StreamError);

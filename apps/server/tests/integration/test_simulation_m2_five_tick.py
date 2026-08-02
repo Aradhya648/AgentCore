@@ -49,7 +49,7 @@ def _force_llm_tick_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_m2_five_tick_full_pipeline(client, make_invite):
+async def test_m2_five_tick_full_pipeline(client):
     """10 residents × 5 ticks: concurrency, persistence, memory, social."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
@@ -62,8 +62,7 @@ async def test_m2_five_tick_full_pipeline(client, make_invite):
         return real_build(persona, perception, text_mode=text_mode)
 
     try:
-        invite = await make_invite("SIM-M2-INT")
-        await register_and_login(client, invite, "sim-m2-int", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-m2-int", password=TEST_PASSWORD)
 
         # Patch create as well as ticks: without DeepSeek, create would otherwise
         # hit SimLlmNotConfigured; with SIMULATION_SCRIPTED that marks the run

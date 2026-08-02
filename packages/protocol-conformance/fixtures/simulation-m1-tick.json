@@ -22,7 +22,9 @@
           "success": true,
           "thought": "得赶紧去市场。",
           "detail": "前往市场",
-          "tool_args": { "destination": "市场" }
+          "tool_args": {
+            "destination": "市场"
+          }
         }
       },
       "timestamp": "2026-01-01T00:00:00.001Z"
@@ -37,7 +39,11 @@
           "name": "林小梅",
           "role": "面包师",
           "location": "市场",
-          "position": { "x": 36, "y": 0, "z": 0 },
+          "position": {
+            "x": 36,
+            "y": 0,
+            "z": 0
+          },
           "activity": "赶路",
           "mood": 0,
           "goal": "",
@@ -58,9 +64,16 @@
     }
   ],
   "projected": {
-    "run": { "tick": 1, "hour": 9 },
+    "run": {
+      "tick": 1,
+      "hour": 9
+    },
     "navTargets": {
-      "lin": { "x": 36, "y": 0, "z": 0 }
+      "lin": {
+        "x": 36,
+        "y": 0,
+        "z": 0
+      }
     },
     "decisions": [
       {

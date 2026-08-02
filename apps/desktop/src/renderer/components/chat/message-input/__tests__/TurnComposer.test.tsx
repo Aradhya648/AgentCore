@@ -283,35 +283,37 @@ describe("TurnComposer variants", () => {
     ).toBeTruthy();
   });
 
-  it("generating + empty: bar shows only 停止生成 (no 插话)", () => {
+  it("generating + empty: bar shows only 停止生成 (no mid-flight send)", () => {
     genMock.value = true;
     renderComposer("bar");
-    expect(screen.queryByRole("button", { name: "发送插话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "插入" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "排队发送" })).toBeNull();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();
   });
 
-  it("generating + draft: muted 发送插话 + solid 停止生成", async () => {
+  it("generating + draft (classic): muted 插入 + solid 停止生成", async () => {
     genMock.value = true;
     const { useComposerDraftStore } = await import("@/stores/composer");
     useComposerDraftStore.getState().setValue("__draft__", "插一句");
     renderComposer("bar");
-    expect(screen.getByRole("button", { name: "发送插话" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "插入" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();
-    expect(screen.getByText(/Enter 或点发送将作为插话交给团队/)).toBeTruthy();
+    expect(screen.getByText(/Enter 或点发送将插入当前回合/)).toBeTruthy();
   });
 
-  it("generating + draft: canvas card also exposes muted 插话 + 停止", async () => {
+  it("generating + draft: canvas card also exposes muted 插入 + 停止", async () => {
     genMock.value = true;
     const { useComposerDraftStore } = await import("@/stores/composer");
     useComposerDraftStore.getState().setValue("__draft__", "插一句");
     renderComposer();
-    expect(screen.getByRole("button", { name: "发送插话" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "插入" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeTruthy();
   });
 
-  it("idle: single 发送, no 插话 / 停止", () => {
+  it("idle: single 发送, no mid-flight / 停止", () => {
     renderComposer("bar");
-    expect(screen.queryByRole("button", { name: "发送插话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "插入" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "排队发送" })).toBeNull();
     expect(screen.queryByRole("button", { name: "停止生成" })).toBeNull();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
   });

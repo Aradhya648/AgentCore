@@ -82,10 +82,15 @@ def test_coordination_snapshot_roundtrip():
         total_workers=2,
         pending_events=[{"kind": "worker_completed", "payload": {"run_id": "a"}}],
     )
-    restored = CoordinationSnapshot.from_dict(snap.to_dict())
+    raw = snap.to_dict()
+    # Wave3a：新快照不再双写合计键；属性合计仍可由两池推导。
+    assert "budget_remaining" not in raw
+    assert raw["progress_budget_remaining"] == 2
+    assert raw["decision_budget_remaining"] == 1
+    restored = CoordinationSnapshot.from_dict(raw)
     assert restored is not None
     assert restored.draft == "草稿"
-    # 两池独立值 roundtrip 保真；budget_remaining 合计仍向后兼容可读。
+    # 两池独立值 roundtrip 保真；budget_remaining 属性仍为合计。
     assert restored.progress_budget_remaining == 2
     assert restored.decision_budget_remaining == 1
     assert restored.budget_remaining == 3
@@ -189,7 +194,7 @@ def test_terminal_settlement_ok_when_attached_inject():
 
 
 def test_legacy_single_pool_snapshot_splits_into_two_pools():
-    """向后兼容：旧快照只有单一 budget_remaining → 反序列化切分为两池，合计不变。"""
+    """向后兼容：含旧键 ``budget_remaining`` 的快照仍可读并恢复两池（合计不变）。"""
     snap = CoordinationSnapshot.from_dict(
         {"execution_id": "leg", "budget_remaining": 9, "total_workers": 3}
     )
@@ -204,6 +209,7 @@ def test_legacy_single_pool_snapshot_splits_into_two_pools():
 
 
 def test_coordination_from_journal():
+    """旧 journal 帧仅含合计键时仍能 fold 出两池合计。"""
     fact = CoordinationSnapshotFact(
         snapshot={
             "execution_id": "ex",
@@ -218,6 +224,7 @@ def test_coordination_from_journal():
     assert snap is not None
     assert snap.draft == "d"
     assert snap.budget_remaining == 5
+    assert snap.progress_budget_remaining + snap.decision_budget_remaining == 5
 
 
 def test_necessary_decision_points():

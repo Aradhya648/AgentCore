@@ -88,8 +88,6 @@ export function AskUserCard({
     decision: CheckpointUserDecision,
     note: string,
     selected?: string[],
-    styleId?: string | null,
-    formatId?: string | null,
   ) => void | Promise<void>;
   /** 检查点 id：给了才把起步计划开合持久化（旧 decision 折叠路径已退役；保留形参兼容调用方）。 */
   disclosureKey?: string | null;
@@ -116,18 +114,7 @@ export function AskUserCard({
       decision === "continue" && carriesSelected
         ? collectAskSelected(content, ans.answers, ans.otherOn, ans.otherText)
         : [];
-    // Structured style/format wire (B+A): explicit style_id/format_id + sN/fN in selected.
-    const stylePick =
-      decision === "continue" && ans.styleId ? ans.styleId : null;
-    const formatPick =
-      decision === "continue" && ans.formatId ? ans.formatId : null;
-    let selected = baseSelected;
-    if (stylePick && !selected.includes(stylePick)) {
-      selected = [...selected, stylePick];
-    }
-    if (formatPick && !selected.includes(formatPick)) {
-      selected = [...selected, formatPick];
-    }
+    const selected = baseSelected;
     const composed =
       noteOverride !== undefined
         ? noteOverride
@@ -136,9 +123,7 @@ export function AskUserCard({
           : carriesSelected
             ? ans.note.trim()
             : ans.compose(intent);
-    Promise.resolve(
-      onSubmit(decision, composed, selected, stylePick, formatPick),
-    ).catch((err) => {
+    Promise.resolve(onSubmit(decision, composed, selected)).catch((err) => {
       notifyError(err, "提交失败");
       setSubmitting(null);
     });

@@ -31,15 +31,13 @@ async def test_realtime_requires_auth(client):
     assert (await client.get("/v1/realtime")).status_code == 401
 
 
-async def test_send_fans_out_to_recipient(client, new_client, make_invite):
+async def test_send_fans_out_to_recipient(client, new_client):
     """Bob's HTTP send reaches Alice's live hub connection as a chat_message."""
-    code_a = await make_invite("INV-RT-A")
-    code_b = await make_invite("INV-RT-B")
-    await register_and_login(client, code_a, "rt_alice")
+    await register_and_login(client, "rt_alice")
     alice_id = await _user_id(client)
 
     async with new_client() as bob:
-        await register_and_login(bob, code_b, "rt_bob")
+        await register_and_login(bob, "rt_bob")
 
         r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})
         assert r.status_code == 201, r.text
@@ -68,15 +66,13 @@ async def test_send_fans_out_to_recipient(client, new_client, make_invite):
     assert event["message"]["sender_user_id"] != alice_id
 
 
-async def test_sender_also_receives_for_multidevice(client, new_client, make_invite):
+async def test_sender_also_receives_for_multidevice(client, new_client):
     """The sender is in the fan-out too (multi-device echo)."""
-    code_a = await make_invite("INV-RT-MA")
-    code_b = await make_invite("INV-RT-MB")
-    await register_and_login(client, code_a, "rt_alice_m")
+    await register_and_login(client, "rt_alice_m")
     alice_id = await _user_id(client)
 
     async with new_client() as bob:
-        await register_and_login(bob, code_b, "rt_bob_m")
+        await register_and_login(bob, "rt_bob_m")
         bob_id = await _user_id(bob)
 
         r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})
@@ -98,17 +94,14 @@ async def test_sender_also_receives_for_multidevice(client, new_client, make_inv
     assert event["message"]["content"] == "from bob"
 
 
-async def test_non_member_not_in_fanout(client, new_client, make_invite):
+async def test_non_member_not_in_fanout(client, new_client):
     """A user not in the chat is never a fan-out recipient."""
-    code_a = await make_invite("INV-RT-LA")
-    code_b = await make_invite("INV-RT-LB")
-    code_c = await make_invite("INV-RT-LC")
-    await register_and_login(client, code_a, "rt_alice_l")
+    await register_and_login(client, "rt_alice_l")
     alice_id = await _user_id(client)
 
     async with new_client() as bob, new_client() as carol:
-        await register_and_login(bob, code_b, "rt_bob_l")
-        await register_and_login(carol, code_c, "rt_carol_l")
+        await register_and_login(bob, "rt_bob_l")
+        await register_and_login(carol, "rt_carol_l")
         carol_id = await _user_id(carol)
 
         r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})
@@ -133,7 +126,7 @@ async def test_non_member_not_in_fanout(client, new_client, make_invite):
 
 
 async def test_rest_online_and_presence_to_co_member(
-    client, new_client, make_invite, session_factory, monkeypatch
+    client, new_client, session_factory, monkeypatch
 ):
     """REST peer.online tracks hub; presence fans to users sharing a chat."""
     import agentcore.messaging.presence as presence_mod
@@ -143,13 +136,11 @@ async def test_rest_online_and_presence_to_co_member(
     # the per-test schema (get_db override alone does not cover that path).
     monkeypatch.setattr(presence_mod, "async_session_factory", session_factory)
 
-    code_a = await make_invite("INV-PR-A")
-    code_b = await make_invite("INV-PR-B")
-    await register_and_login(client, code_a, "pr_alice")
+    await register_and_login(client, "pr_alice")
     alice_id = await _user_id(client)
 
     async with new_client() as bob:
-        await register_and_login(bob, code_b, "pr_bob")
+        await register_and_login(bob, "pr_bob")
         bob_id = await _user_id(bob)
 
         r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})

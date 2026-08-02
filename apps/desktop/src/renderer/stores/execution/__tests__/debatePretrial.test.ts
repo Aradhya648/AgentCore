@@ -10,7 +10,7 @@ import {
 } from "../../__tests__/execution/fixtures";
 
 describe("foldDebatePretrial", () => {
-  it("started → running（不宣称完整度）；orders 写入任务单；progress 只更新台账计数；completed 权威覆盖", () => {
+  it("started → running（组卷轻态）；orders/progress 只更任务单与台账；completed 权威覆盖", () => {
     let state = foldDebatePretrial(null, "debate_pretrial_started", {
       thorough: true,
       sides: [
@@ -36,10 +36,8 @@ describe("foldDebatePretrial", () => {
           source: "debater",
         },
       ],
-      investigator_count_per_side: 1,
     });
     expect(state?.orders).toHaveLength(1);
-    expect(state?.investigatorCountPerSide).toBe(1);
     // orders 不破坏「权威=completed」：仍不宣称完整度。
     expect(state?.completeness).toBeUndefined();
     expect(state?.incomplete).toBeUndefined();
@@ -48,7 +46,6 @@ describe("foldDebatePretrial", () => {
       evidence_ledger_count: 2,
     });
     expect(state?.evidenceLedgerCount).toBe(2);
-    expect(state?.investigators).toEqual([]);
 
     state = foldDebatePretrial(state, "debate_pretrial_completed", {
       status: "done",
@@ -64,29 +61,16 @@ describe("foldDebatePretrial", () => {
           source: "debater",
         },
       ],
-      investigators: [
-        {
-          side_key: "pro",
-          run_id: "inv1",
-          parent_run_id: "pro1",
-          ok: true,
-          task_query: "成本",
-        },
-      ],
       evidence_ledger_count: 2,
       evidence_ready: true,
       fallback_self_search: false,
       completeness: "full",
       incomplete: false,
-      failed_sides: [],
     });
     expect(state?.status).toBe("done");
-    expect(state?.investigators).toHaveLength(1);
     expect(state?.evidenceReady).toBe(true);
     expect(state?.completeness).toBe("full");
     expect(state?.incomplete).toBe(false);
-    expect(state?.failedSides).toEqual([]);
-    expect(state?.investigatorCountPerSide).toBeUndefined();
   });
 
   it("旧 journal 缺 completeness/incomplete → 未知（不默认 empty→incomplete）", () => {
@@ -98,11 +82,9 @@ describe("foldDebatePretrial", () => {
         { key: "con", name: "反对方" },
       ],
       orders: [],
-      investigators: [],
       evidence_ledger_count: 0,
       evidence_ready: false,
       fallback_self_search: false,
-      failed_sides: [],
     });
     expect(state?.status).toBe("done");
     expect(state?.completeness).toBeUndefined();
@@ -127,13 +109,11 @@ describe("foldDebatePretrial", () => {
         { key: "con", name: "反对方" },
       ],
       orders: [],
-      investigators: [],
       evidence_ledger_count: 0,
       evidence_ready: false,
       fallback_self_search: false,
       completeness: "empty",
       incomplete: false,
-      failed_sides: [],
     });
     expect(state?.status).toBe("skipped");
     expect(state?.skipReason).toBe("fast");
@@ -141,7 +121,7 @@ describe("foldDebatePretrial", () => {
     expect(state?.completeness).toBe("empty");
   });
 
-  it("部分失败：degraded + failedSides", () => {
+  it("部分失败：degraded + incomplete（无缺口方字段）", () => {
     const state = foldDebatePretrial(null, "debate_pretrial_completed", {
       status: "degraded",
       thorough: true,
@@ -150,34 +130,18 @@ describe("foldDebatePretrial", () => {
         { key: "con", name: "反对方" },
       ],
       orders: [],
-      investigators: [
-        {
-          side_key: "pro",
-          run_id: "inv1",
-          parent_run_id: "pro1",
-          ok: true,
-        },
-        {
-          side_key: "con",
-          run_id: "inv2",
-          parent_run_id: "con1",
-          ok: false,
-        },
-      ],
       evidence_ledger_count: 1,
       evidence_ready: true,
       fallback_self_search: false,
       completeness: "partial",
       incomplete: true,
-      failed_sides: ["con"],
     });
     expect(state?.status).toBe("degraded");
     expect(state?.completeness).toBe("partial");
     expect(state?.incomplete).toBe(true);
-    expect(state?.failedSides).toEqual(["con"]);
   });
 
-  it("Evidence Pack 齐全：skip 外证 + budget=0", () => {
+  it("Evidence Pack 齐全：skip 外证", () => {
     const state = foldDebatePretrial(null, "debate_pretrial_completed", {
       status: "skipped",
       thorough: true,
@@ -187,49 +151,42 @@ describe("foldDebatePretrial", () => {
       ],
       skip_reason: "evidence_pack",
       orders: [],
-      investigators: [],
       evidence_ledger_count: 1,
       evidence_ready: true,
       fallback_self_search: false,
       completeness: "full",
       incomplete: false,
-      failed_sides: [],
       external_evidence_mode: "skip",
       external_evidence_reason: "evidence_pack_full",
-      retrieval_budget_per_investigator: 0,
     });
     expect(state?.skipReason).toBe("evidence_pack");
     expect(state?.completeness).toBe("full");
     expect(state?.incomplete).toBe(false);
     expect(state?.externalEvidenceMode).toBe("skip");
     expect(state?.externalEvidenceReason).toBe("evidence_pack_full");
-    expect(state?.retrievalBudgetPerInvestigator).toBe(0);
   });
 
-  it("Evidence Pack 缺口：gap_fill + partial", () => {
+  it("Evidence Pack 缺口：skip 外证 + partial", () => {
     const state = foldDebatePretrial(null, "debate_pretrial_completed", {
-      status: "degraded",
+      status: "skipped",
       thorough: true,
       sides: [
         { key: "pro", name: "支持方" },
         { key: "con", name: "反对方" },
       ],
+      skip_reason: "evidence_pack",
       orders: [],
-      investigators: [],
       evidence_ledger_count: 2,
       evidence_ready: true,
       fallback_self_search: false,
       completeness: "partial",
-      incomplete: true,
-      failed_sides: ["con"],
-      external_evidence_mode: "gap_fill",
-      external_evidence_reason: "evidence_pack_gap",
-      retrieval_budget_per_investigator: 2,
+      incomplete: false,
+      external_evidence_mode: "skip",
+      external_evidence_reason: "evidence_pack_partial",
     });
-    expect(state?.externalEvidenceMode).toBe("gap_fill");
-    expect(state?.externalEvidenceReason).toBe("evidence_pack_gap");
-    expect(state?.retrievalBudgetPerInvestigator).toBe(2);
-    expect(state?.failedSides).toEqual(["con"]);
+    expect(state?.externalEvidenceMode).toBe("skip");
+    expect(state?.externalEvidenceReason).toBe("evidence_pack_partial");
+    expect(state?.completeness).toBe("partial");
   });
 
   it("progress 在 started 之前不落态", () => {
@@ -280,13 +237,11 @@ describe("pretrial_completed evidence_ledger_delta → 场级台账", () => {
               { key: "con", name: "反对方" },
             ],
             orders: [],
-            investigators: [],
             evidence_ledger_count: 1,
             evidence_ready: true,
             fallback_self_search: false,
             completeness: "full",
             incomplete: false,
-            failed_sides: [],
             evidence_ledger_delta: [
               {
                 id: "#e1",
@@ -319,13 +274,11 @@ describe("pretrial_completed evidence_ledger_delta → 场级台账", () => {
         thorough: true,
         sides: [],
         orders: [],
-        investigators: [],
         evidence_ledger_count: 1,
         evidence_ready: true,
         fallback_self_search: false,
         completeness: "full",
         incomplete: false,
-        failed_sides: [],
         evidence_ledger_delta: [
           {
             id: "#e1",

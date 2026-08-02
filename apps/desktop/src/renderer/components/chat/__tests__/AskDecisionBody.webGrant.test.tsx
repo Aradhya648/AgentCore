@@ -39,8 +39,6 @@ const grantContent: AskUserContent = {
       default: "",
     },
   ],
-  styleOptions: [],
-  formatOptions: [],
 };
 
 function Harness() {

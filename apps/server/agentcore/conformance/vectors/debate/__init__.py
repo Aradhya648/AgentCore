@@ -13,9 +13,9 @@ from .debate_followup import _multi_agent_debate_followup
 from .debate_multibeat import _multi_agent_debate_multibeat
 from .debate_pretrial import (
     _multi_agent_debate_pretrial_evidence_pack_full,
-    _multi_agent_debate_pretrial_evidence_pack_gap_fill,
+    _multi_agent_debate_pretrial_evidence_pack_partial,
     _multi_agent_debate_pretrial_fast,
-    _multi_agent_debate_pretrial_thorough,
+    _multi_agent_debate_pretrial_no_pack,
 )
 from .debate_single import _multi_agent_debate
 from .legacy_compat import _multi_agent_red_team_legacy_risk_severities
@@ -28,21 +28,21 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
         "多 Agent：多轮对抗辩论 + 每轮质询 + 结辩（协作图 beat 列 / channel 角标契约）",
         _multi_agent_debate_multibeat,
     ),
-    "multi_agent_debate_pretrial_thorough": (
-        "庭前取证：thorough 带队完整阶段流（点单→取证员 parent=主辩→立论）",
-        _multi_agent_debate_pretrial_thorough,
-    ),
     "multi_agent_debate_pretrial_fast": (
-        "庭前取证：thorough=False 不带队秒过（skip_reason=fast）",
+        "庭前取证：thorough=False 不带庭前重流程秒过（skip_reason=fast）",
         _multi_agent_debate_pretrial_fast,
+    ),
+    "multi_agent_debate_pretrial_no_pack": (
+        "庭前取证：thorough 无 pack → skip_reason=no_pack（无舰队，进入立论）",
+        _multi_agent_debate_pretrial_no_pack,
     ),
     "multi_agent_debate_pretrial_evidence_pack_full": (
         "庭前取证：Evidence Pack 完整 → skip 外证（budget=0、completeness=full）",
         _multi_agent_debate_pretrial_evidence_pack_full,
     ),
-    "multi_agent_debate_pretrial_evidence_pack_gap_fill": (
-        "庭前取证：Evidence Pack 截断 → 有界 gap_fill（reason + partial/failed_sides）",
-        _multi_agent_debate_pretrial_evidence_pack_gap_fill,
+    "multi_agent_debate_pretrial_evidence_pack_partial": (
+        "庭前取证：Evidence Pack 截断 → skip 外证舰队（completeness=partial）",
+        _multi_agent_debate_pretrial_evidence_pack_partial,
     ),
     "multi_agent_debate_followup": ("多 Agent：辩论收场带用户追问（user_interjections verbatim 复盘）", _multi_agent_debate_followup),
     "multi_agent_roundtable_rounds": (

@@ -12,7 +12,8 @@ _JWT_ALGORITHM = "HS256"
 
 TokenAudience = Literal["product", "admin"]
 AccessTokenClaims = tuple[str, TokenAudience]
-MfaPendingClaims = tuple[str, TokenAudience]
+# (user_id, audience, persist_session) — persist defaults True for legacy pending JWTs.
+MfaPendingClaims = tuple[str, TokenAudience, bool]
 
 
 def create_access_token(
@@ -102,6 +103,7 @@ def create_mfa_pending_token(
     user_id: str,
     *,
     audience: TokenAudience,
+    persist_session: bool = True,
     expires_delta: timedelta | None = None,
 ) -> str:
     """Short-lived token gating the second login factor (password already verified)."""
@@ -111,6 +113,8 @@ def create_mfa_pending_token(
         "sub": user_id,
         "type": "mfa_pending",
         "session": audience,
+        # Carry login persist_session through MFA so cookie/TTL policy is unchanged.
+        "persist_session": persist_session,
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }
@@ -118,7 +122,7 @@ def create_mfa_pending_token(
 
 
 def decode_mfa_pending_token(token: str) -> MfaPendingClaims:
-    """Return ``(user_id, audience)`` from a valid MFA-pending token."""
+    """Return ``(user_id, audience, persist_session)`` from a valid MFA-pending token."""
     try:
         claims = jwt.decode(token, settings.jwt_secret_key, algorithms=[_JWT_ALGORITHM])
     except JWTError as exc:
@@ -132,7 +136,10 @@ def decode_mfa_pending_token(token: str) -> MfaPendingClaims:
     aud = claims.get("session")
     if aud not in ("product", "admin"):
         raise AuthenticationError("Token missing session audience")
-    return sub, aud
+    persist = claims.get("persist_session", True)
+    if not isinstance(persist, bool):
+        persist = True
+    return sub, aud, persist
 
 
 def create_inference_token(user_id: str, *, expires_delta: timedelta | None = None) -> str:

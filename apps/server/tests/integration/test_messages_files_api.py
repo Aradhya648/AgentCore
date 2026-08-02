@@ -18,19 +18,17 @@ async def _user_id(client: httpx.AsyncClient) -> str:
     return r.json()["id"]
 
 
-async def test_chat_file_download_chinese_filename_ok(client, new_client, make_invite, tmp_path, monkeypatch):
+async def test_chat_file_download_chinese_filename_ok(client, new_client, tmp_path, monkeypatch):
     """Upload + download a Chinese-named image; response headers must be latin-1-safe."""
     from agentcore.config import settings
 
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
 
-    code_a = await make_invite("INV-IM-FILE-A")
-    code_b = await make_invite("INV-IM-FILE-B")
-    await register_and_login(client, code_a, "imfile_alice")
+    await register_and_login(client, "imfile_alice")
     alice_id = await _user_id(client)
 
     async with new_client() as bob:
-        await register_and_login(bob, code_b, "imfile_bob")
+        await register_and_login(bob, "imfile_bob")
         r = await bob.post("/v1/messages/chats/dm", json={"user_id": alice_id})
         assert r.status_code == 201, r.text
         chat_id = r.json()["id"]

@@ -2,7 +2,6 @@
  * 生产通用澄清卡 —— AskCardShell + 行式选项（{@link AskRowGroup}）。
  * Wire `intent=kickoff` 与 `decision` 均挂此体；无开场仪式主 CTA。
  * 彩色「推荐 / 默认」徽章已删：`default` 由 {@link useAskAnswer} 预选，选中态即其表达。
- * 空 `styleOptions` / `formatOptions` 不渲染场面区。
  */
 import { MANUAL_HELP, ManualHelpLink } from "@/components/ManualHelpLink";
 import { ASK_INTENT_META } from "@/components/chat/decision";
@@ -293,38 +292,6 @@ export function AskDecisionBody({
 
         {bindError && (
           <p className="px-2 text-xs text-destructive">{bindError}</p>
-        )}
-
-        {content.styleOptions.length > 0 && (
-          <div className="space-y-1">
-            <AskSectionLabel>风格基调</AskSectionLabel>
-            <AskRowGroup
-              rows={content.styleOptions.map((s) => ({
-                key: s.id,
-                label: s.label,
-                selected: s.id === answer.styleId,
-                disabled: busy,
-                onSelect: () =>
-                  answer.setStyleId(s.id === answer.styleId ? null : s.id),
-              }))}
-            />
-          </div>
-        )}
-
-        {content.formatOptions.length > 0 && (
-          <div className="space-y-1">
-            <AskSectionLabel>交付形态</AskSectionLabel>
-            <AskRowGroup
-              rows={content.formatOptions.map((s) => ({
-                key: s.id,
-                label: s.label,
-                selected: s.id === answer.formatId,
-                disabled: busy,
-                onSelect: () =>
-                  answer.setFormatId(s.id === answer.formatId ? null : s.id),
-              }))}
-            />
-          </div>
         )}
 
         <div className="px-2">

@@ -234,3 +234,24 @@ async def test_health_check_smoke_run(tmp_path: Path):
     runsc = _install_fake_runsc(tmp_path)
     sandbox = GVisorSandbox(runsc_path=runsc, runtime_root=str(tmp_path / "rt"))
     assert await sandbox.health_check() is True
+
+
+def test_resolve_runtime_root_uses_settings_default(monkeypatch, tmp_path: Path):
+    """Default is under data_dir — no /tmp legacy redirect."""
+    safe = str(tmp_path / "data" / "sandbox")
+    monkeypatch.setattr(settings, "gvisor_runtime_root", safe)
+    assert gvisor_mod._resolve_runtime_root(None) == safe  # noqa: SLF001
+    assert "/tmp/agentcore-sandbox" not in gvisor_mod._resolve_runtime_root(None)  # noqa: SLF001
+
+
+def test_resolve_runtime_root_keeps_explicit_override(tmp_path: Path):
+    explicit = str(tmp_path / "custom-rt")
+    assert gvisor_mod._resolve_runtime_root(explicit) == explicit  # noqa: SLF001
+
+
+def test_gvisor_runtime_root_settings_default_not_tmp_legacy():
+    """Class default must land on the data volume path, not /tmp legacy."""
+    from agentcore.config.workspace import WorkspaceSettings
+
+    assert WorkspaceSettings.model_fields["gvisor_runtime_root"].default == "./data/sandbox"
+    assert WorkspaceSettings.model_fields["gvisor_runtime_root"].default != "/tmp/agentcore-sandbox"

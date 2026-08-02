@@ -76,11 +76,6 @@ FriendRelation = Literal[
 FriendRequestAction = Literal["created", "accepted", "rejected", "cancelled"]
 
 
-def _normalize_who_can_dm(value: str) -> str:
-    """Map legacy ``contacts`` → ``friends`` (one-release read compat)."""
-    return "friends" if value == "contacts" else value
-
-
 @dataclass(frozen=True)
 class ChatView:
     """A chat plus the viewer's per-chat state and resolved dm peer — the domain
@@ -240,9 +235,7 @@ class MessagingService:
 
         if not are_friends:
             settings = await self._directory.get(peer_id)
-            who = _normalize_who_can_dm(
-                settings.who_can_dm if settings is not None else "anyone"
-            )
+            who = settings.who_can_dm if settings is not None else "anyone"
             if who == "friends":
                 raise AuthorizationError("对方仅允许好友发起会话")
 
@@ -1142,7 +1135,7 @@ class MessagingService:
         who_friend = getattr(settings, "who_can_friend", None) or "anyone"
         return DirectoryView(
             discoverable=settings.discoverable,
-            who_can_dm=_normalize_who_can_dm(settings.who_can_dm),
+            who_can_dm=settings.who_can_dm,
             who_can_friend=who_friend,
         )
 
@@ -1155,10 +1148,8 @@ class MessagingService:
         who_can_friend: str | None = None,
     ) -> DirectoryView:
         """Patch the user's privacy settings; ``None`` leaves a field unchanged."""
-        if who_can_dm is not None:
-            who_can_dm = _normalize_who_can_dm(who_can_dm)
-            if who_can_dm not in ("anyone", "friends"):
-                raise ValidationError("who_can_dm 仅支持 anyone / friends")
+        if who_can_dm is not None and who_can_dm not in ("anyone", "friends"):
+            raise ValidationError("who_can_dm 仅支持 anyone / friends")
         if who_can_friend is not None and who_can_friend not in (
             "anyone",
             "group_members",
@@ -1176,7 +1167,7 @@ class MessagingService:
         who_friend = getattr(settings, "who_can_friend", None) or "anyone"
         return DirectoryView(
             discoverable=settings.discoverable,
-            who_can_dm=_normalize_who_can_dm(settings.who_can_dm),
+            who_can_dm=settings.who_can_dm,
             who_can_friend=who_friend,
         )
 

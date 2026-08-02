@@ -36,6 +36,29 @@ export async function stopConversation(
   return Boolean(data.stopped);
 }
 
+/** 取消排队结果：成功撤回 / 已不在队（已开跑或不存在）。 */
+export type CancelQueuedResult = "cancelled" | "gone";
+
+/**
+ * Cancel one FIFO queued turn before drain (同对话再发 · 按项取消).
+ * Stop does **not** clear the queue — this is the only per-item withdraw.
+ * Success → EPHEMERAL ``turn_queue_cancelled``；404 → ``gone``（调用方本地清轻态）。
+ */
+export async function cancelQueuedTurn(
+  conversationId: string,
+  queueId: string,
+): Promise<CancelQueuedResult> {
+  const res = await apiFetch(
+    `/v1/conversations/${conversationId}/queued-turns/${queueId}/cancel`,
+    { method: "POST" },
+  );
+  if (res.status === 404) return "gone";
+  if (!res.ok) {
+    throw new Error(`取消排队失败 (${res.status})`);
+  }
+  return "cancelled";
+}
+
 /** A conversation's reopen recovery snapshot — see {@link getRecovery}. */
 export interface TurnRecovery {
   /** A detached in-flight run is still live to 续看 (实时重连续看 C1 · slice 1b): the

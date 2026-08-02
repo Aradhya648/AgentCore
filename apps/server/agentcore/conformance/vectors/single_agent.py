@@ -60,6 +60,60 @@ def _single_agent_queued_then_run() -> list[SSEEvent]:
         *_single_agent_text(),
     ]
 
+
+def _single_agent_queued_degraded_from_steer() -> list[SSEEvent]:
+    """经典 in-flight + ``delivery=steer`` 回落：无 accepting 窗口时 ``turn_queued.degraded_from=steer``。
+
+    EPHEMERAL / fold no-op；golden 与纯单聊同形。客户端据此 toast「已改为排队」。
+    """
+    from agentcore.runtime.events import turn_queued
+
+    return [
+        turn_queued(
+            queue_id="q-degraded",
+            position=1,
+            queue_depth=1,
+            conversation_id=_CONV,
+            degraded_from="steer",
+        ),
+        *_single_agent_text(),
+    ]
+
+
+def _single_agent_turn_steer_accepted() -> list[SSEEvent]:
+    """经典 in-flight + ``delivery=steer`` 真软插入：``turn_steer_accepted``（EPHEMERAL）。
+
+    fold no-op；golden 与纯单聊同形。客户端 toast「已插入，下一工具步生效」。
+    """
+    from agentcore.runtime.events import turn_steer_accepted
+
+    return [
+        turn_steer_accepted(
+            steer_id="steer-1",
+            conversation_id=_CONV,
+            content="改成用中文总结",
+            pending=1,
+        ),
+        *_single_agent_text(),
+    ]
+
+
+def _single_agent_queue_cancelled() -> list[SSEEvent]:
+    """排队项取消：``turn_queued`` 后 ``turn_queue_cancelled``（同 queue_id）；均为 EPHEMERAL。"""
+    from agentcore.runtime.events import turn_queue_cancelled, turn_queued
+
+    return [
+        turn_queued(
+            queue_id="q-cancel",
+            position=1,
+            queue_depth=1,
+            conversation_id=_CONV,
+        ),
+        turn_queue_cancelled(queue_id="q-cancel", conversation_id=_CONV),
+        *_single_agent_text(),
+    ]
+
+
 def _single_agent_tool() -> list[SSEEvent]:
     return [
         message_start("m1", conversation_id=_CONV),
@@ -513,6 +567,18 @@ VECTORS: dict[str, tuple[str, Callable[[], list[SSEEvent]]]] = {
     "single_agent_queued_then_run": (
         "发送即有流：turn_queued → 开跑 → 同连接续流完整单聊（FIFO 排队态）",
         _single_agent_queued_then_run,
+    ),
+    "single_agent_queued_degraded_from_steer": (
+        "经典+steer 回落排队：无 accepting 时 turn_queued.degraded_from=steer → 同连接续流",
+        _single_agent_queued_degraded_from_steer,
+    ),
+    "single_agent_turn_steer_accepted": (
+        "经典+steer 真软插入：turn_steer_accepted（EPHEMERAL）→ 同连接续流单聊",
+        _single_agent_turn_steer_accepted,
+    ),
+    "single_agent_queue_cancelled": (
+        "排队项取消：turn_queued → turn_queue_cancelled（EPHEMERAL；多端清 UI）",
+        _single_agent_queue_cancelled,
     ),
     "single_agent_tool": ("单聊：思考→工具→正文（process 时间线）", _single_agent_tool),
     "single_agent_consult_memory": ("单聊：CEO 翻开记忆主题笔记（consult_memory → 查阅记忆卡片 + 全文）", _single_agent_consult_memory),

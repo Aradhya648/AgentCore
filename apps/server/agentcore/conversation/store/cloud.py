@@ -13,7 +13,7 @@ from agentcore.config import settings
 from agentcore.conversation.common import generate_followups as mint_followups
 from agentcore.conversation.common import generate_title as mint_title
 from agentcore.conversation.common import log_cost_recorded
-from agentcore.conversation.compaction import schedule_compaction
+from agentcore.conversation.compaction import schedule_compaction_if_due
 from agentcore.conversation.store.merge import (
     MESSAGE_STATUS_COMPLETE,
     MESSAGE_STATUS_FAILED,
@@ -672,7 +672,7 @@ class CloudStore:
                 )
 
         schedule_consolidation(conversation_id)
-        schedule_compaction(conversation_id, result.get("input_tokens", 0))
+        await schedule_compaction_if_due(conversation_id, result.get("input_tokens", 0))
 
         if (
             settings.workspace_snapshot_enabled
@@ -889,6 +889,9 @@ class CloudStore:
                 await self.clear_stream_segments(turn_id=message_id)
 
         if skip_derived:
+            # Mirror cloud: ERROR/CANCELLED still arm compaction; PAUSED does not.
+            if not is_paused:
+                await schedule_compaction_if_due(conversation_id, input_tokens)
             logger.info(
                 "chat.local_turn_recorded",
                 conversation_id=conversation_id,
@@ -1064,6 +1067,7 @@ class CloudStore:
                         followups_unavailable_reason = reason or "provider_unavailable"
 
         schedule_consolidation(conversation_id)
+        await schedule_compaction_if_due(conversation_id, input_tokens)
 
         logger.info(
             "chat.local_turn_recorded",

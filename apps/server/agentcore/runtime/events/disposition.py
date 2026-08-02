@@ -147,6 +147,14 @@ EVENT_DISPOSITION: dict[EventType, tuple[Disposition, str]] = {
         Disposition.EPHEMERAL,
         "同对话 FIFO 排队 ack（发送即有流）——传输态；drain 后同连接续流，reload 无需重放",
     ),
+    EventType.TURN_QUEUE_CANCELLED: (
+        Disposition.EPHEMERAL,
+        "同对话排队项取消 ack——传输态；多端清 UI，reload 无需重放",
+    ),
+    EventType.TURN_STEER_ACCEPTED: (
+        Disposition.EPHEMERAL,
+        "经典 in-flight 软插入 ack——传输态；toast「已插入，下一工具步生效」，reload 无需重放",
+    ),
     EventType.EXECUTION_DETACHED: (
         Disposition.DURABLE,
         "执行转后台（回合收口/CEO 提前收口仍有队员在跑）——重放「团队后台继续」态",

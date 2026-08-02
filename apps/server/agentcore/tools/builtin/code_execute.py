@@ -69,11 +69,9 @@ def render_written_files_marker(paths: list[str]) -> str:
 
 
 def _permission_allows_restricted_network(raw: str | None) -> bool:
-    """True when session axes (or legacy full_trust) allow restricted network in sandbox."""
+    """True when session ``permission_axes`` JSON allows restricted network in sandbox."""
     if not raw:
         return False
-    if raw == "full_trust":
-        return True
     try:
         from agentcore.core.types import PermissionAxes
 
@@ -304,7 +302,7 @@ class CodeExecuteTool:
             on_output=_make_output_callback(context),
             network_mode=(
                 "restricted"
-                if _permission_allows_restricted_network(context.permission_preset)
+                if _permission_allows_restricted_network(context.permission_axes)
                 else "none"
             ),
         )

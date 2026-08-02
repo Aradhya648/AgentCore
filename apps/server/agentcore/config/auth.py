@@ -14,9 +14,11 @@ class AuthSettings(BaseModel):
     jwt_access_token_expire_minutes: int = 30
     # Refresh tokens rotate on every use and each rotation stamps a fresh
     # now+N-day expiry (auth/service.py _issue_tokens) — a *sliding* idle window
-    # capped by refresh_family_max_days / admin_refresh_family_max_hours. 30d
+    # capped by refresh_family_max_days / admin_refresh_family_max_hours (or
+    # ephemeral_refresh_family_max_hours when persist_session=false). 30d
     # tolerates a month of inactivity before a forced re-login. The refresh +
-    # CSRF cookies' max_age both track this value.
+    # CSRF cookies' max_age both track this value when persist_session=true;
+    # persist_session=false omits Max-Age (browser session cookies).
     jwt_refresh_token_expire_days: int = 30
     # Absolute ceiling on a refresh family (from family_started_at), independent of
     # the sliding jwt_refresh_token_expire_days window. Past this → force re-login.
@@ -24,6 +26,10 @@ class AuthSettings(BaseModel):
     # Admin-audience families get a tighter absolute ceiling (hours), overriding
     # refresh_family_max_days when client_aud=admin.
     admin_refresh_family_max_hours: int = 24
+    # Absolute ceiling for persist_session=false families (session cookies / short
+    # bearer TTL). Overrides the product/admin ceilings above when the family was
+    # minted without persistent login.
+    ephemeral_refresh_family_max_hours: int = 8
     # GC: keep terminal refresh rows (rotated/revoked/expired) this long so reuse
     # detection still sees recent rotations; then hard-delete.
     refresh_token_retention_days: int = 7

@@ -67,9 +67,9 @@ MAX_PROGRESS_BUDGET, MAX_DECISION_BUDGET = split_coordination_budget(MAX_COORDIN
 def _budget_pools_from_dict(data: dict[str, Any]) -> tuple[int, int]:
     """Read the two-pool budget from a snapshot dict, tolerating legacy snapshots.
 
-    新快照带 ``progress_budget_remaining`` + ``decision_budget_remaining``；旧快照只有单一
-    ``budget_remaining`` → 用 :func:`split_coordination_budget` 切分，让旧的持久化快照也能
-    干净恢复（向后兼容）。
+    新快照只带 ``progress_budget_remaining`` + ``decision_budget_remaining``（Wave3a 起
+    不再双写合计）；旧快照只有单一 ``budget_remaining`` → 用
+    :func:`split_coordination_budget` 切分，让旧的持久化快照也能干净恢复。
     """
     if "progress_budget_remaining" in data or "decision_budget_remaining" in data:
         progress = int(data.get("progress_budget_remaining", DEFAULT_PROGRESS_BUDGET))
@@ -184,8 +184,8 @@ class CoordinationSnapshot:
             "completed_run_ids": list(self.completed_run_ids),
             "progress_budget_remaining": self.progress_budget_remaining,
             "decision_budget_remaining": self.decision_budget_remaining,
-            # 旧读者兼容：合计仍以旧字段名落一份，回滚到单池代码也能读到合理总额。
-            "budget_remaining": self.budget_remaining,
+            # Wave3a：停写合计字段 ``budget_remaining``（开发期减噪）。旧读者仍靠
+            # ``from_dict`` / ``split_coordination_budget`` 读兼容——勿删读路径。
             "total_workers": self.total_workers,
             "active": self.active,
             "cancel_run_ids": list(self.cancel_run_ids),

@@ -13,8 +13,7 @@ hold the per-user memory lock (``memory/locks.py``) so a manual save and the off
 consolidation pass can never interleave and lose each other's change.
 
 Memory injection and cross-session conversation-log access are product-always-on
-(定案 A). ``GET/PUT …/enabled`` and ``…/conversation-history-access`` remain as
-compatibility stubs that always report ``enabled: true`` and never persist ``false``.
+(定案 A); there is no user toggle endpoint.
 
 Two editor surfaces sit on top, both reusing the workspace markdown editor (CAS contract):
 
@@ -116,26 +115,6 @@ class MemoryWriteResult(BaseModel):
     ok: bool
     version: str
     conflict: bool = False
-
-
-class MemoryEnabledRequest(BaseModel):
-    enabled: bool = Field(
-        ...,
-        description="Ignored (compat); memory is product-always-on",
-    )
-
-
-class ConversationHistoryAccessResponse(BaseModel):
-    """Cross-session conversation-log access (always on; 定案 A)."""
-
-    enabled: bool
-
-
-class ConversationHistoryAccessRequest(BaseModel):
-    enabled: bool = Field(
-        ...,
-        description="Ignored (compat); conversation-log access is product-always-on",
-    )
 
 
 class MemoryFileResponse(BaseModel):
@@ -265,48 +244,6 @@ async def put_my_memory(
             files[PREFERENCES_MEMORY_FILE], files[CORE_MEMORY_FILE]
         )
     return MemoryWriteResult(ok=True, version=memory_version(new_content))
-
-
-@router.put("/enabled", response_model=MemoryResponse)
-async def set_my_memory_enabled(
-    body: MemoryEnabledRequest,
-    user: AuthUser,
-    store: DocumentMemoryStore = Depends(get_memory_store),
-) -> MemoryResponse:
-    """Compatibility no-op: memory is product-always-on; body ignored, never persists false."""
-    _ = body
-    content = merge_global_core(
-        await store.load(user.user_id, PREFERENCES_MEMORY_FILE),
-        await store.load(user.user_id, CORE_MEMORY_FILE),
-    )
-    return MemoryResponse(
-        content=content, version=memory_version(content), enabled=True
-    )
-
-
-@router.get(
-    "/conversation-history-access",
-    response_model=ConversationHistoryAccessResponse,
-)
-async def get_my_conversation_history_access(
-    user: AuthUser,
-) -> ConversationHistoryAccessResponse:
-    """Workers may always search/read this account's past conversation logs (定案 A)."""
-    _ = user
-    return ConversationHistoryAccessResponse(enabled=True)
-
-
-@router.put(
-    "/conversation-history-access",
-    response_model=ConversationHistoryAccessResponse,
-)
-async def set_my_conversation_history_access(
-    body: ConversationHistoryAccessRequest,
-    user: AuthUser,
-) -> ConversationHistoryAccessResponse:
-    """Compatibility no-op: access is product-always-on; body ignored, never persists false."""
-    _ = (body, user)
-    return ConversationHistoryAccessResponse(enabled=True)
 
 
 @router.get("/projects", response_model=MemoryProjectsResponse)

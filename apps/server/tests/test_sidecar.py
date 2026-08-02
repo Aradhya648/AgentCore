@@ -411,7 +411,7 @@ def test_sidecar_binds_local_backend_with_approvals(tmp_path, monkeypatch):
     assert captured["approvals_enabled"] is True
 
 
-def test_sidecar_threads_permission_preset_per_turn(tmp_path, monkeypatch):
+def test_sidecar_threads_permission_axes_per_turn(tmp_path, monkeypatch):
     """Conversation permission axes reach the local engine: initialize seeds them,
     a per-turn ``permissionAxes`` refreshes them, and an absent param keeps the
     current value — never a silent reset to the default.

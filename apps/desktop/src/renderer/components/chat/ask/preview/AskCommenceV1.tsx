@@ -9,10 +9,8 @@ import {
   ChoiceQuestion,
   CommenceFooter,
   CommenceNote,
-  FormatPills,
   PlanDetails,
   PreviewShell,
-  StylePills,
   useCommencePreviewAnswer,
 } from "./AskCommenceShared";
 
@@ -65,8 +63,6 @@ export function AskCommenceV1({ content }: { content: AskUserContent }) {
           ))}
         </div>
 
-        <StylePills content={content} answer={answer} disabled={busy} />
-        <FormatPills content={content} answer={answer} disabled={busy} />
         <CommenceNote answer={answer} disabled={busy} compact />
       </div>
 

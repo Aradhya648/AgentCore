@@ -54,10 +54,9 @@ def _sim_on(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_publish_rejects_plain_user(client, make_invite, _sim_on):
+async def test_publish_rejects_plain_user(client, _sim_on):
     _seed_draft_episode()
-    invite = await make_invite("SIM-PUB-USER")
-    await register_and_login(client, invite, "sim-pub-user", password=TEST_PASSWORD)
+    await register_and_login(client, "sim-pub-user", password=TEST_PASSWORD)
 
     r = await client.patch(
         _PUBLISH_PATH.format(episode_id=_EPISODE_ID),
@@ -85,11 +84,10 @@ async def test_publish_allows_admin(client, make_admin, _sim_on):
 
 
 @pytest.mark.asyncio
-async def test_legacy_product_publish_path_gone(client, make_invite, _sim_on):
+async def test_legacy_product_publish_path_gone(client, _sim_on):
     """旧产品路径已下线，任意登录用户不可再改发布态。"""
     _seed_draft_episode()
-    invite = await make_invite("SIM-PUB-LEGACY")
-    await register_and_login(client, invite, "sim-pub-legacy", password=TEST_PASSWORD)
+    await register_and_login(client, "sim-pub-legacy", password=TEST_PASSWORD)
 
     r = await client.patch(
         _LEGACY_PRODUCT_PATH.format(episode_id=_EPISODE_ID),

@@ -25,9 +25,7 @@
         "question": "需要同时导出 PDF 吗？",
         "context": "默认仅 Markdown。",
         "assumptions": [],
-        "questions": [],
-        "style_options": [],
-        "format_options": []
+        "questions": []
       },
       "timestamp": "2026-01-01T00:00:00.003Z"
     },

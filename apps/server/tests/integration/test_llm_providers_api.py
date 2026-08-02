@@ -92,16 +92,16 @@ async def test_llm_provider_routes_require_auth(client):
 # --- list / create / mask lifecycle ---
 
 
-async def test_list_empty(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-EMPTY"), "provuser1")
+async def test_list_empty(client, byok):
+    await register_and_login(client, "provuser1")
     body = (await client.get(_BASE)).json()
     assert body["providers"] == []
     assert "default_chat" not in body
     assert body["billing_mode"] == "byok"
 
 
-async def test_create_provider_masks_and_seeds_profile(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-CREATE"), "provuser2")
+async def test_create_provider_masks_and_seeds_profile(client, byok):
+    await register_and_login(client, "provuser2")
     r = await client.post(
         _BASE,
         json={
@@ -131,23 +131,23 @@ async def test_create_provider_masks_and_seeds_profile(client, make_invite, byok
     assert default["main"]["model"] == "gpt-4o"
 
 
-async def test_create_provider_requires_api_key(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-NOKEY"), "provuser3")
+async def test_create_provider_requires_api_key(client, byok):
+    await register_and_login(client, "provuser3")
     r = await client.post(_BASE, json={"label": "X", "default_model": "gpt-4o"})
     assert r.status_code == 422, r.text
 
 
-async def test_create_provider_refused_without_master_key(client, make_invite, monkeypatch):
+async def test_create_provider_refused_without_master_key(client, monkeypatch):
     monkeypatch.setattr(settings, "billing_mode", "byok")
     monkeypatch.setattr(settings, "encryption_key", "")  # no master key → can't store
-    await register_and_login(client, await make_invite("INV-P-NOMASTER"), "provuser4")
+    await register_and_login(client, "provuser4")
     r = await client.post(_BASE, json={"api_key": "sk-x"})
     assert r.status_code == 503, r.text
     assert r.json()["error"]["code"] == "KEY_STORAGE_UNAVAILABLE"
 
 
-async def test_update_provider_keeps_ciphertext_and_changes_model(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-UPD"), "provuser5")
+async def test_update_provider_keeps_ciphertext_and_changes_model(client, byok):
+    await register_and_login(client, "provuser5")
     created = (
         await client.post(
             _BASE,
@@ -170,8 +170,8 @@ async def test_update_provider_keeps_ciphertext_and_changes_model(client, make_i
     assert body["default_model"] == "deepseek-v4-pro"
 
 
-async def test_multiple_providers_and_delete_retargets_profile(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-MULTI"), "provuser7")
+async def test_multiple_providers_and_delete_retargets_profile(client, byok):
+    await register_and_login(client, "provuser7")
     a = (await client.post(_BASE, json={"api_key": "sk-a-1111", "label": "A"})).json()
     b = (await client.post(_BASE, json={"api_key": "sk-b-2222", "label": "B"})).json()
     listed = (await client.get(_BASE)).json()
@@ -193,8 +193,8 @@ async def test_multiple_providers_and_delete_retargets_profile(client, make_invi
     assert default["main"]["provider_id"] == b["id"]
 
 
-async def test_model_profile_crud_and_set_default(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-DEF"), "provuser8")
+async def test_model_profile_crud_and_set_default(client, byok):
+    await register_and_login(client, "provuser8")
     a = (await client.post(_BASE, json={"api_key": "sk-a-1111", "default_model": "m-a"})).json()
     b = (await client.post(_BASE, json={"api_key": "sk-b-2222", "default_model": "m-b"})).json()
 
@@ -218,8 +218,8 @@ async def test_model_profile_crud_and_set_default(client, make_invite, byok):
     assert listed["default_model_profile_id"] == body["id"]
 
 
-async def test_model_profile_rejects_foreign_provider(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-DEFBAD"), "provuser9")
+async def test_model_profile_rejects_foreign_provider(client, byok):
+    await register_and_login(client, "provuser9")
     await client.post(_BASE, json={"api_key": "sk-a-1111"})
     r = await client.post(
         "/v1/users/me/llm-model-profiles",
@@ -252,8 +252,8 @@ class _FakeProvider:
         pass
 
 
-async def test_test_provider_active_on_success(client, make_invite, byok, monkeypatch):
-    await register_and_login(client, await make_invite("INV-P-TESTOK"), "provuser10")
+async def test_test_provider_active_on_success(client, byok, monkeypatch):
+    await register_and_login(client, "provuser10")
     created = (
         await client.post(_BASE, json={"api_key": "sk-good-4242", "default_model": "gpt-4o-mini"})
     ).json()
@@ -272,8 +272,8 @@ async def test_test_provider_active_on_success(client, make_invite, byok, monkey
     assert persisted["supports_tools"] is True
 
 
-async def test_test_provider_error_on_probe_failure(client, make_invite, byok, monkeypatch):
-    await register_and_login(client, await make_invite("INV-P-TESTERR"), "provuser11")
+async def test_test_provider_error_on_probe_failure(client, byok, monkeypatch):
+    await register_and_login(client, "provuser11")
     created = (await client.post(_BASE, json={"api_key": "sk-bad-0000"})).json()
     monkeypatch.setattr(
         "agentcore.llm.provider_service.build_provider",
@@ -286,8 +286,8 @@ async def test_test_provider_error_on_probe_failure(client, make_invite, byok, m
     assert body["message"]
 
 
-async def test_test_missing_provider_returns_404(client, make_invite, byok):
-    await register_and_login(client, await make_invite("INV-P-TESTNONE"), "provuser12")
+async def test_test_missing_provider_returns_404(client, byok):
+    await register_and_login(client, "provuser12")
     r = await client.post(f"{_BASE}/{new_id()}/test")
     assert r.status_code == 404, r.text
 
@@ -295,21 +295,21 @@ async def test_test_missing_provider_returns_404(client, make_invite, byok):
 # --- deployment capability fields (moved onto the list response) ---
 
 
-async def test_list_reports_platform_capability_dormant(client, make_invite, byok, monkeypatch):
+async def test_list_reports_platform_capability_dormant(client, byok, monkeypatch):
     """byok + key still present → platform_available false."""
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    await register_and_login(client, await make_invite("INV-P-CAP"), "provcap")
+    await register_and_login(client, "provcap")
     body = (await client.get(_BASE)).json()
     assert body["platform_available"] is False
     assert body["platform_model"] is None
     assert body["billing_mode"] == "byok"
 
 
-async def test_list_reports_platform_billing_mode(client, make_invite, monkeypatch):
+async def test_list_reports_platform_billing_mode(client, monkeypatch):
     monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
     monkeypatch.setattr(settings, "encryption_key", _MASTER_KEY)
-    await register_and_login(client, await make_invite("INV-P-PLAT"), "provplat")
+    await register_and_login(client, "provplat")
     body = (await client.get(_BASE)).json()
     assert body["providers"] == []
     assert body["billing_mode"] == "platform"
@@ -320,19 +320,22 @@ async def test_list_reports_platform_billing_mode(client, make_invite, monkeypat
 
 
 async def test_send_message_refused_without_byok_provider(
-    client, make_invite, session_factory, byok
+    client, session_factory, byok
 ):
-    user_id = await register_and_login(client, await make_invite("INV-P-PRE"), "provuser13")
+    user_id = await register_and_login(client, "provuser13")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
-    r = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{conv_id}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
     assert r.status_code == 402, r.text
     assert r.json()["error"]["code"] == "LLM_KEY_REQUIRED"
 
 
 async def test_preflight_byok_skips_quota_when_provider_present(
-    client, make_invite, session_factory, byok
+    client, session_factory, byok
 ):
-    user_id = await register_and_login(client, await make_invite("INV-P-SKIPQ"), "provuser14")
+    user_id = await register_and_login(client, "provuser14")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_OVER_MONTHLY_NANO
@@ -348,8 +351,8 @@ async def test_preflight_byok_skips_quota_when_provider_present(
     assert result.credentials.api_key == "sk-byok-user-1234"
 
 
-async def test_preflight_tools_soft_gate_warning(client, make_invite, session_factory, byok):
-    user_id = await register_and_login(client, await make_invite("INV-P-TOOLS"), "provuser15")
+async def test_preflight_tools_soft_gate_warning(client, session_factory, byok):
+    user_id = await register_and_login(client, "provuser15")
     provider = await _add_provider(session_factory, user_id=user_id, api_key="sk-byok-tools")
 
     async with session_factory() as session:
@@ -371,10 +374,10 @@ async def test_preflight_tools_soft_gate_warning(client, make_invite, session_fa
         assert plain.warnings == []
 
 
-async def test_preflight_platform_enforces_quota(client, make_invite, session_factory, monkeypatch):
+async def test_preflight_platform_enforces_quota(client, session_factory, monkeypatch):
     monkeypatch.setattr(settings, "billing_mode", "platform")
     monkeypatch.setattr(settings, "platform_api_key", "sk-platform")
-    user_id = await register_and_login(client, await make_invite("INV-P-PLATQ"), "provuser16")
+    user_id = await register_and_login(client, "provuser16")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_OVER_MONTHLY_NANO
@@ -392,11 +395,11 @@ async def test_preflight_platform_enforces_quota(client, make_invite, session_fa
 
 
 async def test_single_provider_user_equivalent_to_legacy_key(
-    client, make_invite, session_factory, byok
+    client, session_factory, byok
 ):
     """After migration a single-provider user resolves BYOK exactly as the old single-key
     user did: account default = that provider's model, turns run on its key."""
-    user_id = await register_and_login(client, await make_invite("INV-P-EQUIV"), "provuser17")
+    user_id = await register_and_login(client, "provuser17")
     async with session_factory() as session:
         provider = await LlmProviderService(session).create_provider(
             user_id, label="DeepSeek", api_key="sk-solo-9999", default_model="deepseek-v4-pro"

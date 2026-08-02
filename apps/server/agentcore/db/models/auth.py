@@ -1,4 +1,4 @@
-"""Auth credentials and tokens: Credentials, UserLlmProvider, Invite, RefreshToken."""
+"""Auth credentials and tokens: Credentials, UserLlmProvider, RefreshToken."""
 
 from datetime import datetime
 
@@ -96,29 +96,6 @@ class UserLlmProvider(Base):
     )
 
 
-# --- Invites ---
-# Legacy invite table (registration no longer consumes codes; admin API deprecated).
-
-
-class Invite(Base):
-    __tablename__ = "invites"
-
-    id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True, default=_new_uuid)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
-    created_by: Mapped[str | None] = mapped_column(
-        PG_UUID(as_uuid=False), index=True, nullable=True
-    )
-    used_by: Mapped[str | None] = mapped_column(PG_UUID(as_uuid=False), index=True, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Admin revocation (邀请码撤销): retires an unused code. Registration no longer
-    # consumes invites; revoke remains for admin bookkeeping of legacy codes.
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=text("now()")
-    )
-
-
 # --- Refresh Tokens ---
 
 
@@ -143,9 +120,15 @@ class RefreshToken(Base):
         DateTime(timezone=True), server_default=text("now()")
     )
     # Absolute family ceiling anchor — set on first login of the family, inherited
-    # on every rotation (refresh_family_max_days / admin_refresh_family_max_hours).
+    # on every rotation (refresh_family_max_days / admin_refresh_family_max_hours /
+    # ephemeral_refresh_family_max_hours when persist_session is false).
     family_started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
+    )
+    # False = session-cookie / short-TTL family (login persist_session=false).
+    # Inherited on every rotation so refresh keeps the same cookie/TTL policy.
+    persist_session: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true")
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

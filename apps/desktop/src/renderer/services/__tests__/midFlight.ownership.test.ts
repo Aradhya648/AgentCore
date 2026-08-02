@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe("midFlight · 主路门 + store 断言", () => {
-  it("经典排队：主路持有时缓冲 message_start，释放后才插用户气泡并开 turn2", async () => {
+  it("经典排队：turn_queued 立即插用户气泡；message_start 缓冲至主路释放", async () => {
     const turn1Token = claimPrimaryStream(CID);
     const conv = useConversationStore.getState();
     conv.addMessage(
@@ -102,10 +102,14 @@ describe("midFlight · 主路门 + store 断言", () => {
       vi.fn(() => Promise.resolve(sse.response)),
     );
 
-    const pending = sendMidFlightMessage(CID, "第二问");
+    const pending = sendMidFlightMessage(CID, "第二问", undefined, "queue");
     await vi.waitFor(() => {
       expect(vi.mocked(fetch)).toHaveBeenCalled();
     });
+    const body = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as { delivery?: string };
+    expect(body.delivery).toBe("queue");
 
     sse.push(
       ev("turn_queued", {
@@ -120,8 +124,14 @@ describe("midFlight · 主路门 + store 断言", () => {
         expect.stringContaining("已排队"),
       );
     });
+    // 产品：Queue → 主时间线用户气泡立即可见
+    expect(
+      getRuntime(CID).messages.some(
+        (m) => m.role === "user" && m.content === "第二问",
+      ),
+    ).toBe(true);
 
-    // drain 边界交错：conn2 已到 message_start，但 turn1 主路未释放
+    // drain 边界交错：conn2 已到 message_start，但 turn1 主路未释放 → 缓冲
     sse.push(ev("message_start", { message_id: "srv-turn2" }));
     await new Promise((r) => setTimeout(r, 10));
 
@@ -131,9 +141,7 @@ describe("midFlight · 主路门 + store 断言", () => {
       (m) => m.role === "assistant" && m.serverMessageId === "srv-turn1",
     );
     expect(turn1Assistant?.content).toBe("turn1-正文");
-    expect(
-      midRace.some((m) => m.role === "user" && m.content === "第二问"),
-    ).toBe(false);
+    expect(midRace.some((m) => m.serverMessageId === "srv-turn2")).toBe(false);
 
     // turn1 收口帧仍走 conn1 dispatch（不丢）
     handleMessageStreamEvent(
@@ -150,24 +158,25 @@ describe("midFlight · 主路门 + store 断言", () => {
       }),
       { conversationId: CID, source: "server" },
     );
-    expect(getRuntime(CID).messages.at(-1)?.cost?.total).toBe(2);
+    // turn1 仍在；排队用户气泡已在末尾（cost 可能落在末条助手上，不在此断言）
+    expect(
+      getRuntime(CID).messages.find((m) => m.serverMessageId === "srv-turn1")
+        ?.content,
+    ).toBe("turn1-正文");
 
     releasePrimaryStream(CID, turn1Token);
     await vi.waitFor(() => {
       expect(
-        getRuntime(CID).messages.some(
-          (m) => m.role === "user" && m.content === "第二问",
-        ),
+        getRuntime(CID).messages.some((m) => m.serverMessageId === "srv-turn2"),
       ).toBe(true);
     });
 
-    // 放行后：用户气泡 + turn2 开流
+    // 放行后：turn2 开流；用户气泡仍在
     const after = getRuntime(CID).messages;
     const turn2 = after.find(
       (m) => m.role === "assistant" && m.serverMessageId === "srv-turn2",
     );
     expect(turn2).toBeTruthy();
-    // turn1 定稿仍在
     expect(after.find((m) => m.serverMessageId === "srv-turn1")?.content).toBe(
       "turn1-正文",
     );
@@ -186,7 +195,7 @@ describe("midFlight · 主路门 + store 断言", () => {
     ).toContain("turn2");
   });
 
-  it("排队等待中 Abort：丢弃缓冲、无 turn2 用户气泡；result=queued（detached）", async () => {
+  it("排队等待中 Abort：丢缓冲；保留排队用户气泡（Stop≠取消）", async () => {
     const turn1Token = claimPrimaryStream(CID);
     const parentAc = new AbortController();
     useConversationStore.getState().setAbort(parentAc, CID);
@@ -198,7 +207,7 @@ describe("midFlight · 主路门 + store 断言", () => {
       vi.fn(() => Promise.resolve(sse.response)),
     );
 
-    const pending = sendMidFlightMessage(CID, "排队后停止");
+    const pending = sendMidFlightMessage(CID, "排队后停止", undefined, "queue");
     await vi.waitFor(() => {
       expect(vi.mocked(fetch)).toHaveBeenCalled();
     });
@@ -226,7 +235,7 @@ describe("midFlight · 主路门 + store 断言", () => {
       getRuntime(CID).messages.some(
         (m) => m.role === "user" && m.content === "排队后停止",
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       getRuntime(CID).messages.some(
         (m) => m.serverMessageId === "srv-should-not-land",
@@ -236,7 +245,7 @@ describe("midFlight · 主路门 + store 断言", () => {
     releasePrimaryStream(CID, turn1Token);
   });
 
-  it("release 与 abort 同刻：waiter 同步 flush 须丢缓冲，不得插用户气泡 / fold message_start", async () => {
+  it("release 与 abort 同刻：waiter 同步 flush 须丢缓冲，不得 fold message_start", async () => {
     const turn1Token = claimPrimaryStream(CID);
     const parentAc = new AbortController();
     useConversationStore.getState().setAbort(parentAc, CID);
@@ -248,7 +257,7 @@ describe("midFlight · 主路门 + store 断言", () => {
       vi.fn(() => Promise.resolve(sse.response)),
     );
 
-    const pending = sendMidFlightMessage(CID, "同刻停止");
+    const pending = sendMidFlightMessage(CID, "同刻停止", undefined, "queue");
     await vi.waitFor(() => {
       expect(vi.mocked(fetch)).toHaveBeenCalled();
     });
@@ -264,6 +273,12 @@ describe("midFlight · 主路门 + store 断言", () => {
     await vi.waitFor(() => {
       expect(notifyInfoMock).toHaveBeenCalled();
     });
+    // turn_queued 已插气泡
+    expect(
+      getRuntime(CID).messages.some(
+        (m) => m.role === "user" && m.content === "同刻停止",
+      ),
+    ).toBe(true);
     sse.push(ev("message_start", { message_id: "srv-race-abort-flush" }));
     await new Promise((r) => setTimeout(r, 10));
 
@@ -272,20 +287,21 @@ describe("midFlight · 主路门 + store 断言", () => {
     releasePrimaryStream(CID, turn1Token);
     expect(
       getRuntime(CID).messages.some(
-        (m) => m.role === "user" && m.content === "同刻停止",
-      ),
-    ).toBe(false);
-    expect(
-      getRuntime(CID).messages.some(
         (m) => m.serverMessageId === "srv-race-abort-flush",
       ),
     ).toBe(false);
 
     sse.error(new DOMException("Aborted", "AbortError"));
     await expect(pending).resolves.toMatchObject({ kind: "queued" });
+    // 气泡保留；message_start 未 fold
     expect(
       getRuntime(CID).messages.some(
         (m) => m.role === "user" && m.content === "同刻停止",
+      ),
+    ).toBe(true);
+    expect(
+      getRuntime(CID).messages.some(
+        (m) => m.serverMessageId === "srv-race-abort-flush",
       ),
     ).toBe(false);
   });
@@ -298,10 +314,14 @@ describe("midFlight · 主路门 + store 断言", () => {
       vi.fn(() => Promise.resolve(sse.response)),
     );
 
-    const pending = sendMidFlightMessage(CID, "插一句");
+    const pending = sendMidFlightMessage(CID, "插一句", undefined, "steer");
     await vi.waitFor(() => {
       expect(vi.mocked(fetch)).toHaveBeenCalled();
     });
+    const body = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as { delivery?: string };
+    expect(body.delivery).toBe("steer");
 
     sse.push(
       ev("user_interjection", {
@@ -319,6 +339,44 @@ describe("midFlight · 主路门 + store 断言", () => {
     });
     // 主路仍持有也不妨碍插话短流收口
     expect(getRuntime(CID).messages.some((m) => m.content === "插一句")).toBe(
+      false,
+    );
+    releasePrimaryStream(CID, turn1Token);
+  });
+
+  it("经典 soft-insert：turn_steer_accepted 即时 dispatch，不插用户气泡", async () => {
+    const turn1Token = claimPrimaryStream(CID);
+    const sse = controllableSse();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(sse.response)),
+    );
+
+    const pending = sendMidFlightMessage(CID, "改成中文", undefined, "steer");
+    await vi.waitFor(() => {
+      expect(vi.mocked(fetch)).toHaveBeenCalled();
+    });
+    const body = JSON.parse(
+      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as { delivery?: string };
+    expect(body.delivery).toBe("steer");
+
+    sse.push(
+      ev("turn_steer_accepted", {
+        steer_id: "steer-1",
+        conversation_id: CID,
+        content: "改成中文",
+        pending: 1,
+      }),
+    );
+    sse.close();
+
+    await expect(pending).resolves.toEqual({
+      kind: "steered",
+      steerId: "steer-1",
+    });
+    expect(notifyInfoMock).toHaveBeenCalledWith("已插入，下一工具步生效");
+    expect(getRuntime(CID).messages.some((m) => m.content === "改成中文")).toBe(
       false,
     );
     releasePrimaryStream(CID, turn1Token);

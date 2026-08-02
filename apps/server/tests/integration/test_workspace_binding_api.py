@@ -28,9 +28,8 @@ async def test_binding_requires_auth(client):
     assert (await client.delete(f"/v1/conversations/{cid}/workspace/binding")).status_code == 401
 
 
-async def test_bind_conversation_scratch(client, make_invite):
-    code = await make_invite("INV-B1")
-    await register_and_login(client, code, "binduser1")
+async def test_bind_conversation_scratch(client):
+    await register_and_login(client, "binduser1")
     conv = await _new_conversation(client, "solo")
 
     r = await client.get(f"/v1/conversations/{conv}/workspace/binding")
@@ -67,10 +66,9 @@ async def test_bind_conversation_scratch(client, make_invite):
     }
 
 
-async def test_project_chat_inherits_binding_and_rejects_rebind(client, make_invite):
+async def test_project_chat_inherits_binding_and_rejects_rebind(client):
     """Project chats inherit the project's workspace; conversation bind returns 409."""
-    code = await make_invite("INV-B2")
-    await register_and_login(client, code, "binduser2")
+    await register_and_login(client, "binduser2")
     folder = (
         await client.post(
             "/v1/folders",
@@ -109,22 +107,19 @@ async def test_project_chat_inherits_binding_and_rejects_rebind(client, make_inv
     assert grouped["folders"][0]["mode"] == "local"
 
 
-async def test_bind_rejects_empty_root_id(client, make_invite):
-    code = await make_invite("INV-B3")
-    await register_and_login(client, code, "binduser3")
+async def test_bind_rejects_empty_root_id(client):
+    await register_and_login(client, "binduser3")
     conv = await _new_conversation(client, "c")
     r = await client.put(f"/v1/conversations/{conv}/workspace/binding", json={"root_id": ""})
     assert r.status_code == 422, r.text
 
 
-async def test_binding_isolation_between_users(client, make_invite, new_client):
-    code1 = await make_invite("INV-B4A")
-    await register_and_login(client, code1, "bindowner")
+async def test_binding_isolation_between_users(client, new_client):
+    await register_and_login(client, "bindowner")
     conv = await _new_conversation(client, "mine")
 
-    code2 = await make_invite("INV-B4B")
     async with new_client() as other:
-        await register_and_login(other, code2, "bindintruder")
+        await register_and_login(other, "bindintruder")
         assert (await other.get(f"/v1/conversations/{conv}/workspace/binding")).status_code == 404
         assert (
             await other.put(f"/v1/conversations/{conv}/workspace/binding", json={"root_id": _ROOT})

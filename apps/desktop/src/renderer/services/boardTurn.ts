@@ -37,6 +37,7 @@ export async function sendBoardTurn(
   await streamConversation({
     conversationId: conversation_id,
     content,
+    delivery: "steer",
     signal: options.signal,
   });
 }

@@ -435,7 +435,7 @@ def _auto_permission_ctx(backend: _FakeBackend) -> ToolContext:
         agent_id="a",
         backend=backend,  # type: ignore[arg-type]
         user_id="u",
-        permission_preset='{"file_write":"session","command":"auto","team_kickoff":"rules","host":"ask"}',
+        permission_axes='{"file_write":"session","command":"auto","team_kickoff":"rules","host":"ask"}',
     )
 
 
@@ -501,7 +501,7 @@ async def test_check_install_omits_cache_bucket_without_user_id(
         agent_id="a",
         backend=backend,  # type: ignore[arg-type]
         user_id="",
-        permission_preset='{"file_write":"session","command":"auto","team_kickoff":"rules","host":"ask"}',
+        permission_axes='{"file_write":"session","command":"auto","team_kickoff":"rules","host":"ask"}',
     )
     result = await TestRunTool().execute({"check": "install"}, ctx)
     assert result.success is True
@@ -520,7 +520,7 @@ async def test_check_install_rejects_without_restricted_network(
         "agentcore.tools.builtin.test_run.detect_workspace_profile",
         _fake_profile,
     )
-    # Default ctx: no permission_preset → network_mode would be none
+    # Default ctx: no permission_axes → network_mode would be none
     result = await TestRunTool().execute({"check": "install"}, _ctx(backend))
     assert result.success is False
     assert result.contract_failure is True

@@ -174,9 +174,9 @@ class ToolContext:
     # to "" for unscoped call sites (tests / evals) — a tool simply skips its
     # conversation-scoped optimisation when this is empty.
     conversation_id: str = ""
-    # Session permission mode (observe / workspace / full_trust). Used by sandbox
-    # network grading (P2: full_trust → restricted egress on cloud gVisor).
-    permission_preset: str | None = None
+    # Session permission axes as JSON (PermissionAxes.to_dict()). Used by sandbox
+    # network grading (P2: command=auto → restricted egress on cloud gVisor).
+    permission_axes: str | None = None
     # 深度研究自治：会话旗标 + 本会话已自动开辩次数（cap 见 runtime.deep_research_auto）。
     # Set once on the pipeline base context; debate kickoff mutates the count in place
     # after a waived auto-adopt start so a same-turn second debate sees the cap.

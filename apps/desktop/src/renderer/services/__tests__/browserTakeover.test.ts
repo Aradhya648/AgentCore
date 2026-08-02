@@ -3,7 +3,7 @@
  * - REST：start/end/input/list 端点 + body 形；空批不发；wire→narrow 映射。
  * - start 成败靠 body.reason（200）：started|already_active 成功；其余 throw TakeoverStartError。
  * - list 读 `data`（非旧 `takeovers`）。
- * - start 失败语义：turn_running / no_session / already_active → zh 文案（+ 回落；兼容 ApiError.code）。
+ * - start 失败语义：no_session / already_active → zh 文案（+ 回落；兼容 ApiError.code）。
  * - 坐标换算 toFrameSpace：object-contain 缩放 + 信箱留白 + 钳制 + 非法尺寸兜底。
  * - 输入批处理 createInputBatcher：定时 flush、move 合并、commit 立即 flush、stop 收口、发失败吞掉。
  * - 修饰键 modifiersOf / 时长成文 formatTakeoverDuration。
@@ -92,20 +92,16 @@ describe("browserTakeover · REST", () => {
   });
 
   it("throws TakeoverStartError when reason is a start failure", async () => {
-    mockPost.mockResolvedValue({ active: false, reason: "turn_running" });
+    mockPost.mockResolvedValue({ active: false, reason: "no_session" });
     await expect(startBrowserTakeover("c1")).rejects.toEqual(
       expect.objectContaining({
         name: "TakeoverStartError",
-        reason: "turn_running",
+        reason: "no_session",
       }),
     );
   });
 
-  it("throws on no_session / not_active reasons", async () => {
-    mockPost.mockResolvedValue({ active: false, reason: "no_session" });
-    await expect(startBrowserTakeover("c1")).rejects.toBeInstanceOf(
-      TakeoverStartError,
-    );
+  it("throws on not_active reason", async () => {
     mockPost.mockResolvedValue({ active: false, reason: "not_active" });
     await expect(startBrowserTakeover("c1")).rejects.toMatchObject({
       reason: "not_active",
@@ -177,9 +173,6 @@ describe("takeoverStartErrorMessage", () => {
 
   it("maps TakeoverStartError reason strings", () => {
     expect(
-      takeoverStartErrorMessage(new TakeoverStartError("turn_running")),
-    ).toContain("回合");
-    expect(
       takeoverStartErrorMessage(new TakeoverStartError("no_session")),
     ).toContain("没有进行中");
     expect(takeoverStartErrorMessage("not_active")).toContain(
@@ -188,9 +181,6 @@ describe("takeoverStartErrorMessage", () => {
   });
 
   it("maps the pinned start-failure codes (legacy ApiError.path)", () => {
-    expect(takeoverStartErrorMessage(withCode("turn_running"))).toContain(
-      "回合",
-    );
     expect(takeoverStartErrorMessage(withCode("no_session"))).toContain(
       "没有进行中",
     );

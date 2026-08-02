@@ -293,7 +293,7 @@ async def test_finalize_cloud_settles_empty_error_with_error_code(monkeypatch):
     monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
-    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a, **_k: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
 
     sink = SimpleNamespace(emit=lambda *_a, **_k: None)
@@ -378,7 +378,7 @@ async def test_finalize_cloud_keeps_existing_partial_on_empty_error(monkeypatch)
     monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
-    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a, **_k: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
 
     await CloudStore().finalize(
@@ -462,7 +462,7 @@ async def test_finalize_cloud_auto_snapshot_passes_folder_id(monkeypatch):
     monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
-    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a, **_k: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
     monkeypatch.setattr(settings, "workspace_snapshot_enabled", True)
     monkeypatch.setattr(cloud_mod, "create_snapshot", _fake_create_snapshot)
@@ -539,6 +539,7 @@ async def test_finalize_local_settles_empty_error_with_error_code(monkeypatch):
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
     )
@@ -626,6 +627,7 @@ async def test_finalize_local_keeps_existing_partial_on_empty_error(monkeypatch)
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
     )
@@ -806,6 +808,7 @@ async def test_finalize_local_fills_journal_via_persist(monkeypatch):
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", fake_persist)
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
 
     async def _run_bg(user_id, *, purpose="followups", runner):
         from agentcore.billing.gate import BackgroundLlmResult
@@ -956,6 +959,7 @@ async def test_finalize_local_mints_followups(monkeypatch):
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
 
     async def _run_bg(user_id, *, purpose="followups", runner):
         from agentcore.billing.gate import BackgroundLlmResult
@@ -1052,6 +1056,7 @@ async def test_finalize_local_skips_followups_when_not_end_turn(monkeypatch):
     monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(
         cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
     )

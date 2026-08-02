@@ -12,9 +12,8 @@ async def test_capabilities_requires_auth(client):
     assert (await client.get("/v1/capabilities")).status_code == 401
 
 
-async def test_capabilities_returns_full_catalog(client, make_invite):
-    code = await make_invite("INV-CAP-1")
-    await register_and_login(client, code, "capuser")
+async def test_capabilities_returns_full_catalog(client):
+    await register_and_login(client, "capuser")
 
     r = await client.get("/v1/capabilities")
     assert r.status_code == 200, r.text
@@ -42,9 +41,8 @@ async def test_capabilities_returns_full_catalog(client, make_invite):
     assert tools["web_search"]["parameters"]["type"] == "object"
 
 
-async def test_capabilities_lists_system_skills_with_body(client, make_invite):
-    code = await make_invite("INV-CAP-2")
-    await register_and_login(client, code, "skilluser")
+async def test_capabilities_lists_system_skills_with_body(client):
+    await register_and_login(client, "skilluser")
 
     body = (await client.get("/v1/capabilities")).json()
     skills = {s["name"]: s for s in body["skills"]}
@@ -59,9 +57,8 @@ async def test_capabilities_lists_system_skills_with_body(client, make_invite):
     assert body["packs"] == []
 
 
-async def test_capabilities_exposes_prompt_template(client, make_invite):
-    code = await make_invite("INV-CAP-3")
-    await register_and_login(client, code, "promptuser")
+async def test_capabilities_exposes_prompt_template(client):
+    await register_and_login(client, "promptuser")
 
     guidelines = (await client.get("/v1/capabilities")).json()["guidelines"]
     assert guidelines["shared_base"]

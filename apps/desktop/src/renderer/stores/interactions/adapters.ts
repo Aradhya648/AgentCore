@@ -8,9 +8,7 @@ import type {
 } from "@/stores/conversation/types";
 import type {
   AskAssumption,
-  AskFormatOption,
   AskQuestion,
-  AskStyleOption,
   PlanReviewPending,
   PlanReviewStep,
 } from "@/types/events";
@@ -27,7 +25,7 @@ function arr<T>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
 }
 
-/** View-model for a pending approval card (replaces legacy PendingApproval). */
+/** View-model for a pending approval card. */
 export interface ApprovalView {
   approvalId: string;
   conversationId: string;
@@ -56,8 +54,6 @@ export function entryToCheckpoint(e: InteractionEntry): CheckpointDisplay {
     context: str(p.context),
     assumptions: arr<AskAssumption>(p.assumptions),
     questions: arr<AskQuestion>(p.questions),
-    styleOptions: arr<AskStyleOption>(p.style_options ?? p.styleOptions),
-    formatOptions: arr<AskFormatOption>(p.format_options ?? p.formatOptions),
     intent: parseCheckpointIntent(p.intent),
     ...settlement,
     selected:
@@ -77,8 +73,6 @@ export function entryToNonBlockingAsk(
     context: str(p.context),
     assumptions: arr<AskAssumption>(p.assumptions),
     questions: arr<AskQuestion>(p.questions),
-    styleOptions: arr<AskStyleOption>(p.style_options ?? p.styleOptions),
-    formatOptions: arr<AskFormatOption>(p.format_options ?? p.formatOptions),
   };
 }
 
@@ -153,8 +147,6 @@ export function entryToTeamPreview(e: InteractionEntry): TeamPreviewDisplay {
     })),
     maxRounds: typeof p.max_rounds === "number" ? p.max_rounds : 0,
     thorough: p.thorough !== false,
-    offerResearchFirst: Boolean(p.offer_research_first),
-    researchFirstRecommended: Boolean(p.research_first_recommended),
     ...(typeof p.moderator_model === "string" && p.moderator_model.trim()
       ? { moderatorModel: p.moderator_model }
       : {}),

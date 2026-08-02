@@ -75,6 +75,8 @@ class StoredAttachment(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=32000)
+    # 同对话再发分流（运行时三模型 · Steer/Queue）：必填；缺 → 422；开发期无缺省兼容层。
+    delivery: Literal["steer", "queue"]
     attachments: list[MessageAttachment] = Field(default_factory=list, max_length=20)
     # Soft gate: set when this turn is expected to call orchestration tools (delegate/debate).
     # Triggers a preflight warning (not a block) when probe recorded supports_tools=false.
@@ -330,32 +332,13 @@ class ResumeTurnRequest(BaseModel):
     for plan_review / accept the CEO direction for ask_user), ``adjust`` (inject
     ``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``
     carries the option(s) the user picked from an ask_user menu (ignored for
-    plan_review; the server drops any pick not actually offered). ``style_id`` is the
-    structured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in
-    ``selected``. ``format_id`` is the structured presentation format pick
-    (``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only
+    plan_review; the server drops any pick not actually offered). The engine-only
     ``timeout`` is never sent by a client.
     """
 
     decision: CheckpointDecision
     note: str = Field("", max_length=4000)
     selected: list[str] = Field(default_factory=list, max_length=50)
-    style_id: str | None = Field(
-        default=None,
-        max_length=32,
-        description=(
-            "Optional structured website style pick (s0/s1/…). "
-            "Preferred over scanning selected; ignored when not a website kickoff."
-        ),
-    )
-    format_id: str | None = Field(
-        default=None,
-        max_length=32,
-        description=(
-            "Optional structured presentation format pick (f0/f1/…). "
-            "Preferred over scanning selected; ignored when not a presentation kickoff."
-        ),
-    )
 
 
 class PendingInteractionSummary(BaseModel):
@@ -393,8 +376,7 @@ class PausedTurnSummary(BaseModel):
     Surfaced on conversation reopen so the client can re-render the right resume card
     by ``kind`` and offer the kind-appropriate actions → the resume endpoint
     (kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;
-    plan_review: continue / adjust / stop; ``per_call`` retained for historical
-    resolves only).
+    plan_review: continue / adjust / stop).
     ``message_id`` is both the pause key and the id the resumed assistant message will
     reuse, so an optimistic bubble reconciles cleanly.
 
@@ -403,8 +385,8 @@ class PausedTurnSummary(BaseModel):
     ``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /
     ``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload
     ``question`` (the framing / opening line) + ``context`` + the optional opening
-    content ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``
-    (empty for a compact mid-task fork). The unused set is empty for the other kinds.
+    content ``assumptions`` / ``questions`` (empty for a compact mid-task fork). The
+    unused set is empty for the other kinds.
     """
 
     message_id: str
@@ -425,17 +407,11 @@ class PausedTurnSummary(BaseModel):
     sides: list[dict[str, Any]] = Field(default_factory=list)
     max_rounds: int = 0
     thorough: bool = True
-    # debate kickoff: offer「先多视角调研再辩」(缺省 false，旧帧兼容)
-    offer_research_first: bool = False
-    # debate kickoff: elevate research-first as visual primary (缺省 false)
-    research_first_recommended: bool = False
     # ask_user
     question: str = ""
     context: str = ""
     assumptions: list[dict[str, Any]] = Field(default_factory=list)
     questions: list[dict[str, Any]] = Field(default_factory=list)
-    style_options: list[dict[str, Any]] = Field(default_factory=list)
-    format_options: list[dict[str, Any]] = Field(default_factory=list)
     intent: AskCheckpointIntent | None = None
 
 
@@ -798,8 +774,6 @@ class StopTurnResponse(BaseModel):
 
     ``stopped`` is True when a live detached run was found and signalled; False when
     nothing was running (already finished / never started), so the call is idempotent.
-    ``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.
     """
 
     stopped: bool
-    mode: Literal["cancel", "discard"] = "cancel"

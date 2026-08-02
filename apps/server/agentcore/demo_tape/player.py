@@ -306,8 +306,6 @@ def _build_required_event(
             sides=list(payload.get("sides") or []),
             max_rounds=int(payload.get("max_rounds") or 0),
             thorough=bool(payload.get("thorough", True)),
-            offer_research_first=bool(payload.get("offer_research_first")),
-            research_first_recommended=bool(payload.get("research_first_recommended")),
         )
     elif et_name == "checkpoint_required":
         intent = payload.get("intent")
@@ -318,8 +316,6 @@ def _build_required_event(
             context=str(payload.get("context") or ""),
             assumptions=list(payload.get("assumptions") or []),
             questions=list(payload.get("questions") or []),
-            style_options=list(payload.get("style_options") or []),
-            format_options=list(payload.get("format_options") or []),
             intent=intent if isinstance(intent, str) else None,
         )
     elif et_name == "plan_review_required":
@@ -611,8 +607,6 @@ def _build_tape_frame(
             context=str(payload.get("context") or ""),
             assumptions=list(payload.get("assumptions") or []),
             questions=list(payload.get("questions") or []),
-            style_options=list(payload.get("style_options") or []),
-            format_options=list(payload.get("format_options") or []),
             intent=intent if isinstance(intent, str) else "decision",
         )
     if kind == "plan_review":

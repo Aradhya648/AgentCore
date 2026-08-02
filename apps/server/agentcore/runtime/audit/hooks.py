@@ -280,7 +280,7 @@ def bind_recorder(
     trace_id: str | None,
     captain_run_id: str | None = None,
     delegated: bool = False,
-    permission_preset: str | None = None,
+    permission_axes: str | None = None,
 ) -> tuple[AuditRecorder, Any]:
     recorder = AuditRecorder(
         user_id=user_id,
@@ -289,7 +289,7 @@ def bind_recorder(
         trace_id=trace_id,
         captain_run_id=captain_run_id,
         delegated=delegated,
-        permission_preset=permission_preset,
+        permission_axes=permission_axes,
     )
     if delegated:
         recorder.activate()

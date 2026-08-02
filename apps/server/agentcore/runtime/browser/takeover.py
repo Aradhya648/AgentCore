@@ -83,9 +83,8 @@ class _DbTakeoverStore:
             )
 
 
-# Distinguable outcomes the takeover endpoint response carries. ``turn_running`` remains in
-# the Literal for wire compat but is never produced after D8 (anytime takeover).
-TakeoverReason = str  # started | ended | already_active | no_session | not_active | turn_running
+# Distinguable outcomes the takeover endpoint response carries.
+TakeoverReason = str  # started | ended | already_active | no_session | not_active
 
 
 @dataclass(frozen=True)

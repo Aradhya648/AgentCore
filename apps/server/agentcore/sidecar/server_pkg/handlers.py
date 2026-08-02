@@ -11,12 +11,7 @@ from pydantic import Field, TypeAdapter, ValidationError
 from agentcore.api.schemas.messages import ResolveInteractionRequest, interaction_result_from_body
 from agentcore.conversation.store.outbox import OutboxStore
 from agentcore.core.logging import get_logger
-from agentcore.core.types import (
-    DEFAULT_PERMISSION_AXES,
-    AutonomyPolicy,
-    PermissionAxes,
-    recipe_to_axes,
-)
+from agentcore.core.types import DEFAULT_PERMISSION_AXES, PermissionAxes
 from agentcore.llm.credentials import LLMCredentials
 from agentcore.llm.profiles import PLATFORM_MODEL_FLASH
 from agentcore.runtime.interaction import default_interaction_registry
@@ -196,11 +191,9 @@ class HandlerMixin:
 
     @staticmethod
     def _parse_permission_axes(params: dict[str, Any]) -> PermissionAxes | None:
-        """Coerce desktop ``permissionAxes`` object (or legacy ``permissionPreset``).
+        """Coerce desktop ``permissionAxes`` object.
 
-        Prefer the three-axis object. Legacy observe/workspace/full_trust strings map
-        onto cautious / less_interrupt / managed recipes.
-        Unknown / missing ⇒ ``None`` (caller keeps current / default).
+        Unknown / missing / non-object ⇒ ``None`` (caller keeps current / default).
         """
         raw_axes = params.get("permissionAxes")
         if isinstance(raw_axes, dict):
@@ -208,21 +201,7 @@ class HandlerMixin:
                 return PermissionAxes.from_mapping(raw_axes)
             except ValueError:
                 return None
-        legacy = str(params.get("permissionPreset") or "").strip()
-        if not legacy:
-            return None
-        legacy_map = {
-            "observe": AutonomyPolicy.CAUTIOUS,
-            "workspace": AutonomyPolicy.LESS_INTERRUPT,
-            "full_trust": AutonomyPolicy.MANAGED,
-            "cautious": AutonomyPolicy.CAUTIOUS,
-            "less_interrupt": AutonomyPolicy.LESS_INTERRUPT,
-            "managed": AutonomyPolicy.MANAGED,
-        }
-        recipe = legacy_map.get(legacy)
-        if recipe is None:
-            return None
-        return recipe_to_axes(recipe)
+        return None
 
     def _refresh_permission_axes(self, params: dict[str, Any]) -> None:
         """Adopt the conversation's CURRENT permission axes from per-turn params.
@@ -384,8 +363,6 @@ class HandlerMixin:
         decision = parse_decision(params.get("decision"))
         note = str(params.get("note") or "")
         selected = [str(s) for s in (params.get("selected") or [])]
-        style_id = str(params.get("styleId") or params.get("style_id") or "").strip()
-        format_id = str(params.get("formatId") or params.get("format_id") or "").strip()
         # Per-turn trace_id (mirrors startTurn): ties this continuation's proxied LLM
         # calls to its write-back so the resumed reply is greppable as one trace.
         trace_id = str(params.get("traceId") or "")
@@ -403,8 +380,6 @@ class HandlerMixin:
                 trace_id,
                 user_message_id,
                 params.get("externalMounts"),
-                style_id=style_id or None,
-                format_id=format_id or None,
             )
         )
         self._register_turn(message_id, task, conversation_id=conversation_id)

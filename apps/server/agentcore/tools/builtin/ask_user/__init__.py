@@ -27,8 +27,8 @@ The card's content is one adaptive shape (rich when opening, compact mid-task):
 ``message`` (the framing / opening line — always shown), optional ``context``
 background, optional ``assumptions`` (起步计划 — low-impact decisions the CEO made for
 the user, read-only chips), optional ``questions`` (the askable items, each pre-fillable
-with a ``default`` so a 想省事 user one-clicks through), and optional ``style_options``
-(visual products only). A mid-task A/B is just ``message`` + a one-item ``questions``.
+with a ``default`` so a 想省事 user one-clicks through). A mid-task A/B is just
+``message`` + a one-item ``questions``.
 
 A submit answer is ``ToolEffect.CONTINUE`` (the CEO resumes with the user's picks); a
 stop is ``ToolEffect.INTERACT`` — a terminal effect that ends the turn gracefully in-band

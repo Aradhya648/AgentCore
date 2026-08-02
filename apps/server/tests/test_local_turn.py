@@ -18,6 +18,7 @@ Covered:
 """
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -136,6 +137,7 @@ def _patch_persistence(
         "schedule_consolidation",
         lambda cid: consolidation_calls.append(cid),
     )
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     # Local derived mint (title/followups) now goes through run_background_llm.
     async def _run_bg(user_id, *, purpose="title", runner):
         from agentcore.billing.gate import BackgroundLlmResult

@@ -46,6 +46,7 @@ function toConversation(c: BackendConversation): Conversation {
     archived: c.archived ?? false,
     permissionAxes: normalizeAxes(c.permission_axes ?? undefined),
     modelProfileId: c.model_profile_id ?? null,
+    contextCompacted: c.context_compacted ?? false,
   };
 }
 

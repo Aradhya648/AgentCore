@@ -622,11 +622,7 @@ export class SidecarManager {
         // Same for DesktopBrowserBridge (B-Arch): refresh every turn; null = 未装配.
         browserBridge: currentBrowserBridge(),
         // 会话权限轴按回合随送：中途切换后下一回合即生效。
-        ...(req.permissionAxes
-          ? { permissionAxes: req.permissionAxes }
-          : req.permissionPreset
-            ? { permissionPreset: req.permissionPreset }
-            : {}),
+        ...(req.permissionAxes ? { permissionAxes: req.permissionAxes } : {}),
       });
       this.emitSyntheticTerminalIfNeeded(req.turnId, "message_end");
       return result as SidecarTurnResult;
@@ -1086,7 +1082,7 @@ export function registerSidecarIpc(): void {
           "userMessage",
           "userMessageId",
         ],
-        ["subpath", "permissionPreset"],
+        ["subpath"],
       );
       const root = await getStoredRoot(req.rootId);
       if (!root) throw new Error("本地目录未授权或已移除");
@@ -1159,7 +1155,7 @@ export function registerSidecarIpc(): void {
           "decision",
           "note",
         ],
-        ["subpath", "userMessageId", "permissionPreset"],
+        ["subpath", "userMessageId"],
       );
       const root = await getStoredRoot(req.rootId);
       if (!root) throw new Error("本地目录未授权或已移除");

@@ -558,7 +558,7 @@ export function buildGraphStructure(
     if (!isSub(r)) continue;
     const parentId = r.parentRunId as string;
     if (!isLayoutVisible(parentId)) continue;
-    // 辩论 compound 内禁止再嵌套子队盒：取证员 parent=主辩时，若仍按 isSub 挂到主辩，
+    // 辩论 compound 内禁止再嵌套子队盒：旧 journal 庭前附属 run parent=主辩时，若仍按 isSub 挂到主辩，
     // 会拆出「主辩盒 × 方」假分带（与主持人 compound 叠成 3 盒 / 大片空白）。
     // 边仍要画进 compound，只是不另开 parent 子队。
     const parentUnit = unitOf.get(parentId) ?? parentId;

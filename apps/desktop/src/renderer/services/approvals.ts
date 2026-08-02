@@ -12,9 +12,6 @@ import {
 } from "@/stores/interactions";
 import type { ApprovalDecision } from "@/types/events";
 
-/** @deprecated Use ApprovalView — kept as alias for call sites mid-migration. */
-export type PendingApproval = ApprovalView;
-
 /**
  * Settle the user's decision over the unified interaction bridge (kind `approval`).
  */

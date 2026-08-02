@@ -30,7 +30,6 @@ from .admin_mfa import AdminMfaRepository
 from .agent_audit import AgentAuditEventRepository
 from .auth import (
     CredentialsRepository,
-    InviteRepository,
     RefreshTokenRepository,
     UserLlmProviderRepository,
 )
@@ -88,7 +87,6 @@ __all__ = [
     "FeedbackRepository",
     "FolderRepository",
     "HandoffJobRepository",
-    "InviteRepository",
     "LlmModelProfileRepository",
     "MemoryUpdateRepository",
     "MessageRepository",

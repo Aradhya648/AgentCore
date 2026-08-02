@@ -433,7 +433,6 @@ export function projectFlowNodes({
         handleDirection,
         isSubtask,
         isRevision: isContinuation,
-        revision: run.continuationIndex > 0 ? run.continuationIndex + 1 : 0,
         continuationIndex: run.continuationIndex,
         continuesRunId: run.continuesRunId,
         round: run.round,

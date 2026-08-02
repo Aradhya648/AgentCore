@@ -1959,34 +1959,6 @@
         "title": "AutonomyView",
         "type": "object"
       },
-      "BatchCreateInviteRequest": {
-        "properties": {
-          "count": {
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "expires_in_days": {
-            "anyOf": [
-              {
-                "maximum": 365.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires In Days"
-          }
-        },
-        "required": [
-          "count"
-        ],
-        "title": "BatchCreateInviteRequest",
-        "type": "object"
-      },
       "BigFive": {
         "properties": {
           "agreeableness": {
@@ -2726,7 +2698,7 @@
         "type": "object"
       },
       "BrowserTakeoverState": {
-        "description": "The takeover state a POST …/browser/takeover returns.\n\n``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on\nsuccess; ``already_active`` (start when one is running — still active); ``no_session``\n(no live session to take over); ``not_active`` (end when none is running).\n``turn_running`` is retained for wire compat but is never produced after D8 (anytime\ntakeover). ``active`` reflects the resulting state; ``started_at`` is set while active.",
+        "description": "The takeover state a POST …/browser/takeover returns.\n\n``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on\nsuccess; ``already_active`` (start when one is running — still active); ``no_session``\n(no live session to take over); ``not_active`` (end when none is running).\n``active`` reflects the resulting state; ``started_at`` is set while active.",
         "properties": {
           "active": {
             "title": "Active",
@@ -2737,7 +2709,6 @@
               "started",
               "ended",
               "already_active",
-              "turn_running",
               "no_session",
               "not_active"
             ],
@@ -3379,10 +3350,9 @@
         "type": "object"
       },
       "CheckpointDecision": {
-        "description": "How the user (or a timeout / orphan) settled a checkpoint the CEO raised.\n\n``CONTINUE`` / ``ADJUST`` / ``STOP`` are shared by ask_user / plan_review /\nteam_preview (开工卡). On the kickoff card, ``CONTINUE`` means grant + start\n(non-empty ``note`` steers all unrun workers — former adjust semantics);\n``PER_CALL`` means start with per-call approval (no delegation grant) — enum\nretained for historical timelines / API clients; the kickoff UI no longer\noffers it. ``PER_CALL`` is kickoff-only — ask_user / plan_review ignore it.\n``ADJUST`` remains for debate kickoff (开赛嘱咐：note 只注入首轮焦点，\n不改 motion / sides；与 CONTINUE+note 同构) and plan_review steer,\nplus historical non-debate kickoff resolves.\n``RESEARCH_FIRST`` is debate kickoff only: 不开赛，回灌固定文案令 CEO 立即挂\n``multi_lens_research``（与 STOP 同构的恢复分支；非辩论开工卡须拒绝/降级）。",
+        "description": "How the user (or a timeout / orphan) settled a checkpoint the CEO raised.\n\n``CONTINUE`` / ``ADJUST`` / ``STOP`` are shared by ask_user / plan_review /\nteam_preview (开工卡). On the kickoff card, ``CONTINUE`` means grant + start\n(non-empty ``note`` steers all unrun workers — former adjust semantics).\n``ADJUST`` remains for debate kickoff (开赛嘱咐：note 只注入首轮焦点，\n不改 motion / sides；与 CONTINUE+note 同构) and plan_review steer,\nplus historical non-debate kickoff resolves.\n``RESEARCH_FIRST`` is debate kickoff only: 不开赛，回灌固定文案令 CEO 立即挂\n``multi_lens_research``（与 STOP 同构的恢复分支；非辩论开工卡须拒绝/降级）。\n\nNote: ``DelegationAuthorizationDecision.per_call`` is a different dialect\n(委派授权卡) — not part of this enum.",
         "enum": [
           "continue",
-          "per_call",
           "adjust",
           "stop",
           "research_first",
@@ -3751,34 +3721,6 @@
         "title": "ConversationCost",
         "type": "object"
       },
-      "ConversationHistoryAccessRequest": {
-        "properties": {
-          "enabled": {
-            "description": "Ignored (compat); conversation-log access is product-always-on",
-            "title": "Enabled",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "ConversationHistoryAccessRequest",
-        "type": "object"
-      },
-      "ConversationHistoryAccessResponse": {
-        "description": "Cross-session conversation-log access (always on; 定案 A).",
-        "properties": {
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "ConversationHistoryAccessResponse",
-        "type": "object"
-      },
       "ConversationListResponse": {
         "properties": {
           "data": {
@@ -3815,6 +3757,11 @@
           "archived": {
             "default": false,
             "title": "Archived",
+            "type": "boolean"
+          },
+          "context_compacted": {
+            "default": false,
+            "title": "Context Compacted",
             "type": "boolean"
           },
           "created_at": {
@@ -4285,25 +4232,6 @@
         "title": "CreateFriendRequestBody",
         "type": "object"
       },
-      "CreateInviteRequest": {
-        "properties": {
-          "expires_in_days": {
-            "anyOf": [
-              {
-                "maximum": 365.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires In Days"
-          }
-        },
-        "title": "CreateInviteRequest",
-        "type": "object"
-      },
       "CreateLlmModelProfileRequest": {
         "properties": {
           "background": {
@@ -4759,7 +4687,7 @@
         "type": "object"
       },
       "DelegationAuthorizationDecision": {
-        "description": "Settlement dialect for kickoff capability-authorization choices.",
+        "description": "Settlement dialect for per-delegation tool authorization choices.",
         "enum": [
           "grant_delegation",
           "per_call",
@@ -6812,168 +6740,6 @@
         "title": "InjectSimulationEventResponse",
         "type": "object"
       },
-      "InviteListResponse": {
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/InviteResponse"
-            },
-            "title": "Data",
-            "type": "array"
-          },
-          "page": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page"
-          },
-          "page_size": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page Size"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "data",
-          "total"
-        ],
-        "title": "InviteListResponse",
-        "type": "object"
-      },
-      "InviteResponse": {
-        "properties": {
-          "code": {
-            "title": "Code",
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "created_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created By"
-          },
-          "created_by_username": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created By Username"
-          },
-          "expires_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires At"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "revoked_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revoked At"
-          },
-          "status": {
-            "enum": [
-              "active",
-              "used",
-              "expired",
-              "revoked"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "used_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Used At"
-          },
-          "used_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Used By"
-          },
-          "used_by_username": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Used By Username"
-          }
-        },
-        "required": [
-          "id",
-          "code",
-          "status",
-          "created_by",
-          "used_by",
-          "created_at",
-          "expires_at",
-          "used_at"
-        ],
-        "title": "InviteResponse",
-        "type": "object"
-      },
       "InviteSharedSpaceMemberRequest": {
         "properties": {
           "role": {
@@ -6995,39 +6761,6 @@
           "user_id"
         ],
         "title": "InviteSharedSpaceMemberRequest",
-        "type": "object"
-      },
-      "InviteStatsResponse": {
-        "properties": {
-          "active": {
-            "title": "Active",
-            "type": "integer"
-          },
-          "expired": {
-            "title": "Expired",
-            "type": "integer"
-          },
-          "revoked": {
-            "title": "Revoked",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          },
-          "used": {
-            "title": "Used",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "total",
-          "active",
-          "used",
-          "expired",
-          "revoked"
-        ],
-        "title": "InviteStatsResponse",
         "type": "object"
       },
       "KeyInputEvent": {
@@ -7506,6 +7239,12 @@
             "title": "Password",
             "type": "string"
           },
+          "persist_session": {
+            "default": true,
+            "description": "true: persistent cookies + long refresh TTL. false: session cookies (no Max-Age) + short absolute refresh ceiling; bearer still returns tokens with short refresh_expires_in.",
+            "title": "Persist Session",
+            "type": "boolean"
+          },
           "username": {
             "maxLength": 100,
             "minLength": 1,
@@ -7572,20 +7311,6 @@
           "last_read_message_id"
         ],
         "title": "MarkReadRequest",
-        "type": "object"
-      },
-      "MemoryEnabledRequest": {
-        "properties": {
-          "enabled": {
-            "description": "Ignored (compat); memory is product-always-on",
-            "title": "Enabled",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "MemoryEnabledRequest",
         "type": "object"
       },
       "MemoryFileResponse": {
@@ -9041,7 +8766,7 @@
         "type": "object"
       },
       "PausedTurnSummary": {
-        "description": "A turn awaiting resume after a durable plan_review / ask_user / kickoff pause.\n\nSurfaced on conversation reopen so the client can re-render the right resume card\nby ``kind`` and offer the kind-appropriate actions → the resume endpoint\n(kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;\nplan_review: continue / adjust / stop; ``per_call`` retained for historical\nresolves only).\n``message_id`` is both the pause key and the id the resumed assistant message will\nreuse, so an optimistic bubble reconciles cleanly.\n\nplan_review carries ``steps`` (the reviewed checkpoint nodes) + ``pending`` (the\ngated downstream); team_preview (开工卡) carries ``primitive`` (``delegate`` /\n``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /\n``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload\n``question`` (the framing / opening line) + ``context`` + the optional opening\ncontent ``assumptions`` / ``questions`` / ``style_options`` / ``format_options``\n(empty for a compact mid-task fork). The unused set is empty for the other kinds.",
+        "description": "A turn awaiting resume after a durable plan_review / ask_user / kickoff pause.\n\nSurfaced on conversation reopen so the client can re-render the right resume card\nby ``kind`` and offer the kind-appropriate actions → the resume endpoint\n(kickoff delegate: continue[+嘱咐] / stop; debate: continue / adjust / stop;\nplan_review: continue / adjust / stop).\n``message_id`` is both the pause key and the id the resumed assistant message will\nreuse, so an optimistic bubble reconciles cleanly.\n\nplan_review carries ``steps`` (the reviewed checkpoint nodes) + ``pending`` (the\ngated downstream); team_preview (开工卡) carries ``primitive`` (``delegate`` /\n``debate``) + ``workers`` / ``tools`` (delegate) or ``motion`` / ``sides`` /\n``max_rounds`` / ``thorough`` (debate); ask_user carries the unified card payload\n``question`` (the framing / opening line) + ``context`` + the optional opening\ncontent ``assumptions`` / ``questions`` (empty for a compact mid-task fork). The\nunused set is empty for the other kinds.",
         "properties": {
           "assumptions": {
             "items": {
@@ -9064,14 +8789,6 @@
             "default": "",
             "title": "Form",
             "type": "string"
-          },
-          "format_options": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Format Options",
-            "type": "array"
           },
           "intent": {
             "anyOf": [
@@ -9109,11 +8826,6 @@
             "title": "Motion",
             "type": "string"
           },
-          "offer_research_first": {
-            "default": false,
-            "title": "Offer Research First",
-            "type": "boolean"
-          },
           "pending": {
             "items": {
               "additionalProperties": true,
@@ -9140,11 +8852,6 @@
             "title": "Questions",
             "type": "array"
           },
-          "research_first_recommended": {
-            "default": false,
-            "title": "Research First Recommended",
-            "type": "boolean"
-          },
           "sides": {
             "items": {
               "additionalProperties": true,
@@ -9159,14 +8866,6 @@
               "type": "object"
             },
             "title": "Steps",
-            "type": "array"
-          },
-          "style_options": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Style Options",
             "type": "array"
           },
           "thorough": {
@@ -10195,23 +9894,10 @@
         "type": "object"
       },
       "ResumeTurnRequest": {
-        "description": "Body for ``POST .../messages/{message_id}/resume`` (结构化挂起 2b).\n\nContinues a turn that paused at a plan_review / ask_user checkpoint and was\nDURABLY persisted (so it survived a client disconnect / server restart — the live\nin-process resolve is the corresponding interaction instead). Same decision\nvocabulary as the live resolve: ``continue`` (proceed — run the gated downstream\nfor plan_review / accept the CEO direction for ask_user), ``adjust`` (inject\n``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``\ncarries the option(s) the user picked from an ask_user menu (ignored for\nplan_review; the server drops any pick not actually offered). ``style_id`` is the\nstructured website style pick (``s0``/``s1``/…); preferred over an ``sN`` token in\n``selected``. ``format_id`` is the structured presentation format pick\n(``f0``/``f1``/…); preferred over an ``fN`` token in ``selected``. The engine-only\n``timeout`` is never sent by a client.",
+        "description": "Body for ``POST .../messages/{message_id}/resume`` (结构化挂起 2b).\n\nContinues a turn that paused at a plan_review / ask_user checkpoint and was\nDURABLY persisted (so it survived a client disconnect / server restart — the live\nin-process resolve is the corresponding interaction instead). Same decision\nvocabulary as the live resolve: ``continue`` (proceed — run the gated downstream\nfor plan_review / accept the CEO direction for ask_user), ``adjust`` (inject\n``note`` as a steer, then continue), or ``stop`` (end the turn here). ``selected``\ncarries the option(s) the user picked from an ask_user menu (ignored for\nplan_review; the server drops any pick not actually offered). The engine-only\n``timeout`` is never sent by a client.",
         "properties": {
           "decision": {
             "$ref": "#/components/schemas/CheckpointDecision"
-          },
-          "format_id": {
-            "anyOf": [
-              {
-                "maxLength": 32,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional structured presentation format pick (f0/f1/…). Preferred over scanning selected; ignored when not a presentation kickoff.",
-            "title": "Format Id"
           },
           "note": {
             "default": "",
@@ -10226,19 +9912,6 @@
             "maxItems": 50,
             "title": "Selected",
             "type": "array"
-          },
-          "style_id": {
-            "anyOf": [
-              {
-                "maxLength": 32,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional structured website style pick (s0/s1/…). Preferred over scanning selected; ignored when not a website kickoff.",
-            "title": "Style Id"
           }
         },
         "required": [
@@ -10837,6 +10510,14 @@
             "title": "Content",
             "type": "string"
           },
+          "delivery": {
+            "enum": [
+              "steer",
+              "queue"
+            ],
+            "title": "Delivery",
+            "type": "string"
+          },
           "requires_tools": {
             "default": false,
             "title": "Requires Tools",
@@ -10844,7 +10525,8 @@
           }
         },
         "required": [
-          "content"
+          "content",
+          "delivery"
         ],
         "title": "SendMessageRequest",
         "type": "object"
@@ -12386,17 +12068,8 @@
         "type": "object"
       },
       "StopTurnResponse": {
-        "description": "Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).\n\n``stopped`` is True when a live detached run was found and signalled; False when\nnothing was running (already finished / never started), so the call is idempotent.\n``mode`` echoes the applied mode: ``cancel`` (default hard stop) or ``discard``.",
+        "description": "Outcome of an explicit 停止 (执行与请求解耦 C1 · slice 1a).\n\n``stopped`` is True when a live detached run was found and signalled; False when\nnothing was running (already finished / never started), so the call is idempotent.",
         "properties": {
-          "mode": {
-            "default": "cancel",
-            "enum": [
-              "cancel",
-              "discard"
-            ],
-            "title": "Mode",
-            "type": "string"
-          },
           "stopped": {
             "title": "Stopped",
             "type": "boolean"
@@ -14844,7 +14517,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.27"
+    "version": "0.3.28"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -17297,429 +16970,6 @@
           }
         },
         "summary": "Change Password",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/v1/auth/invites": {
-      "get": {
-        "operationId": "list_invites_v1_auth_invites_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "minimum": 1,
-              "title": "Page",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 100,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Page Size",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "active",
-                    "used",
-                    "expired",
-                    "revoked"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 64,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Search"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Invites",
-        "tags": [
-          "auth"
-        ]
-      },
-      "post": {
-        "operationId": "create_invite_v1_auth_invites_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/CreateInviteRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Invite",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/v1/auth/invites/batch": {
-      "post": {
-        "description": "Mint multiple single-use invite codes (admin batch issuance).",
-        "operationId": "create_invites_batch_v1_auth_invites_batch_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BatchCreateInviteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Invites Batch",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/v1/auth/invites/stats": {
-      "get": {
-        "operationId": "invite_stats_v1_auth_invites_stats_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteStatsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Invite Stats",
-        "tags": [
-          "auth"
-        ]
-      }
-    },
-    "/v1/auth/invites/{invite_id}/revoke": {
-      "post": {
-        "description": "Retire an unused invite (邀请码撤销). 404 unknown id; 422 if already used/revoked.\nReturns the now-revoked invite so the client can update the row in place.",
-        "operationId": "revoke_invite_v1_auth_invites__invite_id__revoke_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "invite_id",
-            "required": true,
-            "schema": {
-              "title": "Invite Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Revoke Invite",
         "tags": [
           "auth"
         ]
@@ -22172,7 +21422,7 @@
         ]
       },
       "post": {
-        "description": "Send a user message and get a streaming AI response via SSE.\n\n执行与请求解耦 (C1 · slice 1a): the pipeline runs as a *detached* task tracked in\nthe ``TurnRunRegistry`` (keyed by conversation), and the SSE stream only attaches\nto it (``detach_on_disconnect=True``). A client disconnect therefore no longer\nkills the turn (案例 1: 7-min 断连即丢交付) — it finishes + persists in the\nbackground; an explicit 停止 routes through ``POST .../stop`` instead.\n\n发送即有流 (D9): this endpoint **always** returns SSE (never 202 JSON).\n\n- **空闲** → 现行为：开跑并流式推送整个回合。\n- **经典 in-flight（无协调）** → FIFO 入队，立即 ``turn_queued``，drain 启动后\n  **同一连接**续流该回合；等待中断连 → 回合仍 detached 跑，靠 attach/recovery。\n- **协调模式** → 插话进 CEO 事件队列，SSE 上复用 ``user_interjection``（短流确认）。\n- **热路 pending**（approval / escalation / …）仍 409。\n\nGated before the stream starts (成本配额与计费.md §一) so a refused turn gets a\nclean error instead of a half-opened SSE: per-user rate limit first (sheds a\nflooding account before any resource DB work), then ownership, then the\nBYOK/quota billing gate (BYOK mode requires the user's own key; platform mode\nenforces quota). The resolved BYOK credentials thread through the whole turn.\n\nRequest-scoped DB session for preflight only — explicitly closed before the SSE\nstream opens so a long-lived stream never holds a pooled connection (fixes\nGC-termination warnings on abrupt teardown).",
+        "description": "Send a user message and get a streaming AI response via SSE.\n\n执行与请求解耦 (C1 · slice 1a): the pipeline runs as a *detached* task tracked in\nthe ``TurnRunRegistry`` (keyed by conversation), and the SSE stream only attaches\nto it (``detach_on_disconnect=True``). A client disconnect therefore no longer\nkills the turn (案例 1: 7-min 断连即丢交付) — it finishes + persists in the\nbackground; an explicit 停止 routes through ``POST .../stop`` instead.\n\n发送即有流 (D9): this endpoint **always** returns SSE (never 202 JSON).\n\n``delivery`` 必填（``steer`` | ``queue``；缺 → 422）：\n\n- **空闲** → 开跑并流式推送整个回合（客户端仍带 ``delivery=steer``）。\n- **协调活跃 + steer** → ``user_interjection``（短流确认）；CEO 可智能升格排队。\n- **协调活跃 + queue** → **强制** FIFO（绕过插话），立即 ``turn_queued``。\n- **经典 in-flight + queue** → FIFO ``turn_queued``，drain 后同连接续流。\n- **经典 in-flight + steer** → 挂到 live turn 进程内 pending（``turn_steer_accepted``）；\n  无 accepting 窗口 / 回合已收口 → 回落 FIFO（``turn_queued.degraded_from=steer``）。\n- **热路 pending**（approval / escalation / …）仍 409。\n\nGated before the stream starts (成本配额与计费.md §一) so a refused turn gets a\nclean error instead of a half-opened SSE: per-user rate limit first (sheds a\nflooding account before any resource DB work), then ownership, then the\nBYOK/quota billing gate (BYOK mode requires the user's own key; platform mode\nenforces quota). The resolved BYOK credentials thread through the whole turn.\n\nRequest-scoped DB session for preflight only — explicitly closed before the SSE\nstream opens so a long-lived stream never holds a pooled connection (fixes\nGC-termination warnings on abrupt teardown).",
         "operationId": "send_message_v1_conversations__conversation_id__messages_post",
         "parameters": [
           {
@@ -22820,7 +22070,7 @@
     },
     "/v1/conversations/{conversation_id}/messages/{message_id}/resume": {
       "post": {
-        "description": "Continue a durably-paused turn via SSE (结构化挂起 2b ``POST .../resume``).\n\nThe turn paused at a plan_review / ask_user / team_preview checkpoint and lost its\nlive stream (disconnect / restart); only its persisted frame survived.\n\nSettlement 预写 (D8)：① peek frame → ② live-task drain（不 cancel；仍 live ⇒ 409）→\n③ ``*_resolved`` 落库成功 → ④ ``claim_paused_turn`` → ⑤ resume pipeline。settlement\n写失败 ⇒ 5xx、不 claim、frame 保留可重试。Claim 竞争失败按现状 404。settlement 落库后\npipeline 取消/失败 ⇒ interrupted_after_decision（D1：不复活决策卡）。\n\n``body.selected`` carries the user's ask_user picks (ignored for plan_review).\n``body.style_id`` is the structured website style pick when present.\n``body.format_id`` is the structured presentation format pick when present.\nGated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota\n— all BEFORE settlement/claim, so a refused turn keeps its resumable frame.",
+        "description": "Continue a durably-paused turn via SSE (结构化挂起 2b ``POST .../resume``).\n\nThe turn paused at a plan_review / ask_user / team_preview checkpoint and lost its\nlive stream (disconnect / restart); only its persisted frame survived.\n\nSettlement 预写 (D8)：① peek frame → ② live-task drain（不 cancel；仍 live ⇒ 409）→\n③ ``*_resolved`` 落库成功 → ④ ``claim_paused_turn`` → ⑤ resume pipeline。settlement\n写失败 ⇒ 5xx、不 claim、frame 保留可重试。Claim 竞争失败按现状 404。settlement 落库后\npipeline 取消/失败 ⇒ interrupted_after_decision（D1：不复活决策卡）。\n\n``body.selected`` carries the user's ask_user picks (ignored for plan_review).\nGated like ``send_message`` (it spends tokens): rate limit → ownership → BYOK/quota\n— all BEFORE settlement/claim, so a refused turn keeps its resumable frame.",
         "operationId": "resume_message_v1_conversations__conversation_id__messages__message_id__resume_post",
         "parameters": [
           {
@@ -23099,6 +22349,90 @@
           }
         },
         "summary": "Set Permission Axes",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{conversation_id}/queued-turns/{queue_id}/cancel": {
+      "post": {
+        "description": "Cancel one FIFO queued turn before drain (同对话再发 · 按项取消).\n\nOwner-gated like send. Removes the entry by ``queue_id``; already started / unknown\n→ 404. Stop does **not** clear the queue — cancel is the only per-item withdraw.\nOn success emits EPHEMERAL ``turn_queue_cancelled`` on the live turn sink (multi-client).",
+        "operationId": "cancel_queued_turn_v1_conversations__conversation_id__queued_turns__queue_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "queue_id",
+            "required": true,
+            "schema": {
+              "title": "Queue Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Queued Turn",
         "tags": [
           "conversations"
         ]
@@ -23839,7 +23173,7 @@
     },
     "/v1/conversations/{conversation_id}/stop": {
       "post": {
-        "description": "Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).\n\nCascade-cancels the detached run + live coordination workers and closes with\n``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing\nis running. ``mode=discard`` is an alias of hard cancel for older clients.",
+        "description": "Explicitly cancel the conversation's in-flight turn (hard ``user_stop``).\n\nCascade-cancels the detached run + live coordination workers and closes with\n``cancelled``. Disconnect still ≠ cancel. Owner-gated; idempotent when nothing\nis running. Does **not** clear FIFO queued turns — cancel those via\n``POST …/queued-turns/{queue_id}/cancel``.",
         "operationId": "stop_message_v1_conversations__conversation_id__stop_post",
         "parameters": [
           {
@@ -23848,20 +23182,6 @@
             "required": true,
             "schema": {
               "title": "Conversation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "mode",
-            "required": false,
-            "schema": {
-              "default": "cancel",
-              "enum": [
-                "cancel",
-                "discard"
-              ],
-              "title": "Mode",
               "type": "string"
             }
           },
@@ -35136,222 +34456,6 @@
           }
         },
         "summary": "Put My Memory",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/v1/users/me/memory/conversation-history-access": {
-      "get": {
-        "description": "Workers may always search/read this account's past conversation logs (定案 A).",
-        "operationId": "get_my_conversation_history_access_v1_users_me_memory_conversation_history_access_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationHistoryAccessResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get My Conversation History Access",
-        "tags": [
-          "memory"
-        ]
-      },
-      "put": {
-        "description": "Compatibility no-op: access is product-always-on; body ignored, never persists false.",
-        "operationId": "set_my_conversation_history_access_v1_users_me_memory_conversation_history_access_put",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConversationHistoryAccessRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationHistoryAccessResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set My Conversation History Access",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/v1/users/me/memory/enabled": {
-      "put": {
-        "description": "Compatibility no-op: memory is product-always-on; body ignored, never persists false.",
-        "operationId": "set_my_memory_enabled_v1_users_me_memory_enabled_put",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "access_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Access Token"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MemoryEnabledRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemoryResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set My Memory Enabled",
         "tags": [
           "memory"
         ]

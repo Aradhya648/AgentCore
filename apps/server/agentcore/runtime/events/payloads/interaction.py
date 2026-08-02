@@ -113,16 +113,6 @@ class AskQuestion(WirePayload):
     default: str
 
 
-class AskStyleOption(WirePayload):
-    id: str
-    label: str
-
-
-class AskFormatOption(WirePayload):
-    id: str
-    label: str
-
-
 class CheckpointRequiredPayload(WirePayload):
     """The CEO paused the turn on an ask_user checkpoint (blocking)."""
 
@@ -132,8 +122,6 @@ class CheckpointRequiredPayload(WirePayload):
     context: str
     assumptions: list[AskAssumption]
     questions: list[AskQuestion]
-    style_options: list[AskStyleOption]
-    format_options: list[AskFormatOption] = Field(default_factory=list)
     intent: AskCheckpointIntent | None = absent(ts_type="CheckpointIntent")
 
 
@@ -154,8 +142,6 @@ class QuestionPostedPayload(WirePayload):
     context: str
     assumptions: list[AskAssumption]
     questions: list[AskQuestion]
-    style_options: list[AskStyleOption]
-    format_options: list[AskFormatOption] = Field(default_factory=list)
 
 
 class PlanReviewStep(WirePayload):
@@ -258,13 +244,6 @@ class TeamPreviewRequiredPayload(WirePayload):
     sides: list[TeamPreviewSide] | None = absent("辩论各方立场。")
     max_rounds: int | None = absent("辩论轮次安全上限（预算展示）。")
     thorough: bool | None = absent("辩论认真辩透 vs 快速对碰。")
-    offer_research_first: bool | None = absent(
-        "辩论开工卡：本回合零调研时为 true，展示「先多视角调研再辩」；缺省视为 false。"
-    )
-    research_first_recommended: bool | None = absent(
-        "辩论开工卡：零调研且用户输入命中多维取证触发词时为 true，"
-        "将「先多视角调研再辩」升为视觉主键；缺省视为 false。"
-    )
     # §7.5 裁判选型；缺字段（老 journal）→ 前端不展示裁判行。
     moderator_model: str | None = absent("裁判 / 主持人模型 id。")
     moderator_origin: Literal["platform", "byok"] | None = absent("裁判模型来源。")
@@ -280,7 +259,7 @@ class TeamPreviewRequiredPayload(WirePayload):
 
 class TeamPreviewResolvedPayload(WirePayload):
     checkpoint_id: str
-    # continue(=grant[+steer]) / per_call / adjust / stop / research_first / …
+    # continue(=grant[+steer]) / adjust / stop / research_first / …
     decision: CheckpointDecision
     note: str
 

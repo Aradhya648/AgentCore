@@ -52,15 +52,14 @@ async def _create_and_publish(
     return notice_id
 
 
-async def test_publish_then_active_visible(client, make_admin, make_invite):
+async def test_publish_then_active_visible(client, make_admin):
     await _admin_login(client, make_admin, "notice-pub-admin")
     notice_id = await _create_and_publish(
         client, title="上线公告", body="v1 已发布", severity="high", surface="both"
     )
 
     # switch to product user
-    invite = await make_invite("NOTICE-PUB")
-    await register_and_login(client, invite, "notice-pub-user", password=_PW)
+    await register_and_login(client, "notice-pub-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.status_code == 200, r.text
@@ -72,14 +71,13 @@ async def test_publish_then_active_visible(client, make_admin, make_invite):
     assert any(n["id"] == notice_id for n in body["inbox"])
 
 
-async def test_dismiss_once_hides_banner(client, make_admin, make_invite):
+async def test_dismiss_once_hides_banner(client, make_admin):
     await _admin_login(client, make_admin, "notice-dismiss-admin")
     notice_id = await _create_and_publish(
         client, dismiss_policy="once", surface="banner", title="可关闭横幅"
     )
 
-    invite = await make_invite("NOTICE-DISMISS")
-    await register_and_login(client, invite, "notice-dismiss-user", password=_PW)
+    await register_and_login(client, "notice-dismiss-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.json()["banner"]["id"] == notice_id
@@ -96,14 +94,13 @@ async def test_dismiss_once_hides_banner(client, make_admin, make_invite):
     assert r.json()["banner"] is None
 
 
-async def test_never_cannot_dismiss(client, make_admin, make_invite):
+async def test_never_cannot_dismiss(client, make_admin):
     await _admin_login(client, make_admin, "notice-never-admin")
     notice_id = await _create_and_publish(
         client, dismiss_policy="never", surface="banner", title="不可关闭"
     )
 
-    invite = await make_invite("NOTICE-NEVER")
-    await register_and_login(client, invite, "notice-never-user", password=_PW)
+    await register_and_login(client, "notice-never-user", password=_PW)
 
     r = await client.post(f"/v1/notices/{notice_id}/dismiss")
     assert r.status_code == 409, r.text
@@ -112,7 +109,7 @@ async def test_never_cannot_dismiss(client, make_admin, make_invite):
     assert r.json()["banner"]["id"] == notice_id
 
 
-async def test_outside_time_window_hidden(client, make_admin, make_invite):
+async def test_outside_time_window_hidden(client, make_admin):
     await _admin_login(client, make_admin, "notice-window-admin")
     past_end = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     future_start = (datetime.now(UTC) + timedelta(days=1)).isoformat()
@@ -124,8 +121,7 @@ async def test_outside_time_window_hidden(client, make_admin, make_invite):
         client, title="未开始", start_at=future_start, surface="both"
     )
 
-    invite = await make_invite("NOTICE-WINDOW")
-    await register_and_login(client, invite, "notice-window-user", password=_PW)
+    await register_and_login(client, "notice-window-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.status_code == 200, r.text
@@ -137,9 +133,8 @@ async def test_outside_time_window_hidden(client, make_admin, make_invite):
     assert future_id not in ids
 
 
-async def test_non_admin_cannot_access_admin_notices(client, make_invite):
-    invite = await make_invite("NOTICE-NOADMIN")
-    await register_and_login(client, invite, "notice-plain-user", password=_PW)
+async def test_non_admin_cannot_access_admin_notices(client):
+    await register_and_login(client, "notice-plain-user", password=_PW)
 
     r = await client.get("/v1/admin/notices")
     assert r.status_code == 403
@@ -151,7 +146,7 @@ async def test_non_admin_cannot_access_admin_notices(client, make_invite):
     assert r.status_code == 403
 
 
-async def test_publish_inbox_writes_official_im_message(client, make_admin, make_invite):
+async def test_publish_inbox_writes_official_im_message(client, make_admin):
     """surface=inbox → one shared system_card in the official broadcast chat."""
     await _admin_login(client, make_admin, "notice-im-admin")
     notice_id = await _create_and_publish(
@@ -164,8 +159,7 @@ async def test_publish_inbox_writes_official_im_message(client, make_admin, make
         cta_url="https://example.com/n",
     )
 
-    invite = await make_invite("NOTICE-IM")
-    await register_and_login(client, invite, "notice-im-user", password=_PW)
+    await register_and_login(client, "notice-im-user", password=_PW)
 
     r = await client.get("/v1/messages/chats")
     assert r.status_code == 200, r.text
@@ -201,12 +195,11 @@ async def test_publish_inbox_writes_official_im_message(client, make_admin, make
     assert r.status_code == 422, r.text
 
 
-async def test_publish_banner_skips_official_im(client, make_admin, make_invite):
+async def test_publish_banner_skips_official_im(client, make_admin):
     await _admin_login(client, make_admin, "notice-banner-im-admin")
     await _create_and_publish(client, title="仅横幅", body="no im", surface="banner")
 
-    invite = await make_invite("NOTICE-BANNER-IM")
-    await register_and_login(client, invite, "notice-banner-im-user", password=_PW)
+    await register_and_login(client, "notice-banner-im-user", password=_PW)
 
     r = await client.get("/v1/messages/chats")
     assert r.status_code == 200, r.text
@@ -219,7 +212,7 @@ async def test_publish_banner_skips_official_im(client, make_admin, make_invite)
     )
 
 
-async def test_modal_active_and_inbox(client, make_admin, make_invite):
+async def test_modal_active_and_inbox(client, make_admin):
     """surface=modal → active.modal + inbox; dismiss clears modal."""
     await _admin_login(client, make_admin, "notice-modal-admin")
     notice_id = await _create_and_publish(
@@ -231,8 +224,7 @@ async def test_modal_active_and_inbox(client, make_admin, make_invite):
         dismiss_policy="once",
     )
 
-    invite = await make_invite("NOTICE-MODAL")
-    await register_and_login(client, invite, "notice-modal-user", password=_PW)
+    await register_and_login(client, "notice-modal-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.status_code == 200, r.text
@@ -256,7 +248,7 @@ async def test_modal_active_and_inbox(client, make_admin, make_invite):
     assert hit["dismissed"] is True
 
 
-async def test_modal_suppresses_non_critical_banner(client, make_admin, make_invite):
+async def test_modal_suppresses_non_critical_banner(client, make_admin):
     """Undismissed modal suppresses non-critical banner."""
     await _admin_login(client, make_admin, "notice-modal-suppress-admin")
     modal_id = await _create_and_publish(
@@ -266,8 +258,7 @@ async def test_modal_suppresses_non_critical_banner(client, make_admin, make_inv
         client, title="高优横幅", body="b", surface="banner", severity="high"
     )
 
-    invite = await make_invite("NOTICE-MODAL-SUPPRESS")
-    await register_and_login(client, invite, "notice-modal-suppress-user", password=_PW)
+    await register_and_login(client, "notice-modal-suppress-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.status_code == 200, r.text
@@ -276,7 +267,7 @@ async def test_modal_suppresses_non_critical_banner(client, make_admin, make_inv
     assert body["banner"] is None
 
 
-async def test_modal_banner_priority(client, make_admin, make_invite):
+async def test_modal_banner_priority(client, make_admin):
     """critical banner coexists with modal; normal/high banner is suppressed."""
     await _admin_login(client, make_admin, "notice-prio-admin")
     modal_id = await _create_and_publish(
@@ -289,8 +280,7 @@ async def test_modal_banner_priority(client, make_admin, make_invite):
         client, title="紧急横幅", body="c", surface="banner", severity="critical"
     )
 
-    invite = await make_invite("NOTICE-PRIO")
-    await register_and_login(client, invite, "notice-prio-user", password=_PW)
+    await register_and_login(client, "notice-prio-user", password=_PW)
 
     r = await client.get("/v1/notices/active")
     assert r.status_code == 200, r.text
@@ -302,14 +292,13 @@ async def test_modal_banner_priority(client, make_admin, make_invite):
     assert body["banner"]["severity"] == "critical"
 
 
-async def test_publish_modal_writes_official_im(client, make_admin, make_invite):
+async def test_publish_modal_writes_official_im(client, make_admin):
     await _admin_login(client, make_admin, "notice-modal-im-admin")
     notice_id = await _create_and_publish(
         client, title="弹窗 IM", body="同步官方号", surface="modal"
     )
 
-    invite = await make_invite("NOTICE-MODAL-IM")
-    await register_and_login(client, invite, "notice-modal-im-user", password=_PW)
+    await register_and_login(client, "notice-modal-im-user", password=_PW)
 
     r = await client.get("/v1/messages/chats")
     assert r.status_code == 200, r.text

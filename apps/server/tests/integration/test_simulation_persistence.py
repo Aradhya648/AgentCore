@@ -27,14 +27,13 @@ def _stay_provider() -> ScriptedProvider:
 
 
 @pytest.mark.asyncio
-async def test_pause_blocks_tick(client, make_invite):
+async def test_pause_blocks_tick(client):
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-PAUSE")
-        await register_and_login(client, invite, "sim-pause", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-pause", password=TEST_PASSWORD)
         create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 1})
         run_id = create_res.json()["id"]
 
@@ -61,14 +60,13 @@ async def test_pause_blocks_tick(client, make_invite):
 
 
 @pytest.mark.asyncio
-async def test_tick_persists_snapshot_and_agents(client, make_invite):
+async def test_tick_persists_snapshot_and_agents(client):
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-PERSIST")
-        await register_and_login(client, invite, "sim-persist", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-persist", password=TEST_PASSWORD)
         create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 2})
         run_id = create_res.json()["id"]
 
@@ -96,15 +94,14 @@ async def test_tick_persists_snapshot_and_agents(client, make_invite):
 
 
 @pytest.mark.asyncio
-async def test_five_ticks_pause_resume_advances_to_tick_six(client, make_invite):
+async def test_five_ticks_pause_resume_advances_to_tick_six(client):
     """BE-11 acceptance: 5 persisted snapshots; resume continues at tick 6."""
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-5TICK")
-        await register_and_login(client, invite, "sim-5tick", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-5tick", password=TEST_PASSWORD)
         create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 4})
         run_id = create_res.json()["id"]
 
@@ -148,15 +145,14 @@ async def test_five_ticks_pause_resume_advances_to_tick_six(client, make_invite)
 
 
 @pytest.mark.asyncio
-async def test_social_state_persists_across_ticks(client, make_invite):
+async def test_social_state_persists_across_ticks(client):
     """BE-14 acceptance: mood/relationship deltas survive tick persistence."""
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-SOCIAL")
-        await register_and_login(client, invite, "sim-social", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-social", password=TEST_PASSWORD)
         create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 5})
         run_id = create_res.json()["id"]
 
@@ -187,15 +183,14 @@ async def test_social_state_persists_across_ticks(client, make_invite):
 
 
 @pytest.mark.asyncio
-async def test_activate_all_strategy_runs_full_batch(client, make_invite):
+async def test_activate_all_strategy_runs_full_batch(client):
     """ActivateAllStrategy still advances all 10 agents."""
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-ALL")
-        await register_and_login(client, invite, "sim-all", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-all", password=TEST_PASSWORD)
         create_res = await client.post("/v1/simulation/runs", json={"scenario": "town", "seed": 3})
         run_id = create_res.json()["id"]
 

@@ -138,9 +138,6 @@ _SOFT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("虚构/示意", re.compile(r"虚构(?:数据|指标|内容)?|示意(?:性)?(?:数据|内容)?")),
 )
 
-# Backward-compatible alias (tests / callers that still say "hard patterns").
-_HARD_PATTERNS = _SKELETON_PATTERNS
-
 
 @dataclass(frozen=True)
 class PlaceholderHit:

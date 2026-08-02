@@ -178,7 +178,6 @@ export interface DelegationAuthorizationResolvedPayload {
 /** The user's settlement of a checkpoint the CEO raised (ask_user). */
 export type CheckpointDecision =
   | "continue"
-  | "per_call"
   | "adjust"
   | "stop"
   | "research_first"
@@ -231,16 +230,6 @@ export interface AskQuestion {
   default: string;
 }
 
-export interface AskStyleOption {
-  id: string;
-  label: string;
-}
-
-export interface AskFormatOption {
-  id: string;
-  label: string;
-}
-
 export type CheckpointIntent =
   | "kickoff"
   | "decision"
@@ -257,8 +246,6 @@ export interface CheckpointRequiredPayload {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  style_options: AskStyleOption[];
-  format_options?: AskFormatOption[];
   intent?: CheckpointIntent;
 }
 
@@ -278,8 +265,6 @@ export interface QuestionPostedPayload {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  style_options: AskStyleOption[];
-  format_options?: AskFormatOption[];
 }
 
 export interface PlanReviewStep {
@@ -379,10 +364,6 @@ export interface TeamPreviewRequiredPayload {
   max_rounds?: number;
   /** 辩论认真辩透 vs 快速对碰。 */
   thorough?: boolean;
-  /** 辩论开工卡：本回合零调研时为 true，展示「先多视角调研再辩」；缺省视为 false。 */
-  offer_research_first?: boolean;
-  /** 辩论开工卡：零调研且用户输入命中多维取证触发词时为 true，将「先多视角调研再辩」升为视觉主键；缺省视为 false。 */
-  research_first_recommended?: boolean;
   /** 裁判 / 主持人模型 id。 */
   moderator_model?: string;
   /** 裁判模型来源。 */
@@ -812,12 +793,33 @@ export interface UserInterjectionPayload {
 /** FIFO queue ack on the send SSE while another turn is in-flight (D9 · 发送即有流).
  * 
  * Replaces the retired HTTP 202 ``SendMessageQueuedResponse`` JSON. Same visibility
- * fields; the waiting connection later continues with the drained turn on this stream. */
+ * fields; the waiting connection later continues with the drained turn on this stream.
+ * ``degraded_from=steer`` when the client asked for steer but soft-insert was
+ * unavailable (无 live accepting 窗口 / 回合已收口；协调插话路径不会带此字段). */
 export interface TurnQueuedPayload {
   queue_id: string;
   position: number;
   queue_depth: number;
   conversation_id: string;
+  degraded_from?: "steer";
+}
+
+/** Per-item queue cancel ack (同对话再发 · drain 前取消). EPHEMERAL — multi-client UI clear. */
+export interface TurnQueueCancelledPayload {
+  queue_id: string;
+  conversation_id: string;
+}
+
+/** Classic in-flight soft-insert ack (同对话再发 P1). EPHEMERAL — toast on live clients.
+ * 
+ * Emitted when ``delivery=steer`` was parked on the live turn's pending queue
+ * (not FIFO). ``content`` may be truncated for the toast; injection uses the
+ * full body at the next ReAct step boundary. */
+export interface TurnSteerAcceptedPayload {
+  steer_id: string;
+  conversation_id: string;
+  content: string;
+  pending: number;
 }
 
 /** 执行转后台（``execution_detached``）：附着回合已收口，团队继续跑。 */
@@ -1243,14 +1245,6 @@ export interface DebatePretrialOrder {
   source?: "debater" | "auto" | "empty";
 }
 
-export interface DebatePretrialInvestigator {
-  side_key: string;
-  run_id: string;
-  parent_run_id: string;
-  ok: boolean;
-  task_query?: string;
-}
-
 export interface DebateEvidencePackSource {
   source_id: string;
   kind: "attachment" | "conversation" | "background" | "dossier" | "workspace";
@@ -1283,7 +1277,7 @@ export interface DebatePretrialStartedPayload {
   thorough?: boolean;
   sides?: DebatePretrialSideInfo[];
   /** Set when pretrial is skipped immediately; absent when phase proceeds. */
-  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack";
+  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack" | "no_pack";
 }
 
 export interface DebatePretrialOrdersPayload {
@@ -1292,27 +1286,22 @@ export interface DebatePretrialOrdersPayload {
   thorough?: boolean;
   sides?: DebatePretrialSideInfo[];
   orders?: DebatePretrialOrder[];
-  investigator_count_per_side?: number;
-  retrieval_budget_per_investigator?: number;
   /** Present when pretrial takes the shared evidence-pack path. */
   evidence_pack?: DebateEvidencePack;
-  /** Present when orders event is emitted for the evidence-pack / gap-fill path. */
-  path?: "evidence_pack" | "evidence_pack_gap_fill";
+  /** Present when orders event is emitted for the evidence-pack path. */
+  path?: "evidence_pack";
   /** Evidence completeness when path=evidence_pack*. */
   completeness?: "full" | "partial" | "empty";
   /** True when completeness is not full (evidence-pack path). */
   incomplete?: boolean;
-  /** Gap-driven external-evidence plan (mode/budget/sides/reason). */
+  /** External-evidence plan (mode=skip + reason/budget); production emits skip only. */
   external_evidence?: Record<string, unknown>;
 }
 
+/** 庭前台账计数增量（legacy；生产热路径不再发射）。 */
 export interface DebatePretrialProgressPayload {
   execution_id: string;
   moderator_run_id: string;
-  side_key?: string;
-  investigator_run_id?: string;
-  parent_run_id?: string;
-  status?: "completed" | "failed";
   evidence_ledger_count?: number;
 }
 
@@ -1323,23 +1312,20 @@ export interface DebatePretrialCompletedPayload {
   sides?: DebatePretrialSideInfo[];
   status?: "done" | "skipped" | "degraded";
   /** Present when status=skipped. */
-  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack";
+  skip_reason?: "fast" | "dossier_sufficient" | "evidence_pack" | "no_pack";
   orders?: DebatePretrialOrder[];
-  investigators?: DebatePretrialInvestigator[];
   fallback_self_search?: boolean;
   evidence_ready?: boolean;
   evidence_ledger_count?: number;
   evidence_ledger_delta?: EvidenceLedgerEntry[];
   completeness?: "full" | "partial" | "empty";
   incomplete?: boolean;
-  failed_sides?: string[];
   /** Present when pretrial assembled a shared evidence pack from host attachments. */
   evidence_pack?: DebateEvidencePack;
-  /** Resolved external-evidence mode (completeness-driven). */
-  external_evidence_mode?: "skip" | "gap_fill" | "investigators";
-  /** Skip/allow reason: evidence_pack_full | evidence_pack_gap | failed_sides_gap | … */
+  /** Resolved external-evidence mode; production emits skip only. */
+  external_evidence_mode?: "skip";
+  /** Skip reason: evidence_pack_full | evidence_pack_partial | no_pack | fast | … */
   external_evidence_reason?: string;
-  retrieval_budget_per_investigator?: number;
 }
 
 /** 协作质量: turn-level orchestration signals for 诊断模式. Omitted on single-agent
@@ -1838,6 +1824,8 @@ export type SSEPayloadMap = {
   delivery_status: DeliveryStatusPayload;
   user_interjection: UserInterjectionPayload;
   turn_queued: TurnQueuedPayload;
+  turn_queue_cancelled: TurnQueueCancelledPayload;
+  turn_steer_accepted: TurnSteerAcceptedPayload;
   execution_detached: ExecutionDetachedPayload;
   execution_completed: ExecutionCompletedPayload;
   debate_result: DebateResultPayload;

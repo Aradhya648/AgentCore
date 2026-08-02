@@ -17,7 +17,6 @@ from tests.conftest import LogSpy
 from tests.test_auth_service import (
     _PW,
     FakeCredentials,
-    FakeInvites,
     FakeRefreshTokens,
     FakeUsers,
     _make,
@@ -54,16 +53,14 @@ def _make_admin_with_mfa(**mfa_kw):
     users = FakeUsers()
     creds = FakeCredentials()
     tokens = FakeRefreshTokens()
-    invites = FakeInvites()
     mfa = FakeMfa(**mfa_kw)
     svc = AuthService(
         users=users,
         credentials=creds,
         refresh_tokens=tokens,
-        invites=invites,
         mfa=mfa,
     )
-    return svc, users, creds, tokens, invites, mfa
+    return svc, users, creds, tokens, mfa
 
 
 async def test_login_wrong_password_emits_auth_login_failed(monkeypatch):
@@ -71,7 +68,7 @@ async def test_login_wrong_password_emits_auth_login_failed(monkeypatch):
 
     spy = LogSpy()
     monkeypatch.setattr(mod, "logger", spy)
-    svc, _u, _c, _t, _i = _make()
+    svc, _u, _c, _t = _make()
     user = await svc.register(username="auditpw", password=_PW)
     with pytest.raises(AuthenticationError):
         await svc.login(username="auditpw", password="wrong-pw")

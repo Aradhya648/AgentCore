@@ -31,10 +31,6 @@ class KickoffSummary:
     max_rounds: int = 0
     thorough: bool = True
     debate_arguments: dict[str, Any] = field(default_factory=dict)
-    # Debate kickoff only: offer「先多视角调研再辩」when this turn has zero research.
-    offer_research_first: bool = False
-    # Debate kickoff: elevate research-first as visual primary (zero research + courtroom triggers).
-    research_first_recommended: bool = False
     # §7.5 裁判选型（开赛卡展示；可与辩手同模）。
     moderator_model: str = ""
     moderator_origin: str = ""
@@ -55,10 +51,6 @@ class KickoffSummary:
             "max_rounds": self.max_rounds,
             "thorough": self.thorough,
         }
-        if self.offer_research_first:
-            out["offer_research_first"] = True
-        if self.research_first_recommended:
-            out["research_first_recommended"] = True
         if self.moderator_model:
             out["moderator_model"] = self.moderator_model
             if self.moderator_origin:

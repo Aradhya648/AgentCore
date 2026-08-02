@@ -30,15 +30,14 @@ def _move_to_market_provider(*, rounds: int = 12) -> ScriptedProvider:
 
 
 @pytest.mark.asyncio
-async def test_simulation_api_smoke_mock_llm(client, make_invite):
+async def test_simulation_api_smoke_mock_llm(client):
     """REST closed loop with mock LLM — no real upstream required."""
     original = settings.simulation_enabled
     original_scripted = settings.simulation_scripted
     settings.simulation_enabled = True
     settings.simulation_scripted = False
     try:
-        invite = await make_invite("SIM-INVITE")
-        await register_and_login(client, invite, "sim-smoke", password=TEST_PASSWORD)
+        await register_and_login(client, "sim-smoke", password=TEST_PASSWORD)
 
         create_res = await client.post(
             "/v1/simulation/runs",

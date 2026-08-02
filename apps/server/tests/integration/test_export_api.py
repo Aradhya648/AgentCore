@@ -35,9 +35,8 @@ async def _seed_messages(session_factory, conversation_id: str, turns) -> None:
         await session.commit()
 
 
-async def test_export_markdown_roundtrip(client, make_invite, session_factory):
-    code = await make_invite("INV-EX-1")
-    await register_and_login(client, code, "exmd")
+async def test_export_markdown_roundtrip(client, session_factory):
+    await register_and_login(client, "exmd")
     conv_id = await _new_conversation(client, "导出测试")
     await _seed_messages(
         session_factory,
@@ -56,9 +55,8 @@ async def test_export_markdown_roundtrip(client, make_invite, session_factory):
     assert "## 用户" in body and "## AgentCore" in body
 
 
-async def test_export_json_roundtrip(client, make_invite, session_factory):
-    code = await make_invite("INV-EX-2")
-    await register_and_login(client, code, "exjson")
+async def test_export_json_roundtrip(client, session_factory):
+    await register_and_login(client, "exjson")
     conv_id = await _new_conversation(client, "J")
     await _seed_messages(session_factory, conv_id, [("user", "q"), ("assistant", "a")])
 
@@ -72,17 +70,15 @@ async def test_export_json_roundtrip(client, make_invite, session_factory):
     assert [m["content"] for m in payload["messages"]] == ["q", "a"]
 
 
-async def test_export_rejects_unknown_format(client, make_invite):
-    code = await make_invite("INV-EX-3")
-    await register_and_login(client, code, "exfmt")
+async def test_export_rejects_unknown_format(client):
+    await register_and_login(client, "exfmt")
     conv_id = await _new_conversation(client, "x")
     r = await client.get(f"/v1/conversations/{conv_id}/export?format=pdf")
     assert r.status_code == 422
 
 
-async def test_export_filename_carries_utf8(client, make_invite, session_factory):
-    code = await make_invite("INV-EX-4")
-    await register_and_login(client, code, "exfn")
+async def test_export_filename_carries_utf8(client, session_factory):
+    await register_and_login(client, "exfn")
     conv_id = await _new_conversation(client, "中文标题")
     await _seed_messages(session_factory, conv_id, [("user", "hi")])
     r = await client.get(f"/v1/conversations/{conv_id}/export")
@@ -91,9 +87,8 @@ async def test_export_filename_carries_utf8(client, make_invite, session_factory
     assert "filename*=UTF-8''" in r.headers["content-disposition"]
 
 
-async def test_export_requires_auth(client, new_client, make_invite):
-    code = await make_invite("INV-EX-5")
-    await register_and_login(client, code, "exauth")
+async def test_export_requires_auth(client, new_client):
+    await register_and_login(client, "exauth")
     conv_id = await _new_conversation(client, "x")
     # A fresh client with no cookies is unauthenticated.
     async with new_client() as anon:
@@ -101,14 +96,12 @@ async def test_export_requires_auth(client, new_client, make_invite):
     assert r.status_code == 401
 
 
-async def test_export_non_owner_404(client, new_client, make_invite, session_factory):
-    code = await make_invite("INV-EX-6")
-    await register_and_login(client, code, "owner6")
+async def test_export_non_owner_404(client, new_client, session_factory):
+    await register_and_login(client, "owner6")
     conv_id = await _new_conversation(client, "private")
     await _seed_messages(session_factory, conv_id, [("user", "secret")])
 
-    code2 = await make_invite("INV-EX-6b")
     async with new_client() as other:
-        await register_and_login(other, code2, "intruder6")
+        await register_and_login(other, "intruder6")
         r = await other.get(f"/v1/conversations/{conv_id}/export")
     assert r.status_code == 404

@@ -38,7 +38,6 @@ from agentcore.db.repositories import (
     FolderRepository,
     FriendRepository,
     HandoffJobRepository,
-    InviteRepository,
     MemoryUpdateRepository,
     MessageRepository,
     ProductNoticeRepository,
@@ -312,7 +311,6 @@ def get_auth_service(
         users=UserRepository(session),
         credentials=CredentialsRepository(session),
         refresh_tokens=RefreshTokenRepository(session),
-        invites=InviteRepository(session),
         mfa=mfa,
         session=session,
     )

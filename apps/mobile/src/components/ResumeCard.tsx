@@ -149,8 +149,6 @@ export function ResumeCard({
     decision: CheckpointDecision,
     note: string,
     selected: string[],
-    styleId?: string | null,
-    formatId?: string | null,
   ) => void;
 }) {
   const [note, setNote] = useState("");
@@ -161,8 +159,6 @@ export function ResumeCard({
   const showWorkers = isPlanReview || isTeamPreview;
   const questions = asRecords(paused.questions);
   const assumptions = asRecords(paused.assumptions);
-  const styleOptions = asRecords(paused.style_options);
-  const formatOptions = asRecords(paused.format_options);
   const intent = paused.intent ?? null;
   const isDailyReview = intent === "daily_review";
   // Per-question picks: proposal_pick / risk_ack chips; daily_review checkbox wall (seed all).
@@ -171,14 +167,6 @@ export function ResumeCard({
       ? seedAllMultipleAnswers(asRecords(paused.questions))
       : {},
   );
-  const [styleId, setStyleId] = useState<string | null>(() => {
-    const first = styleOptions[0];
-    return first ? (str(first, "id") ?? null) : null;
-  });
-  const [formatId, setFormatId] = useState<string | null>(() => {
-    const first = formatOptions[0];
-    return first ? (str(first, "id") ?? null) : null;
-  });
   const isDebateKickoff =
     isTeamPreview && (paused as { primitive?: string }).primitive === "debate";
   const dailyPicked = isDailyReview ? pickedCount(answers) : 0;
@@ -246,24 +234,11 @@ export function ResumeCard({
         }
       }
     }
-    // Structured style/format wire (B+A): append sN/fN when offered.
-    if (styleId && !out.includes(styleId)) out = [...out, styleId];
-    if (formatId && !out.includes(formatId)) out = [...out, formatId];
     return out;
   };
 
   const submit = (decision: CheckpointDecision) => {
-    const stylePick =
-      decision === "continue" && styleOptions.length > 0 ? styleId : null;
-    const formatPick =
-      decision === "continue" && formatOptions.length > 0 ? formatId : null;
-    onResume(
-      decision,
-      note.trim(),
-      collectSelected(decision),
-      stylePick,
-      formatPick,
-    );
+    onResume(decision, note.trim(), collectSelected(decision));
   };
 
   return (
@@ -412,65 +387,6 @@ export function ResumeCard({
             </div>
           );
         })}
-      {isAskUser && styleOptions.length > 0 && (
-        <div className="ask-chips">
-          {styleOptions.map((s) => {
-            const label = str(s, "label") ?? "";
-            const id = str(s, "id") ?? label;
-            const active = id === styleId;
-            return (
-              <button
-                key={id}
-                type="button"
-                className={active ? "ask-chip ask-chip-active" : "ask-chip"}
-                onClick={() => {
-                  setStyleId(id);
-                  setNote((prev) => {
-                    const line = `风格：${label}`;
-                    if (!prev.trim()) return line;
-                    // Replace prior 风格 line if present; else append.
-                    const lines = prev
-                      .split("\n")
-                      .filter((l) => !l.startsWith("风格："));
-                    return [...lines, line].join("\n");
-                  });
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {isAskUser && formatOptions.length > 0 && (
-        <div className="ask-chips">
-          {formatOptions.map((s) => {
-            const label = str(s, "label") ?? "";
-            const id = str(s, "id") ?? label;
-            const active = id === formatId;
-            return (
-              <button
-                key={id}
-                type="button"
-                className={active ? "ask-chip ask-chip-active" : "ask-chip"}
-                onClick={() => {
-                  setFormatId(id);
-                  setNote((prev) => {
-                    const line = `形态：${label}`;
-                    if (!prev.trim()) return line;
-                    const lines = prev
-                      .split("\n")
-                      .filter((l) => !l.startsWith("形态："));
-                    return [...lines, line].join("\n");
-                  });
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
       {isPlanReview && (paused.steps?.length ?? 0) > 0 && (
         <div className="pause-steps">
           {(paused.steps ?? []).map((s, i) => {

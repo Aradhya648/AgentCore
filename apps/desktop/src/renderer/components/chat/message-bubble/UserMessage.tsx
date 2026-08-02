@@ -1,11 +1,14 @@
 import { Button } from "@/components/ui";
+import { notifyError } from "@/lib/toast";
 import { runRegenerate } from "@/services/turns";
+import { cancelQueuedTurn } from "@/services/turns/cancelQueuedTurn";
 import {
   useActiveGenerating,
   useConversationStore,
 } from "@/stores/conversation";
-import { Check, Copy, Pencil, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useQueuedTurnsStore } from "@/stores/queuedTurns";
+import { Check, Copy, Loader2, Pencil, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentChip } from "./AttachmentChip";
 import {
   DeleteMessageAction,
@@ -20,10 +23,26 @@ export function UserMessage({ message }: MessageBubbleProps) {
   const isGenerating = useActiveGenerating();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const { copied, onCopy } = useCopyAction(() => message.content);
   const conversationId = useConversationStore((s) => s.currentConversationId);
   const attachments = message.attachments ?? [];
+  const queued = useQueuedTurnsStore((s) => {
+    if (!conversationId) return null;
+    return (
+      (s.byConversation[conversationId] ?? []).find(
+        (e) => e.messageId === message.id,
+      ) ?? null
+    );
+  });
+
+  const queueLabel = useMemo(() => {
+    if (!queued) return null;
+    return queued.queueDepth > 1
+      ? `排队中（第 ${queued.position}/${queued.queueDepth}）`
+      : "排队中";
+  }, [queued]);
 
   const startEdit = () => {
     setDraft(message.content);
@@ -51,6 +70,18 @@ export function UserMessage({ message }: MessageBubbleProps) {
       .getState()
       .updateMessage(message.id, { content: trimmed });
     void runRegenerate(message.id, trimmed);
+  };
+
+  const onCancelQueue = async () => {
+    if (!queued || cancelBusy) return;
+    setCancelBusy(true);
+    try {
+      await cancelQueuedTurn(queued.conversationId, queued.queueId);
+    } catch (err) {
+      notifyError(err, "取消排队失败");
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
   if (editing) {
@@ -112,15 +143,38 @@ export function UserMessage({ message }: MessageBubbleProps) {
           ))}
         </div>
       )}
-      <div className="max-w-[80%] rounded-xl rounded-br-none bg-muted px-4 py-3 text-sm text-foreground">
+      <div
+        className={`max-w-[80%] rounded-xl rounded-br-none px-4 py-3 text-sm text-foreground ${
+          queued ? "border border-dashed border-border bg-muted/50" : "bg-muted"
+        }`}
+        data-queued={queued ? "true" : undefined}
+      >
         <p className="whitespace-pre-wrap">{message.content}</p>
+        {queueLabel && (
+          <div
+            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="user-message-queue-state"
+          >
+            <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
+            <span className="min-w-0 flex-1">{queueLabel}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded-lg px-1.5 py-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              aria-label="取消排队"
+              disabled={cancelBusy}
+              onClick={() => void onCancelQueue()}
+            >
+              取消
+            </button>
+          </div>
+        )}
       </div>
       {message.syncStatus && (
         <div className="flex justify-end">
           <SyncStatusHint syncStatus={message.syncStatus} align="end" />
         </div>
       )}
-      {!isGenerating && (
+      {!isGenerating && !queued && (
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <MessageAction
             icon={copied ? <Check size={13} /> : <Copy size={13} />}

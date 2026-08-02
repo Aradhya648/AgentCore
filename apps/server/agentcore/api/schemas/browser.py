@@ -67,14 +67,11 @@ class BrowserTakeoverState(BaseModel):
     ``reason`` distinguishes every outcome without an HTTP error: ``started`` / ``ended`` on
     success; ``already_active`` (start when one is running — still active); ``no_session``
     (no live session to take over); ``not_active`` (end when none is running).
-    ``turn_running`` is retained for wire compat but is never produced after D8 (anytime
-    takeover). ``active`` reflects the resulting state; ``started_at`` is set while active.
+    ``active`` reflects the resulting state; ``started_at`` is set while active.
     """
 
     active: bool
-    reason: Literal[
-        "started", "ended", "already_active", "turn_running", "no_session", "not_active"
-    ]
+    reason: Literal["started", "ended", "already_active", "no_session", "not_active"]
     record_id: str | None = None
     started_at: datetime | None = None
     session_id: str | None = None

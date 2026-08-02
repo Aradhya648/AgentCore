@@ -1,3 +1,5 @@
+import { useConversationStore } from "@/stores/conversation";
+import { QueuedTurnsBar } from "./QueuedTurnsBar";
 import {
   TurnComposer,
   type TurnComposerVariant,
@@ -22,8 +24,10 @@ export function MessageInput({
   /** Flush under ApprovalPrompt in the bottom-bar 一体态. */
   attachedBelowApproval?: boolean;
 }) {
+  const conversationId = useConversationStore((s) => s.currentConversationId);
   return (
     <div className={className ?? "px-4 pb-4 pt-2"}>
+      <QueuedTurnsBar conversationId={conversationId} />
       <TurnComposer
         variant={variant}
         attachedBelowApproval={attachedBelowApproval}

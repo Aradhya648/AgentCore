@@ -88,8 +88,6 @@
           }
         ],
         "orders": [],
-        "investigator_count_per_side": 0,
-        "retrieval_budget_per_investigator": 0,
         "evidence_pack": {
           "motion": "是否续签合同",
           "completeness": "full",
@@ -149,12 +147,10 @@
         "status": "skipped",
         "skip_reason": "evidence_pack",
         "orders": [],
-        "investigators": [],
         "fallback_self_search": false,
         "evidence_ready": true,
         "completeness": "full",
         "incomplete": false,
-        "failed_sides": [],
         "evidence_pack": {
           "motion": "是否续签合同",
           "completeness": "full",
@@ -182,7 +178,6 @@
         },
         "external_evidence_mode": "skip",
         "external_evidence_reason": "evidence_pack_full",
-        "retrieval_budget_per_investigator": 0,
         "evidence_ledger_count": 1,
         "evidence_ledger_delta": [
           {
@@ -819,16 +814,13 @@
         }
       ],
       "orders": [],
-      "investigators": [],
       "evidenceLedgerCount": 1,
       "fallbackSelfSearch": false,
       "evidenceReady": true,
       "completeness": "full",
       "incomplete": false,
-      "failedSides": [],
       "externalEvidenceMode": "skip",
-      "externalEvidenceReason": "evidence_pack_full",
-      "retrievalBudgetPerInvestigator": 0
+      "externalEvidenceReason": "evidence_pack_full"
     },
     "crossExamEnabled": false,
     "debateOpening": "双方依共享证据包立论。",

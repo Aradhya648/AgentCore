@@ -13,9 +13,7 @@ import type {
   ApprovalRequiredPayload,
   ApprovalResolvedPayload,
   AskAssumption,
-  AskFormatOption,
   AskQuestion,
-  AskStyleOption,
   CheckpointRequiredPayload,
   CitationsPayload,
   ContentDeltaPayload,
@@ -272,12 +270,9 @@ function emptyRunningPretrial(
     skipReason: ("skip_reason" in p ? p.skip_reason : null) ?? null,
     sides: (p.sides ?? []).map((s) => ({ key: s.key, name: s.name })),
     orders: [],
-    investigators: [],
     evidenceLedgerCount: 0,
     fallbackSelfSearch: false,
     evidenceReady: false,
-    // running 不宣称完整度（权威=completed）；orders 亦不强吸。
-    failedSides: [],
   };
 }
 
@@ -297,7 +292,7 @@ function foldDebatePretrial(
   if (type === "debate_pretrial_orders") {
     const p = payload as DebatePretrialOrdersPayload;
     const base = current ?? emptyRunningPretrial(p);
-    const next: DebatePretrialProjection = {
+    return {
       ...base,
       thorough: p.thorough !== false,
       sides:
@@ -313,9 +308,6 @@ function foldDebatePretrial(
         source: o.source ?? "empty",
       })),
     };
-    const perSide = p.investigator_count_per_side ?? 0;
-    if (perSide > 0) next.investigatorCountPerSide = perSide;
-    return next;
   }
   if (type === "debate_pretrial_progress") {
     if (!current) return null;
@@ -344,30 +336,16 @@ function foldDebatePretrial(
       })),
       source: o.source ?? "empty",
     })),
-    investigators: (p.investigators ?? []).map((inv) => ({
-      side_key: inv.side_key,
-      run_id: inv.run_id,
-      parent_run_id: inv.parent_run_id,
-      ok: Boolean(inv.ok),
-      ...(inv.task_query ? { task_query: inv.task_query } : {}),
-    })),
     evidenceLedgerCount: p.evidence_ledger_count ?? 0,
     fallbackSelfSearch: Boolean(p.fallback_self_search),
     evidenceReady: Boolean(p.evidence_ready),
     ...(completeness != null ? { completeness } : {}),
     ...(incomplete != null ? { incomplete } : {}),
-    failedSides: Array.isArray(p.failed_sides) ? [...p.failed_sides] : [],
     ...(p.external_evidence_mode != null
       ? { externalEvidenceMode: p.external_evidence_mode }
       : {}),
     ...(p.external_evidence_reason != null
       ? { externalEvidenceReason: p.external_evidence_reason }
-      : {}),
-    ...("retrieval_budget_per_investigator" in p
-      ? {
-          retrievalBudgetPerInvestigator:
-            p.retrieval_budget_per_investigator ?? 0,
-        }
       : {}),
   };
 }
@@ -1175,6 +1153,9 @@ export function fold(events: SSEEvent[]): ProjectedTurn {
       case "tool_use_progress":
       case "coordination_wait":
       case "turn_queued":
+      case "turn_queue_cancelled":
+      // 经典软插入 ack（EPHEMERAL）：toast 由 ChatPage 消费；不进 ProjectedTurn。
+      case "turn_steer_accepted":
       // L3 团队浏览器直播 (D13/D14): ephemeral 直播侧信道——base64 jpeg 帧 + 粗粒度通道状态，
       // 从不落 turn journal，喂桌面工作区直播面板。手机 fold no-op（与桌面 conformanceFold 同款枚举）。
       case "browser_live_frame":
@@ -1398,26 +1379,53 @@ export function extractFollowupsUnavailable(events: SSEEvent[]): boolean {
   return false;
 }
 
-/** FIFO 排队态（``turn_queued``）：传输态 sibling——不进 {@link ProjectedTurn}。
- * 有 ``message_start`` 后视为已开跑，返回 null（排队徽标收起）。 */
-export function extractTurnQueued(
-  events: SSEEvent[],
-): { position: number; queueDepth: number } | null {
-  let queued: { position: number; queueDepth: number } | null = null;
+/** 单条 FIFO 排队态（传输态 sibling——不进 {@link ProjectedTurn}）。 */
+export type TurnQueuedState = {
+  position: number;
+  queueDepth: number;
+  queueId: string;
+  degradedFrom?: "steer";
+};
+
+/**
+ * FIFO 排队态列表（``turn_queued``）：多 queue_id 并存，勿单槽覆盖。
+ * ``turn_queue_cancelled`` 按 ``queue_id`` 清一项；``message_start`` 清空
+ * （该事件流上的排队项已开跑 / 已迁走）。Live UI 以 ``queuedTurns`` store 为准。
+ */
+export function extractTurnQueued(events: SSEEvent[]): TurnQueuedState[] {
+  const byId = new Map<string, TurnQueuedState>();
   for (const ev of events) {
     if (ev.type === "turn_queued") {
       const p = ev.payload as {
+        queue_id?: string;
         position?: number;
         queue_depth?: number;
+        degraded_from?: "steer";
       };
       const position = typeof p.position === "number" ? p.position : 0;
       const queueDepth =
         typeof p.queue_depth === "number" ? p.queue_depth : position;
-      if (position >= 1) queued = { position, queueDepth };
+      const queueId = typeof p.queue_id === "string" ? p.queue_id : "";
+      if (position >= 1 && queueId) {
+        byId.set(queueId, {
+          position,
+          queueDepth,
+          queueId,
+          degradedFrom: p.degraded_from,
+        });
+      }
     }
-    if (ev.type === "message_start") return null;
+    if (ev.type === "turn_queue_cancelled") {
+      const p = ev.payload as { queue_id?: string };
+      if (typeof p.queue_id === "string" && p.queue_id) {
+        byId.delete(p.queue_id);
+      }
+    }
+    if (ev.type === "message_start") {
+      byId.clear();
+    }
   }
-  return queued;
+  return [...byId.values()].sort((a, b) => a.position - b.position);
 }
 
 /** Merge turn-ledger delta by id (append-order; later write wins). */
@@ -1571,8 +1579,6 @@ export interface NonBlockingAsk {
   context: string;
   assumptions: AskAssumption[];
   questions: AskQuestion[];
-  styleOptions: AskStyleOption[];
-  formatOptions: AskFormatOption[];
 }
 
 /**
@@ -1598,8 +1604,6 @@ export function extractAsks(events: SSEEvent[]): NonBlockingAsk[] {
       context: p.context,
       assumptions: p.assumptions ?? [],
       questions: p.questions ?? [],
-      styleOptions: p.style_options ?? [],
-      formatOptions: p.format_options ?? [],
     });
   }
   return order.map((id) => byId.get(id) as NonBlockingAsk);

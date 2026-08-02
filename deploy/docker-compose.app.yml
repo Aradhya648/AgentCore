@@ -48,6 +48,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       SEARXNG_URL: http://searxng:8080
       DATA_DIR: /data
+      # runsc state on the appdata volume (not container /tmp overlay).
+      GVISOR_RUNTIME_ROOT: /data/sandbox
       HOST: 0.0.0.0
       PORT: "8000"
       DEBUG: "false"

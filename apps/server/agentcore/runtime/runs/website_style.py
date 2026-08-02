@@ -4,8 +4,8 @@
 无确认时 :func:`design_prompt_block` 软注入 ``s_default``；``web_quality_scan``
 仍要求 DESIGN.md 含「用户选定风格 id」标记。
 
-Ledger helpers (``record_*`` / resume resolve) retained for tests / legacy pause
-rehydrate only — production resume no longer records style picks.
+Ledger helpers (``record_*`` / pause rehydrate) retained for tests and durable
+cache — production resume no longer records style picks from ask wire.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ STYLE_ID_HEADING = "用户选定风格 id"
 DEFAULT_STYLE_ID = "s_default"
 DEFAULT_STYLE_LABEL = "简洁克制·高对比"
 
-# ``s0`` / ``s_default`` / ``s12`` — ids minted by normalize_style_options or default.
+# ``s0`` / ``s_default`` / ``s12`` — DESIGN.md style ids (soft default or user-written).
 _STYLE_ID_TOKEN_RE = re.compile(r"\b(s(?:_default|\d+))\b", re.IGNORECASE)
 
 _HEX_COLOR_RE = re.compile(r"#(?:[0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\b")
@@ -92,7 +92,7 @@ class WebsiteStyleConfirmedFact:
 def build_website_missing_style_error() -> str:
     return (
         "建站 playbook（build_website / build_toolshed）需要先经 ask_user 开工卡确认风格"
-        "（非空 style_options → 用户选定 style_id 已记账）。"
+        "（DESIGN.md「用户选定风格 id」约定；无确认时软注入 s_default）。"
         "请先开开工提案卡选风格，或在 AutonomyPolicy.full_auto 下由机制落默认风格。"
     )
 
@@ -300,64 +300,6 @@ def snapshot_website_style_for_pause(
     if conf is None:
         return None
     return style_confirmation_to_payload(conf)
-
-
-def _lookup_style_option(
-    by_id: dict[str, dict[str, Any]],
-    style_id: str,
-) -> StyleConfirmation | None:
-    sid = (style_id or "").strip()
-    if not sid:
-        return None
-    for kid, opt in by_id.items():
-        if kid.casefold() == sid.casefold():
-            return StyleConfirmation(
-                style_id=kid,
-                label=str(opt.get("label") or kid),
-                source="ask_user",
-            )
-    return None
-
-
-def resolve_style_from_resume(
-    style_options: list[dict[str, Any]] | None,
-    *,
-    style_id: str | None = None,
-    selected: list[str] | None = None,
-    note: str = "",
-) -> StyleConfirmation | None:
-    """Map structured resume wire onto a style_options entry.
-
-    Priority: explicit ``style_id`` (must ∈ options) → else a legitimate ``sN`` /
-    ``s_default`` token in ``selected`` that ∈ options. Prose ``note`` / label
-    fuzzy match is **not** a success path (may log for observability only).
-    """
-    opts = [o for o in (style_options or []) if isinstance(o, dict) and o.get("id")]
-    if not opts:
-        return None
-    by_id = {str(o["id"]).strip(): o for o in opts if str(o.get("id") or "").strip()}
-    if not by_id:
-        return None
-
-    explicit = (style_id or "").strip()
-    if explicit:
-        hit = _lookup_style_option(by_id, explicit)
-        if hit is not None:
-            return hit
-        # Invalid explicit id → reject (do not fall through to selected / note).
-        return None
-
-    for raw in selected or []:
-        tok = str(raw or "").strip()
-        if not tok or not _STYLE_ID_TOKEN_RE.fullmatch(tok):
-            continue
-        hit = _lookup_style_option(by_id, tok)
-        if hit is not None:
-            return hit
-
-    # Observability only: note may still mention a label; never treat as confirmation.
-    _ = note
-    return None
 
 
 def extract_style_id_from_design(text: str) -> str | None:

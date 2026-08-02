@@ -200,32 +200,6 @@ def test_debater_task_empty_sides_use_turn_main():
     assert t["model"] == "main-pro"
 
 
-def test_investigator_follows_side_triple():
-    from agentcore.runtime.debate.pretrial import EvidenceTask, investigator_task_payload
-
-    side = DebateSide(
-        key="pro",
-        name="正",
-        stance="支持",
-        model="gpt-4o",
-        origin="platform",
-    )
-    cfg = DebateConfig(
-        motion="m",
-        form=DebateForm.DEBATE,
-        sides=[side, DebateSide(key="con", name="反", stance="反对")],
-    )
-    payload = investigator_task_payload(
-        config=cfg,
-        side=side,
-        task=EvidenceTask(query="搜判决", purpose="底料"),
-        index=0,
-        retrieval_budget=4,
-        turn_model="turn-main",
-    )
-    assert payload["model"] == "platform/gpt-4o"
-
-
 # --- 默认对阵 / 裁判 ---------------------------------------------------------
 
 

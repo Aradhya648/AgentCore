@@ -2804,6 +2804,101 @@ dialog.run-detail::backdrop {
   border: 1px solid var(--border);
 }
 
+/* 强制排队（协调可插时）：文字钮，与 Stop 同高，明示 FIFO。 */
+.composer .queue-btn {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+}
+
+.composer .queue-btn:disabled {
+  opacity: 0.45;
+}
+
+/* 经典软插入 ack：composer 上方轻条（手机无 toast 原语）。 */
+.steer-hint-bar {
+  margin: 0 12px 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 12%, transparent);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 排队 chip 内取消：Stop ≠ 取消排队。 */
+.turn-queued-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.queue-cancel-btn {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+}
+
+.queued-turns-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 12px 6px;
+}
+
+.queued-turn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 12%, transparent);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.queued-turn-preview {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queued-turn-spinner {
+  flex: 0 0 auto;
+  animation: voice-rotate 0.9s linear infinite;
+}
+
+.bubble.user.user-queued {
+  border: 1px dashed var(--border);
+  background: color-mix(in oklch, var(--muted) 18%, transparent);
+}
+
+.user-queue-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* 诚实停止过渡：停止中… — 略降对比，仍可点（重试 /stop）。 */
 .composer .stop.stopping {
   opacity: 0.75;

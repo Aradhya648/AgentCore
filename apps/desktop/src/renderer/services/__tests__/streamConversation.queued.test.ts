@@ -39,7 +39,11 @@ describe("streamConversation — 发送即有流（恒 SSE）", () => {
     useConversationStore.getState().setTurnPhase("streaming", "c1");
 
     await expect(
-      streamConversation({ conversationId: "c1", content: "hi" }),
+      streamConversation({
+        conversationId: "c1",
+        content: "hi",
+        delivery: "steer",
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -58,8 +62,16 @@ describe("streamConversation — 发送即有流（恒 SSE）", () => {
     useConversationStore.getState().createAssistantMessage("c1");
     useConversationStore.getState().setTurnPhase("streaming", "c1");
 
-    await streamConversation({ conversationId: "c1", content: "queued" });
+    await streamConversation({
+      conversationId: "c1",
+      content: "queued",
+      delivery: "queue",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+    ) as { delivery?: string };
+    expect(body.delivery).toBe("queue");
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         headers: expect.objectContaining({ Accept: "text/event-stream" }),
@@ -81,7 +93,11 @@ describe("streamConversation — 发送即有流（恒 SSE）", () => {
     useConversationStore.getState().setTurnPhase("idle", "c1");
 
     await expect(
-      streamConversation({ conversationId: "c1", content: "hi" }),
+      streamConversation({
+        conversationId: "c1",
+        content: "hi",
+        delivery: "steer",
+      }),
     ).rejects.toMatchObject({ kind: "http", status: 202 });
     expect(fetchMock).toHaveBeenCalled();
   });

@@ -14,9 +14,6 @@ from agentcore.conversation.common import (
     resolve_profile_set,
     schedule_title_generation,
 )
-
-# Patch point for tests (alias of resolve_permission_axes).
-resolve_permission_preset = resolve_permission_axes
 from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_persistence import (
@@ -408,8 +405,6 @@ async def resume_chat(
                                 decision=response.decision,
                                 note=response.note,
                                 selected=response.selected,
-                                style_id=response.style_id or None,
-                                format_id=response.format_id or None,
                                 sink=sink,
                                 backend=backend,
                                 history=history[:-1],

@@ -12,8 +12,6 @@ _MAX_QUESTIONS = 5  # 开场重点问题最多 5 个（对齐 Cursor 2.1 的 3�
 _MAX_OPTIONS = 6  # 每个 choice 问题的选项上限
 _MAX_OPTION_DETAIL = 120  # 单个选项的权衡说明上限（一行内）
 _MAX_ASSUMPTIONS = 10
-_MAX_STYLES = 6
-_MAX_FORMATS = 6
 
 # Presentation metadata belongs in ``recommended``, not the answer-valued label.
 # Reject bracketed markers only — bare「推荐」in a product name (e.g. 推荐算法) stays valid.
@@ -255,37 +253,4 @@ def normalize_questions(
                 "default": str(it.get("default") or "").strip(),
             }
         )
-    return out
-
-
-def normalize_style_options(raw: Any) -> list[dict[str, Any]]:
-    """Cap + id the 风格预设, accepting either ``{label}`` dicts or bare strings.
-
-    Wire ids are always ``s0``/``s1``/… (resume ``style_id`` / ``selected`` values).
-    """
-    items = coerce_list_arg(raw, field="style_options")
-    out: list[dict[str, Any]] = []
-    for i, it in enumerate(items[:_MAX_STYLES]):
-        raw_label = it.get("label") if isinstance(it, dict) else it
-        label = str(raw_label or "").strip()
-        if not label:
-            continue
-        out.append({"id": f"s{i}", "label": label})
-    return out
-
-
-def normalize_format_options(raw: Any) -> list[dict[str, Any]]:
-    """Cap + id 交付形态, accepting either ``{label}`` dicts or bare strings.
-
-    Wire ids are always ``f0``/``f1``/… (resume ``format_id`` / ``selected`` values).
-    Typical labels: 演讲 pptx/marp/outline；自动化 可运行自动化/控制台原型/仅方案.
-    """
-    items = coerce_list_arg(raw, field="format_options")
-    out: list[dict[str, Any]] = []
-    for i, it in enumerate(items[:_MAX_FORMATS]):
-        raw_label = it.get("label") if isinstance(it, dict) else it
-        label = str(raw_label or "").strip()
-        if not label:
-            continue
-        out.append({"id": f"f{i}", "label": label})
     return out

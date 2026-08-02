@@ -6,7 +6,7 @@ import { ApiError, api } from "@/services/api";
  * 三条 per-conversation REST 通道（区别于 M1 的旁路 SSE 直播帧通道 `services/browserLive`）：
  *  - `POST …/browser/takeover` {action:"start"|"end"} —— 起止接管。响应体为
  *    {@link BrowserTakeoverState}（200 + `reason`），**不**靠 HTTP error code 分辨成败：
- *    start 成功 = `started` | `already_active`；其余 reason（`turn_running` / `no_session` /
+ *    start 成功 = `started` | `already_active`；其余 reason（`no_session` /
  *    `not_active` …）由调用方以 {@link takeoverStartErrorMessage} 成文。登录等待 escalate
  *    pending 期间后端会放行 start（即便有 turn 在跑）。
  *  - `POST …/browser/input` {events:[…]} —— 批量注入用户在直播画面上的输入（**坐标为帧像素空间**
@@ -65,7 +65,6 @@ export type BrowserTakeoverReason =
   | "started"
   | "ended"
   | "already_active"
-  | "turn_running"
   | "no_session"
   | "not_active";
 
@@ -180,8 +179,6 @@ export function takeoverStartErrorMessage(err: unknown): string {
           ? err.code
           : undefined;
   switch (reason) {
-    case "turn_running":
-      return "有正在进行的回合，等它结束后再接管";
     case "no_session":
       return "当前没有进行中的浏览器会话";
     case "already_active":

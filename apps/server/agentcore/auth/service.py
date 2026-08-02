@@ -1,7 +1,7 @@
 """Authentication service: registration, login, token refresh, logout.
 
 Holds all auth business logic and policy:
-- open registration gated by ``REGISTRATION_OPEN`` (invite codes deprecated),
+- open registration gated by ``REGISTRATION_OPEN``,
 - brute-force lockout (failed-attempt counting + temporary lock),
 - refresh-token rotation with reuse detection (a presented token that was
   already rotated/revoked compromises the whole family -> revoke it).
@@ -12,7 +12,6 @@ with in-memory fakes (no DB).
 """
 
 import hashlib
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,10 +30,9 @@ from agentcore.core.errors import (
 )
 from agentcore.core.logging import get_logger
 from agentcore.core.types import new_id
-from agentcore.db.models import Invite, RefreshToken, User
+from agentcore.db.models import RefreshToken, User
 from agentcore.db.repositories import (
     CredentialsRepository,
-    InviteRepository,
     RefreshTokenRepository,
     UserRepository,
 )
@@ -42,7 +40,6 @@ from agentcore.security import (
     create_access_token,
     create_mfa_pending_token,
     decode_mfa_pending_token,
-    generate_invite_code,
     generate_refresh_token,
     generate_temp_password,
     hash_password,
@@ -89,6 +86,9 @@ class TokenPair:
 
     access_token: str
     refresh_token: str
+    # Mirrors refresh_tokens.persist_session — routes use this for cookie Max-Age
+    # and bearer refresh_expires_in.
+    persist_session: bool = True
 
 
 @dataclass(frozen=True)
@@ -140,14 +140,12 @@ class AuthService:
         users: UserRepository,
         credentials: CredentialsRepository,
         refresh_tokens: RefreshTokenRepository,
-        invites: InviteRepository,
         mfa: AdminMfaService | None = None,
         session: AsyncSession | None = None,
     ) -> None:
         self._users = users
         self._credentials = credentials
         self._refresh_tokens = refresh_tokens
-        self._invites = invites
         self._mfa = mfa
         # Shared request session for multi-repo unit-of-work commits (P1-8).
         # Unit tests pass ``None`` and use in-memory fakes (no real txn).
@@ -198,6 +196,7 @@ class AuthService:
         password: str,
         platform: ClientPlatform = "desktop",
         meta: SessionMeta | None = None,
+        persist_session: bool = True,
     ) -> LoginResult:
         user = await self._users.get_by_username(username.strip())
         creds = await self._credentials.get_by_user_id(user.user_id) if user else None
@@ -258,7 +257,11 @@ class AuthService:
                 and self._mfa is not None
                 and await self._mfa.is_enrolled(user.user_id)
             ):
-                pending = create_mfa_pending_token(user.user_id, audience=audience)
+                pending = create_mfa_pending_token(
+                    user.user_id,
+                    audience=audience,
+                    persist_session=persist_session,
+                )
                 return LoginResult(
                     user=user,
                     mfa_required=True,
@@ -270,6 +273,7 @@ class AuthService:
                 now=now,
                 audience=audience,
                 meta=session_meta,
+                persist_session=persist_session,
             )
             return LoginResult(
                 user=user,
@@ -283,6 +287,7 @@ class AuthService:
             now=now,
             audience=audience,
             meta=session_meta,
+            persist_session=persist_session,
         )
         return LoginResult(user=user, tokens=tokens)
 
@@ -296,7 +301,7 @@ class AuthService:
     ) -> tuple[User, TokenPair]:
         if self._mfa is None:
             raise AuthenticationError("MFA not configured")
-        user_id, audience = decode_mfa_pending_token(pending_token)
+        user_id, audience, persist_session = decode_mfa_pending_token(pending_token)
         user = await self._users.get_by_id(user_id)
         if user is None or user.status != "active" or user.role != "admin":
             raise AuthenticationError("Invalid or expired MFA session")
@@ -332,6 +337,7 @@ class AuthService:
             audience=audience,
             meta=session_meta,
             mfa_verified=True,
+            persist_session=persist_session,
         )
         return user, tokens
 
@@ -374,6 +380,7 @@ class AuthService:
                 meta=self._meta_for_refresh(record, meta),
                 family_started_at=record.family_started_at,
                 mfa_verified=await self._refresh_mfa_verified(record),
+                persist_session=bool(record.persist_session),
             )
 
         if record.expires_at <= now:
@@ -388,6 +395,7 @@ class AuthService:
             meta=self._meta_for_refresh(record, meta),
             family_started_at=record.family_started_at,
             mfa_verified=await self._refresh_mfa_verified(record),
+            persist_session=bool(record.persist_session),
             commit=False,
         )
         await self._commit()
@@ -453,77 +461,6 @@ class AuthService:
         """Revoke every refresh family for ``user_id`` (e.g. after MFA enrollment)."""
         await self._refresh_tokens.revoke_all_for_user(user_id)
         logger.info("auth.sessions_revoke_all", user_id=user_id)
-
-    # --- invites (admin) ---
-
-    async def create_invite(self, *, created_by: str, expires_in_days: int | None = None) -> Invite:
-        """Mint a single-use invite code (deprecated; registration no longer consumes codes)."""
-        invites = await self.create_invites_batch(
-            created_by=created_by,
-            count=1,
-            expires_in_days=expires_in_days,
-        )
-        return invites[0]
-
-    async def create_invites_batch(
-        self,
-        *,
-        created_by: str,
-        count: int,
-        expires_in_days: int | None = None,
-    ) -> Sequence[Invite]:
-        """Mint multiple single-use invite codes in one transaction."""
-        expires_at = (
-            datetime.now(UTC) + timedelta(days=expires_in_days)
-            if expires_in_days is not None
-            else None
-        )
-        codes = [generate_invite_code() for _ in range(count)]
-        return await self._invites.create_many(
-            codes=codes,
-            created_by=created_by,
-            expires_at=expires_at,
-        )
-
-    async def list_invites(
-        self,
-        *,
-        page: int = 1,
-        page_size: int = 100,
-        status: str | None = None,
-        search: str | None = None,
-    ) -> tuple[Sequence[Invite], int]:
-        offset = (page - 1) * page_size
-        return await self._invites.list_page(
-            offset=offset,
-            limit=page_size,
-            status=status,
-            search=search,
-            now=datetime.now(UTC),
-        )
-
-    async def invite_stats(self) -> dict[str, int]:
-        return await self._invites.count_by_status(now=datetime.now(UTC))
-
-    async def revoke_invite(self, *, invite_id: str) -> Invite:
-        """Retire an unused invite (邀请码撤销; registration no longer consumes codes).
-
-        Only a still-active code can be revoked: a used one is already consumed and an
-        already-revoked one is a no-op — both raise rather than silently succeed, so the
-        admin gets clear feedback. (Expired-unused codes are still revocable: it makes
-        their retirement explicit instead of relying on the time check.)
-        """
-        invite = await self._invites.get_by_id(invite_id)
-        if invite is None:
-            raise NotFoundError("邀请码不存在")
-        if invite.used_at is not None:
-            raise ValidationError("该邀请码已被使用，无法撤销")
-        if invite.revoked_at is not None:
-            raise ValidationError("该邀请码已撤销")
-        revoked = await self._invites.revoke(invite_id, revoked_at=datetime.now(UTC))
-        if revoked is None:  # pragma: no cover - existence just validated above
-            raise NotFoundError("邀请码不存在")
-        return revoked
 
     # --- admin account ops ---
 
@@ -706,10 +643,23 @@ class AuthService:
         meta: SessionMeta | None = None,
         family_started_at: datetime | None = None,
         mfa_verified: bool = False,
+        persist_session: bool = True,
         commit: bool = True,
     ) -> TokenPair:
         raw, token_hash = generate_refresh_token()
-        expires_at = now + timedelta(days=settings.jwt_refresh_token_expire_days)
+        started = family_started_at or now
+        if persist_session:
+            expires_at = now + timedelta(days=settings.jwt_refresh_token_expire_days)
+        else:
+            # Absolute tip expiry aligned with the ephemeral family ceiling — no
+            # long sliding window that would outlive "关浏览器即丢会话".
+            family_end = started + timedelta(
+                hours=settings.ephemeral_refresh_family_max_hours
+            )
+            expires_at = min(
+                now + timedelta(hours=settings.ephemeral_refresh_family_max_hours),
+                family_end,
+            )
         platform = meta.platform if meta else None
         await self._refresh_tokens.create(
             user_id=user_id,
@@ -720,8 +670,9 @@ class AuthService:
             client_platform=platform,
             user_agent=_truncate_ua(meta.user_agent if meta else None),
             ip=meta.ip if meta else None,
-            family_started_at=family_started_at or now,
+            family_started_at=started,
             last_used_at=now,
+            persist_session=persist_session,
             commit=commit,
         )
         return TokenPair(
@@ -732,6 +683,7 @@ class AuthService:
                 mfa_verified=mfa_verified,
             ),
             refresh_token=raw,
+            persist_session=persist_session,
         )
 
     async def _refresh_mfa_verified(self, record: RefreshToken) -> bool:
@@ -768,7 +720,9 @@ class AuthService:
 
     def _assert_family_within_max(self, record: RefreshToken, *, now: datetime) -> None:
         started = record.family_started_at
-        if record.client_aud == "admin":
+        if not record.persist_session:
+            max_age = timedelta(hours=settings.ephemeral_refresh_family_max_hours)
+        elif record.client_aud == "admin":
             max_age = timedelta(hours=settings.admin_refresh_family_max_hours)
         else:
             max_age = timedelta(days=settings.refresh_family_max_days)

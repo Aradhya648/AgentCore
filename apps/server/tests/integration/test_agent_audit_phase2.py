@@ -90,11 +90,10 @@ async def _seed_audit_rows(session_factory, *, user_id: str, conversation_id: st
 
 
 @pytest.mark.asyncio
-async def test_turn_audit_include_causal(client, session_factory, make_invite):
+async def test_turn_audit_include_causal(client, session_factory):
     turn_id = str(uuid4())
     username = f"audit_causal_{uuid4().hex[:8]}"
-    invite_code = await make_invite(f"INV-AUDIT-CAUSAL-{uuid4().hex[:6]}")
-    await register_and_login(client, invite_code, username)
+    await register_and_login(client, username)
 
     async with session_factory() as session:
         from agentcore.db.repositories import ConversationRepository, UserRepository
@@ -131,11 +130,10 @@ async def test_turn_audit_include_causal(client, session_factory, make_invite):
 
 
 @pytest.mark.asyncio
-async def test_file_audit_lookup(client, session_factory, make_invite):
+async def test_file_audit_lookup(client, session_factory):
     turn_id = str(uuid4())
     username = f"audit_file_{uuid4().hex[:8]}"
-    invite_code = await make_invite(f"INV-AUDIT-FILE-{uuid4().hex[:6]}")
-    await register_and_login(client, invite_code, username)
+    await register_and_login(client, username)
 
     async with session_factory() as session:
         from agentcore.db.repositories import ConversationRepository, UserRepository

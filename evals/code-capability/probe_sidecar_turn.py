@@ -41,6 +41,13 @@ DEFAULT_BASE_URL = os.environ.get("PROBE_BASE_URL", "http://127.0.0.1:8000")
 DEFAULT_USERNAME = os.environ.get("DEV_USERNAME", "dev")
 DEFAULT_PASSWORD = os.environ.get("DEV_PASSWORD", "devpassword")
 AGENTCORE_ROOT_ID = "24407ff4-5703-4904-8f10-68314f673384"  # fs-roots: C:\\Project\\AgentCore
+# Former sidecar ``permissionPreset: full_trust`` → managed recipe axes.
+_PERMISSION_AXES_MANAGED: dict[str, str] = {
+    "file_write": "session",
+    "command": "auto",
+    "team_kickoff": "skip",
+    "host": "session",
+}
 # Unpackaged Electron dumps loopback Bridge creds here (see main/browser/bridge.ts).
 _DEFAULT_DEV_BRIDGE = (
     Path(os.environ.get("APPDATA", "")) / "agentcore-desktop" / "browser-bridge.dev.json"
@@ -320,13 +327,13 @@ class SidecarClient:
         user_id: str,
         inference: dict[str, str] | None,
         browser_bridge: dict[str, str] | None = None,
-        permission_preset: str = "full_trust",
+        permission_axes: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "workspaceRoot": str(self.workspace),
             "userId": user_id,
             "approvalsEnabled": False,
-            "permissionPreset": permission_preset,
+            "permissionAxes": permission_axes or _PERMISSION_AXES_MANAGED,
             "dataDir": str(self.data_dir),
         }
         if inference:
@@ -345,7 +352,7 @@ class SidecarClient:
         user_message_id: str,
         inference: dict[str, str] | None,
         browser_bridge: dict[str, str] | None = None,
-        permission_preset: str = "full_trust",
+        permission_axes: dict[str, str] | None = None,
         timeout: float,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -355,7 +362,7 @@ class SidecarClient:
             "history": [],
             "traceId": trace_id,
             "userMessageId": user_message_id,
-            "permissionPreset": permission_preset,
+            "permissionAxes": permission_axes or _PERMISSION_AXES_MANAGED,
         }
         if inference:
             params["inference"] = inference
@@ -382,7 +389,7 @@ class SidecarClient:
             "decision": decision,
             "note": note,
             "selected": [],
-            "permissionPreset": "full_trust",
+            "permissionAxes": _PERMISSION_AXES_MANAGED,
         }
         if inference:
             params["inference"] = inference

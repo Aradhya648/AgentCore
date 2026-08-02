@@ -285,14 +285,6 @@ class DebatePretrialOrder(WirePayload):
     source: Literal["debater", "auto", "empty"] = "empty"
 
 
-class DebatePretrialInvestigator(WirePayload):
-    side_key: str
-    run_id: str
-    parent_run_id: str
-    ok: bool
-    task_query: str = ""
-
-
 class DebateEvidencePackSource(WirePayload):
     source_id: str
     kind: Literal["attachment", "conversation", "background", "dossier", "workspace"]
@@ -325,7 +317,7 @@ class DebatePretrialStartedPayload(WirePayload):
     moderator_run_id: str
     thorough: bool = True
     sides: list[DebatePretrialSideInfo] = Field(default_factory=list)
-    skip_reason: Literal["fast", "dossier_sufficient", "evidence_pack"] | None = absent(
+    skip_reason: Literal["fast", "dossier_sufficient", "evidence_pack", "no_pack"] | None = absent(
         "Set when pretrial is skipped immediately; absent when phase proceeds."
     )
 
@@ -336,14 +328,12 @@ class DebatePretrialOrdersPayload(WirePayload):
     thorough: bool = True
     sides: list[DebatePretrialSideInfo] = Field(default_factory=list)
     orders: list[DebatePretrialOrder] = Field(default_factory=list)
-    investigator_count_per_side: int = 0
-    retrieval_budget_per_investigator: int = 0
-    # 附件 Evidence Pack 路径：点单事件可携带 pack 摘要（跳过双调查员）。
+    # 附件 Evidence Pack 路径：点单事件可携带 pack 摘要。
     evidence_pack: DebateEvidencePack | None = absent(
         "Present when pretrial takes the shared evidence-pack path."
     )
-    path: Literal["evidence_pack", "evidence_pack_gap_fill"] | None = absent(
-        "Present when orders event is emitted for the evidence-pack / gap-fill path."
+    path: Literal["evidence_pack"] | None = absent(
+        "Present when orders event is emitted for the evidence-pack path."
     )
     completeness: Literal["full", "partial", "empty"] | None = absent(
         "Evidence completeness when path=evidence_pack*."
@@ -352,17 +342,15 @@ class DebatePretrialOrdersPayload(WirePayload):
         "True when completeness is not full (evidence-pack path)."
     )
     external_evidence: dict[str, Any] | None = absent(
-        "Gap-driven external-evidence plan (mode/budget/sides/reason)."
+        "External-evidence plan (mode=skip + reason/budget); production emits skip only."
     )
 
 
 class DebatePretrialProgressPayload(WirePayload):
+    """庭前台账计数增量（legacy；生产热路径不再发射）。"""
+
     execution_id: str
     moderator_run_id: str
-    side_key: str = ""
-    investigator_run_id: str = ""
-    parent_run_id: str = ""
-    status: Literal["completed", "failed"] = "completed"
     evidence_ledger_count: int = 0
 
 
@@ -372,11 +360,10 @@ class DebatePretrialCompletedPayload(WirePayload):
     thorough: bool = True
     sides: list[DebatePretrialSideInfo] = Field(default_factory=list)
     status: Literal["done", "skipped", "degraded"] = "done"
-    skip_reason: Literal["fast", "dossier_sufficient", "evidence_pack"] | None = absent(
+    skip_reason: Literal["fast", "dossier_sufficient", "evidence_pack", "no_pack"] | None = absent(
         "Present when status=skipped."
     )
     orders: list[DebatePretrialOrder] = Field(default_factory=list)
-    investigators: list[DebatePretrialInvestigator] = Field(default_factory=list)
     fallback_self_search: bool = False
     evidence_ready: bool = False
     evidence_ledger_count: int = 0
@@ -385,14 +372,12 @@ class DebatePretrialCompletedPayload(WirePayload):
     completeness: Literal["full", "partial", "empty"] = "empty"
     # 仅「实际走了取证且未 full」；intentional 秒过（fast 等）为 False。
     incomplete: bool = True
-    failed_sides: list[str] = Field(default_factory=list)
     evidence_pack: DebateEvidencePack | None = absent(
         "Present when pretrial assembled a shared evidence pack from host attachments."
     )
-    external_evidence_mode: Literal["skip", "gap_fill", "investigators"] | None = absent(
-        "Resolved external-evidence mode (completeness-driven)."
+    external_evidence_mode: Literal["skip"] | None = absent(
+        "Resolved external-evidence mode; production emits skip only."
     )
     external_evidence_reason: str | None = absent(
-        "Skip/allow reason: evidence_pack_full | evidence_pack_gap | failed_sides_gap | …"
+        "Skip reason: evidence_pack_full | evidence_pack_partial | no_pack | fast | …"
     )
-    retrieval_budget_per_investigator: int = 0

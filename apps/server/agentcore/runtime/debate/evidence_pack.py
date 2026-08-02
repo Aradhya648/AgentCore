@@ -1,8 +1,8 @@
 """共享证据包（Evidence Pack）——庭前「共享事实库 → 对抗论证」的数据契约。
 
-行业实践：附件/底料先组装为双方共享的证据包，再开辩；禁止双方调查员对同一附件各自
-深挖 ReAct。本模块只负责契约 + 从主持人上下文机械组装 + 缺口驱动的有界外证计划
-（预算复用 ``retrieval_budget``，不平行发明第二套）；LLM 精炼条款锚/争议点留给后续步。
+行业实践：附件/底料先组装为双方共享的证据包，再开辩；禁止对同一附件各自深挖 ReAct。
+本模块只负责契约 + 从主持人上下文机械组装 + 完整度驱动的外证跳过计划（庭前舰队已删；
+发言期有界预算见 ``debater_budgets_from_completeness``）；LLM 精炼条款锚/争议点留给后续步。
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ EvidenceSourceKind = Literal[
     "workspace",
 ]
 PackCompleteness = Literal["full", "partial", "empty"]
-ExternalEvidenceMode = Literal["skip", "gap_fill", "investigators"]
+# 庭前舰队已删：外证计划恒为 skip（观测字段仍保留 mode/reason）。
+ExternalEvidenceMode = Literal["skip"]
 ExternalEvidencePath = Literal[
     "evidence_pack",
-    "investigators",
-    "dossier_sufficient",
+    "no_pack",
     "fast",
 ]
 
@@ -237,7 +237,7 @@ def assemble_evidence_pack_from_host(
     """若主持人上下文已有可用正文附件 → 组装 Evidence Pack；否则 ``None``。
 
     判定：``<attached_files>`` 内至少一条 File/Conversation 带来源正文。
-    纯 binary / 空正文 / 仅 Directory → 不走本路径（保留调查员外证分支）。
+    纯 binary / 空正文 / 仅 Directory → 不走本路径（回落 no_pack）。
     """
     sources = parse_attached_file_sources(system_prompt)
     usable = [
@@ -278,7 +278,7 @@ def assemble_evidence_pack_from_host(
     disputes = thin_dispute_candidates(sides, source_ids=source_ids) if sides else []
     notes = (
         f"从主持人上下文组装共享证据包（{len(usable)} 份可用正文附件）；"
-        "庭前不启动双方调查员对同一附件的深度 file_read/grep。"
+        "庭前不派员、不对同一附件深度 file_read/grep。"
     )
     return EvidencePack(
         sources=pack_sources,
@@ -291,7 +291,7 @@ def assemble_evidence_pack_from_host(
 
 @dataclass(frozen=True)
 class ExternalEvidencePlan:
-    """缺口驱动的有界外证计划——次数走 ``RunSpec.retrieval_budget``，停止条件写在代码里。"""
+    """完整度驱动的外证跳过计划（庭前舰队已删；发言期预算另见 debater_budgets）。"""
 
     mode: ExternalEvidenceMode
     retrieval_budget: int
@@ -302,7 +302,7 @@ class ExternalEvidencePlan:
 
     @property
     def allow_external(self) -> bool:
-        return self.mode != "skip" and self.retrieval_budget > 0
+        return False
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -316,122 +316,58 @@ class ExternalEvidencePlan:
         }
 
 
+def _skip_plan(*, reason: str) -> ExternalEvidencePlan:
+    return ExternalEvidencePlan(
+        mode="skip",
+        retrieval_budget=0,
+        sides=(),
+        allow_read_url=False,
+        max_tasks_per_side=0,
+        reason=reason,
+    )
+
+
 def resolve_external_evidence_plan(
     *,
     completeness: PackCompleteness,
-    failed_sides: Sequence[str] = (),
     path: ExternalEvidencePath,
-    side_keys: Sequence[str] = (),
 ) -> ExternalEvidencePlan:
-    """由完整度 / 失败方 / 路径解析外证计划（产品约束，非模型读 error 后自停）。
+    """由完整度 / 路径解析外证计划：庭前永不派员（恒 skip）。
 
-    - ``evidence_pack`` + ``full`` → 跳过外证（不派调查员、不扫网）
-    - ``evidence_pack`` + ``partial``/``empty`` → 有界增量补证（每方 ≤1 任务、残搜槽位）
-    - ``investigators`` → 全量取证员预算（无可用正文附件时）
-    - ``failed_sides`` 非空时 gap_fill 仅覆盖失败方
+    - ``fast`` → skip
+    - ``evidence_pack`` + ``full`` → skip（``evidence_pack_full``）
+    - ``evidence_pack`` + ``partial``/``empty`` → skip（发言期对称有界预算）
+    - ``no_pack`` → skip（发言期对称有界预算）
     """
-    from agentcore.runtime.debate.constants import (
-        BOUNDED_GAP_FILL_RETRIEVAL_BUDGET,
-        DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
-        MAX_GAP_FILL_TASKS_PER_SIDE,
-        MAX_INVESTIGATORS_PER_SIDE,
-    )
-
-    keys = tuple(k for k in side_keys if k)
-    failed = tuple(sorted({s for s in failed_sides if s}))
-
     if path == "fast":
-        return ExternalEvidencePlan(
-            mode="skip",
-            retrieval_budget=0,
-            sides=(),
-            allow_read_url=False,
-            max_tasks_per_side=0,
-            reason="fast",
-        )
-    if path == "dossier_sufficient":
-        return ExternalEvidencePlan(
-            mode="skip",
-            retrieval_budget=0,
-            sides=(),
-            allow_read_url=False,
-            max_tasks_per_side=0,
-            reason="dossier_sufficient",
-        )
+        return _skip_plan(reason="fast")
     if path == "evidence_pack":
-        if completeness == "full" and not failed:
-            return ExternalEvidencePlan(
-                mode="skip",
-                retrieval_budget=0,
-                sides=(),
-                allow_read_url=False,
-                max_tasks_per_side=0,
-                reason="evidence_pack_full",
-            )
-        target = failed if failed else keys
-        return ExternalEvidencePlan(
-            mode="gap_fill",
-            retrieval_budget=BOUNDED_GAP_FILL_RETRIEVAL_BUDGET,
-            sides=target,
-            allow_read_url=True,
-            max_tasks_per_side=MAX_GAP_FILL_TASKS_PER_SIDE,
-            reason="evidence_pack_gap" if not failed else "failed_sides_gap",
-        )
-    # investigators：无可用正文附件 → 全量外证；若调用方已带 failed_sides（增量）则收窄。
-    if failed:
-        return ExternalEvidencePlan(
-            mode="gap_fill",
-            retrieval_budget=BOUNDED_GAP_FILL_RETRIEVAL_BUDGET,
-            sides=failed,
-            allow_read_url=True,
-            max_tasks_per_side=MAX_GAP_FILL_TASKS_PER_SIDE,
-            reason="failed_sides_gap",
-        )
-    return ExternalEvidencePlan(
-        mode="investigators",
-        retrieval_budget=DEFAULT_INVESTIGATOR_RETRIEVAL_BUDGET,
-        sides=keys,
-        allow_read_url=True,
-        max_tasks_per_side=MAX_INVESTIGATORS_PER_SIDE,
-        reason="investigators",
-    )
-
-
-def merge_gap_fill_completeness(
-    pack: EvidencePack,
-    outcomes: Sequence[Any],
-) -> tuple[PackCompleteness, list[str]]:
-    """补证结果回写完整度：外证缺口闭合 → full；仍有失败方 → partial/empty（保底有包体则 partial）。"""
-    inv_c, failed = completeness_from_investigator_outcomes(outcomes)
-    if not outcomes:
-        return pack.completeness, []
-    if inv_c == "full":
-        return "full", []
-    if inv_c == "partial":
-        return "partial", failed
-    if pack.has_usable_body():
-        return "partial", failed
-    return "empty", failed
+        if completeness == "full":
+            return _skip_plan(reason="evidence_pack_full")
+        if completeness == "partial":
+            return _skip_plan(reason="evidence_pack_partial")
+        return _skip_plan(reason="evidence_pack_empty")
+    return _skip_plan(reason="no_pack")
 
 
 def debater_budgets_from_completeness(
     *,
     side_keys: Sequence[str],
     completeness: PackCompleteness,
-    failed_sides: Sequence[str] = (),
 ) -> dict[str, int]:
-    """庭前后辩手 per-side ``retrieval_budget``：full→0；缺口方→有界残搜；其余→0。"""
+    """庭前后辩手 per-side ``retrieval_budget``。
+
+    - ``full`` → 0（共享包已充分，禁外证扫网）
+    - ``partial``/``empty`` → 各方对称有界残搜（``BOUNDED_GAP_FILL_RETRIEVAL_BUDGET``）
+    """
     from agentcore.runtime.debate.constants import BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
 
-    failed = {s for s in failed_sides if s}
     out: dict[str, int] = {}
     for key in side_keys:
         if not key:
             continue
-        if completeness == "full" and not failed:
+        if completeness == "full":
             out[key] = 0
-        elif failed:
-            out[key] = BOUNDED_GAP_FILL_RETRIEVAL_BUDGET if key in failed else 0
         elif completeness in ("partial", "empty"):
             out[key] = BOUNDED_GAP_FILL_RETRIEVAL_BUDGET
         else:
@@ -442,43 +378,18 @@ def debater_budgets_from_completeness(
 def format_evidence_completeness_notice(
     *,
     completeness: PackCompleteness,
-    failed_sides: Sequence[str] = (),
     path: str = "",
 ) -> str:
     """写入案卷索引 / 主持人 frame 可见的「证据不完整」显式标注。"""
     if completeness == "full":
         return ""
-    sides = "、".join(s for s in failed_sides if s) or "（未点名方）"
     path_bit = f"路径={path}；" if path else ""
     return (
         "【庭前取证·证据不完整】"
-        f"{path_bit}完整度={completeness}；失败/缺口方={sides}。"
+        f"{path_bit}完整度={completeness}。"
         "开辩与审议时【禁止】假定已充分取证；缺证侧主张须标【待核实】，"
         "主持人开场与双方发言须显式承认本侧或共享包证据缺口。\n"
     )
-
-
-def completeness_from_investigator_outcomes(
-    outcomes: Sequence[Any],
-) -> tuple[PackCompleteness, list[str]]:
-    """由调查员交付结果推导完整度 + 失败方（任一侧有未有效交付 → 列入 failed_sides）。"""
-    if not outcomes:
-        return "empty", []
-    by_side: dict[str, list[bool]] = {}
-    for o in outcomes:
-        sk = str(getattr(o, "side_key", "") or "")
-        if not sk:
-            continue
-        by_side.setdefault(sk, []).append(bool(getattr(o, "ok", False)))
-    if not by_side:
-        return "empty", []
-    failed_sides = sorted(sk for sk, oks in by_side.items() if not all(oks))
-    ok_n = sum(1 for o in outcomes if bool(getattr(o, "ok", False)))
-    if ok_n == len(outcomes) and not failed_sides:
-        return "full", []
-    if ok_n > 0:
-        return "partial", failed_sides
-    return "empty", failed_sides
 
 
 def format_evidence_pack_index(pack: EvidencePack) -> str:

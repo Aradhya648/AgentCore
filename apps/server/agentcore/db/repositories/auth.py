@@ -1,5 +1,4 @@
-"""Auth / account-security data access: credentials, BYOK keys, refresh tokens,
-invites."""
+"""Auth / account-security data access: credentials, BYOK keys, refresh tokens."""
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -9,31 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.config import settings
 from agentcore.core.types import new_id
-from agentcore.db.models import Credentials, Invite, RefreshToken, UserLlmProvider
-from agentcore.db.repositories._base import _UNSET, _ilike_pattern, commit_or_flush
+from agentcore.db.models import Credentials, RefreshToken, UserLlmProvider
+from agentcore.db.repositories._base import _UNSET, commit_or_flush
 from agentcore.llm.profiles import DEEPSEEK_V4_FLASH
-
-
-def _invite_status_clause(status: str, *, now: datetime):
-    """SQL filter mirroring ``_invite_status`` in api/routes/auth.py."""
-    if status == "used":
-        return Invite.used_at.isnot(None)
-    if status == "revoked":
-        return and_(Invite.used_at.is_(None), Invite.revoked_at.isnot(None))
-    if status == "expired":
-        return and_(
-            Invite.used_at.is_(None),
-            Invite.revoked_at.is_(None),
-            Invite.expires_at.isnot(None),
-            Invite.expires_at <= now,
-        )
-    if status == "active":
-        return and_(
-            Invite.used_at.is_(None),
-            Invite.revoked_at.is_(None),
-            or_(Invite.expires_at.is_(None), Invite.expires_at > now),
-        )
-    raise ValueError(f"unknown invite status filter: {status}")
 
 
 class CredentialsRepository:
@@ -290,6 +267,7 @@ class RefreshTokenRepository:
         ip: str | None = None,
         family_started_at: datetime | None = None,
         last_used_at: datetime | None = None,
+        persist_session: bool = True,
         commit: bool = True,
     ) -> RefreshToken:
         now = datetime.now(UTC)
@@ -305,6 +283,7 @@ class RefreshTokenRepository:
             ip=ip,
             family_started_at=family_started_at or now,
             last_used_at=last_used_at or now,
+            persist_session=persist_session,
         )
         self._session.add(token)
         await commit_or_flush(self._session, commit=commit)
@@ -435,124 +414,3 @@ class RefreshTokenRepository:
         )
         await self._session.commit()
         return int(getattr(result, "rowcount", 0) or 0)
-
-
-class InviteRepository:
-    def __init__(self, session: AsyncSession):
-        self._session = session
-
-    async def create(
-        self,
-        *,
-        code: str,
-        created_by: str | None = None,
-        expires_at: datetime | None = None,
-    ) -> Invite:
-        invite = Invite(
-            id=new_id(),
-            code=code,
-            created_by=created_by,
-            expires_at=expires_at,
-        )
-        self._session.add(invite)
-        await self._session.commit()
-        await self._session.refresh(invite)
-        return invite
-
-    async def create_many(
-        self,
-        *,
-        codes: list[str],
-        created_by: str | None = None,
-        expires_at: datetime | None = None,
-    ) -> Sequence[Invite]:
-        invites = [
-            Invite(
-                id=new_id(),
-                code=code,
-                created_by=created_by,
-                expires_at=expires_at,
-            )
-            for code in codes
-        ]
-        self._session.add_all(invites)
-        await self._session.commit()
-        for invite in invites:
-            await self._session.refresh(invite)
-        return invites
-
-    async def get_by_code(self, code: str) -> Invite | None:
-        result = await self._session.execute(select(Invite).where(Invite.code == code))
-        return result.scalar_one_or_none()
-
-    async def get_by_id(self, invite_id: str) -> Invite | None:
-        result = await self._session.execute(select(Invite).where(Invite.id == invite_id))
-        return result.scalar_one_or_none()
-
-    async def list_recent(self, *, limit: int = 100) -> Sequence[Invite]:
-        result = await self._session.execute(
-            select(Invite).order_by(Invite.created_at.desc()).limit(limit)
-        )
-        return result.scalars().all()
-
-    async def list_page(
-        self,
-        *,
-        offset: int,
-        limit: int,
-        status: str | None = None,
-        search: str | None = None,
-        now: datetime | None = None,
-    ) -> tuple[Sequence[Invite], int]:
-        now = now or datetime.now(UTC)
-        filters = [_invite_status_clause(status, now=now)] if status is not None else []
-        q = (search or "").strip()
-        if q:
-            filters.append(Invite.code.ilike(_ilike_pattern(q)))
-
-        total_result = await self._session.execute(
-            select(func.count()).select_from(Invite).where(*filters)
-        )
-        total = total_result.scalar_one()
-
-        result = await self._session.execute(
-            select(Invite)
-            .where(*filters)
-            .order_by(Invite.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return result.scalars().all(), total
-
-    async def count_by_status(self, *, now: datetime | None = None) -> dict[str, int]:
-        """Return mutually-exclusive status counts plus total (mirrors list filters)."""
-        now = now or datetime.now(UTC)
-        total = await self._session.scalar(select(func.count()).select_from(Invite))
-        counts: dict[str, int] = {"total": int(total or 0)}
-        for status in ("active", "used", "expired", "revoked"):
-            n = await self._session.scalar(
-                select(func.count())
-                .select_from(Invite)
-                .where(_invite_status_clause(status, now=now))
-            )
-            counts[status] = int(n or 0)
-        return counts
-
-    async def mark_used(self, invite_id: str, *, used_by: str) -> None:
-        await self._session.execute(
-            update(Invite)
-            .where(Invite.id == invite_id)
-            .values(used_by=used_by, used_at=datetime.now(UTC))
-        )
-        await self._session.commit()
-
-    async def revoke(self, invite_id: str, *, revoked_at: datetime) -> Invite | None:
-        """Stamp ``revoked_at`` and return the fresh row (ORM mutate + refresh so the
-        returned object is fully populated under async expire-on-commit)."""
-        invite = await self.get_by_id(invite_id)
-        if invite is None:
-            return None
-        invite.revoked_at = revoked_at
-        await self._session.commit()
-        await self._session.refresh(invite)
-        return invite

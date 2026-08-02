@@ -60,7 +60,7 @@ async def test_workspace_files_requires_auth(client):
     assert r.status_code == 401
 
 
-async def test_create_conversation_records_local_intent(client, make_invite, _fs_data_dir):
+async def test_create_conversation_records_local_intent(client, _fs_data_dir):
     """A desktop 裸聊 is born carrying its local-container intent (工作区对称化 D1a).
 
     Storing it on the conversation (vs. per-turn) is what makes every later promotion
@@ -68,8 +68,7 @@ async def test_create_conversation_records_local_intent(client, make_invite, _fs
     read model; it's recorded only for a 裸聊 (a foldered chat inherits its folder's
     binding, so the field is dropped).
     """
-    code = await make_invite("INV-WS-INTENT")
-    await register_and_login(client, code, "wsintent")
+    await register_and_login(client, "wsintent")
 
     r = await client.post("/v1/conversations", json={"local_container_root_id": "root-abc"})
     assert r.status_code == 201, r.text
@@ -91,10 +90,9 @@ async def test_create_conversation_records_local_intent(client, make_invite, _fs
     assert r.json()["local_container_root_id"] is None
 
 
-async def test_project_conversations_share_cloud_workspace(client, make_invite, _fs_data_dir):
+async def test_project_conversations_share_cloud_workspace(client, _fs_data_dir):
     """Cloud project chats inherit shared folder:<id> space (not per-conv scratch)."""
-    code = await make_invite("INV-WS-SHARE")
-    await register_and_login(client, code, "wsshare")
+    await register_and_login(client, "wsshare")
     folder = (
         await client.post("/v1/folders", json={"name": "Shared", "mode": "cloud"})
     ).json()
@@ -125,9 +123,8 @@ async def test_project_conversations_share_cloud_workspace(client, make_invite, 
     assert "notes/a.txt" in {e["path"] for e in r.json()["data"]}
 
 
-async def test_upload_list_download_roundtrip(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WS-1")
-    await register_and_login(client, code, "wsuser1")
+async def test_upload_list_download_roundtrip(client, _fs_data_dir):
+    await register_and_login(client, "wsuser1")
     conv_id = await _new_conversation(client)
 
     body = b"hello-from-upload\x00\x01"  # includes non-text bytes
@@ -153,9 +150,8 @@ async def test_upload_list_download_roundtrip(client, make_invite, _fs_data_dir)
     assert r.status_code == 404
 
 
-async def test_delete_and_move_workspace_files(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WS-MV")
-    await register_and_login(client, code, "wsmover")
+async def test_delete_and_move_workspace_files(client, _fs_data_dir):
+    await register_and_login(client, "wsmover")
     conv_id = await _new_conversation(client)
 
     await client.put(f"/v1/conversations/{conv_id}/workspace/files/a.txt", content=b"A")
@@ -194,9 +190,8 @@ async def test_delete_and_move_workspace_files(client, make_invite, _fs_data_dir
     ).status_code == 404
 
 
-async def test_create_workspace_dir(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WS-MKDIR")
-    await register_and_login(client, code, "wsmkdir")
+async def test_create_workspace_dir(client, _fs_data_dir):
+    await register_and_login(client, "wsmkdir")
     conv_id = await _new_conversation(client)
 
     # Create a nested folder (parents are created).
@@ -224,9 +219,8 @@ async def test_create_workspace_dir(client, make_invite, _fs_data_dir):
     assert r.status_code == 200 and r.content == b"X"
 
 
-async def test_snapshot_create_list_restore_download(client, make_invite, _fs_data_dir):
-    code = await make_invite("INV-WS-2")
-    await register_and_login(client, code, "wsuser2")
+async def test_snapshot_create_list_restore_download(client, _fs_data_dir):
+    await register_and_login(client, "wsuser2")
     conv_id = await _new_conversation(client)
 
     # Seed v1, snapshot it, then overwrite with v2.
@@ -264,7 +258,7 @@ async def test_snapshot_create_list_restore_download(client, make_invite, _fs_da
     ).status_code == 404
 
 
-async def test_clone_repo_into_workspace(client, make_invite, _fs_data_dir, tmp_path, monkeypatch):
+async def test_clone_repo_into_workspace(client, _fs_data_dir, tmp_path, monkeypatch):
     if shutil.which("git") is None:
         pytest.skip("git not installed")
     src = tmp_path / "source-repo"
@@ -276,8 +270,7 @@ async def test_clone_repo_into_workspace(client, make_invite, _fs_data_dir, tmp_
 
     monkeypatch.setattr(gitmod, "_validate_url", lambda url: None)
 
-    code = await make_invite("INV-WS-CLONE")
-    await register_and_login(client, code, "wscloner")
+    await register_and_login(client, "wscloner")
     conv_id = await _new_conversation(client)
 
     r = await client.post(
@@ -300,16 +293,14 @@ async def test_clone_repo_into_workspace(client, make_invite, _fs_data_dir, tmp_
     assert r.status_code == 422, r.text
 
 
-async def test_other_user_cannot_touch_workspace(client, new_client, make_invite, _fs_data_dir):
+async def test_other_user_cannot_touch_workspace(client, new_client, _fs_data_dir):
     """A conversation's workspace is scoped to its owner (IDOR-safe → 404)."""
-    code_a = await make_invite("INV-WS-A")
-    await register_and_login(client, code_a, "owner")
+    await register_and_login(client, "owner")
     conv_id = await _new_conversation(client)
     await client.put(f"/v1/conversations/{conv_id}/workspace/files/secret.txt", content=b"top")
 
-    code_b = await make_invite("INV-WS-B")
     async with new_client() as other:
-        await register_and_login(other, code_b, "intruder")
+        await register_and_login(other, "intruder")
         assert (await other.get(f"/v1/conversations/{conv_id}/workspace/files")).status_code == 404
         assert (
             await other.get(f"/v1/conversations/{conv_id}/workspace/files/secret.txt")

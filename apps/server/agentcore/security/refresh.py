@@ -1,4 +1,4 @@
-"""Refresh tokens, invite codes, and admin temp passwords (stdlib crypto)."""
+"""Refresh tokens and admin temp passwords (stdlib crypto)."""
 
 import hashlib
 import secrets
@@ -24,11 +24,6 @@ def generate_refresh_token() -> tuple[str, str]:
     """Return ``(raw, hash)``: send ``raw`` to the client, persist ``hash``."""
     raw = secrets.token_urlsafe(48)
     return raw, hash_refresh_token(raw)
-
-
-def generate_invite_code() -> str:
-    """Return a high-entropy, URL-safe invite code for admin-issued invites."""
-    return secrets.token_urlsafe(12)
 
 
 def generate_temp_password() -> str:

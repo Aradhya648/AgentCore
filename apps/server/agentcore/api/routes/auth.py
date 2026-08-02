@@ -8,11 +8,9 @@ M2) whose origin can't rely on SameSite cookies — they send ``Authorization: B
 instead (认证与会话.md §十; resolution in api/dependencies.py).
 """
 
-from collections.abc import Sequence
-from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.admin.audit import record_admin_audit
@@ -20,7 +18,6 @@ from agentcore.api.account_cleanup import cleanup_account_resources
 from agentcore.api.dependencies import (
     ACCESS_TOKEN_COOKIE,
     AdminSessionUser,
-    AdminUser,
     AuthUser,
     get_admin_mfa_service,
     get_asset_storage,
@@ -32,16 +29,10 @@ from agentcore.api.dependencies import (
     get_messaging_service,
     get_shared_space_service,
     get_user_llm_provider_repo,
-    get_user_repo,
 )
 from agentcore.api.schemas import (
-    BatchCreateInviteRequest,
     ChangePasswordRequest,
-    CreateInviteRequest,
     DeleteAccountRequest,
-    InviteListResponse,
-    InviteResponse,
-    InviteStatsResponse,
     LoginMfaRequest,
     LoginRequest,
     LoginResponse,
@@ -66,13 +57,12 @@ from agentcore.auth.service import LoginResult, SessionMeta
 from agentcore.config import settings
 from agentcore.core.errors import AuthenticationError, ValidationError
 from agentcore.core.logging import get_logger
-from agentcore.db.models import Invite, User
+from agentcore.db.models import User
 from agentcore.db.repositories import (
     ConversationRepository,
     ConversationShareRepository,
     CredentialsRepository,
     UserLlmProviderRepository,
-    UserRepository,
 )
 from agentcore.messaging import MessagingService
 from agentcore.middleware.csrf import clear_csrf_token, issue_csrf_token
@@ -148,79 +138,39 @@ async def _user_response_for(
     return _user_response(user, password_must_change=bool(creds and creds.password_must_change))
 
 
-def _invite_status(
-    invite: Invite, now: datetime
-) -> Literal["active", "used", "expired", "revoked"]:
-    # Terminal first: a consumed code stays "used" even if later revoked/expired.
-    if invite.used_at is not None:
-        return "used"
-    if invite.revoked_at is not None:
-        return "revoked"
-    if invite.expires_at is not None and invite.expires_at <= now:
-        return "expired"
-    return "active"
-
-
-def _invite_response(
-    invite: Invite,
-    now: datetime,
+def _set_auth_cookies(
+    response: Response,
+    tokens: TokenPair,
     *,
-    users_by_id: dict[str, User] | None = None,
-) -> InviteResponse:
-    users_by_id = users_by_id or {}
-    created_user = users_by_id.get(invite.created_by) if invite.created_by else None
-    used_user = users_by_id.get(invite.used_by) if invite.used_by else None
-    return InviteResponse(
-        id=invite.id,
-        code=invite.code,
-        status=_invite_status(invite, now),
-        created_by=invite.created_by,
-        used_by=invite.used_by,
-        created_by_username=created_user.username if created_user else None,
-        used_by_username=used_user.username if used_user else None,
-        created_at=invite.created_at,
-        expires_at=invite.expires_at,
-        used_at=invite.used_at,
-        revoked_at=invite.revoked_at,
-    )
-
-
-async def _invite_responses(
-    invites: Sequence[Invite],
-    now: datetime,
-    user_repo: UserRepository,
-) -> list[InviteResponse]:
-    user_ids = {
-        uid
-        for inv in invites
-        for uid in (inv.created_by, inv.used_by)
-        if uid is not None
+    user_id: str,
+    persist_session: bool | None = None,
+) -> None:
+    persist = tokens.persist_session if persist_session is None else persist_session
+    access_kwargs: dict = {
+        "key": ACCESS_TOKEN_COOKIE,
+        "value": tokens.access_token,
+        "httponly": True,
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "path": "/",
     }
-    users_by_id = await user_repo.get_by_ids(list(user_ids))
-    return [_invite_response(inv, now, users_by_id=users_by_id) for inv in invites]
-
-
-def _set_auth_cookies(response: Response, tokens: TokenPair, *, user_id: str) -> None:
-    response.set_cookie(
-        key=ACCESS_TOKEN_COOKIE,
-        value=tokens.access_token,
-        max_age=settings.jwt_access_token_expire_minutes * 60,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        path="/",
-    )
-    response.set_cookie(
-        key=REFRESH_TOKEN_COOKIE,
-        value=tokens.refresh_token,
-        max_age=settings.jwt_refresh_token_expire_days * 86400,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        path=_refresh_cookie_path(),
-    )
+    refresh_kwargs: dict = {
+        "key": REFRESH_TOKEN_COOKIE,
+        "value": tokens.refresh_token,
+        "httponly": True,
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "path": _refresh_cookie_path(),
+    }
+    # Persistent login sets Max-Age; persist_session=false omits it → browser
+    # session cookie (discarded when the browser closes).
+    if persist:
+        access_kwargs["max_age"] = settings.jwt_access_token_expire_minutes * 60
+        refresh_kwargs["max_age"] = settings.jwt_refresh_token_expire_days * 86400
+    response.set_cookie(**access_kwargs)
+    response.set_cookie(**refresh_kwargs)
     if settings.csrf_enabled:
-        issue_csrf_token(response, user_id)
+        issue_csrf_token(response, user_id, persist_session=persist)
 
 
 def _clear_auth_cookies(response: Response, *, user_id: str | None = None) -> None:
@@ -267,6 +217,7 @@ async def login(
         password=body.password,
         platform=platform,
         meta=_session_meta_from_request(request, platform=platform),
+        persist_session=body.persist_session,
     )
     if result.tokens is not None:
         _set_auth_cookies(response, result.tokens, user_id=result.user.user_id)
@@ -341,6 +292,12 @@ async def logout(
 # sends `Authorization: Bearer <access>` on every call (resolved in api/dependencies.py).
 
 
+def _refresh_expires_in_seconds(*, persist_session: bool) -> int:
+    if persist_session:
+        return settings.jwt_refresh_token_expire_days * 86400
+    return settings.ephemeral_refresh_family_max_hours * 3600
+
+
 def _token_response(
     tokens: TokenPair,
     *,
@@ -351,7 +308,9 @@ def _token_response(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
         expires_in=settings.jwt_access_token_expire_minutes * 60,
-        refresh_expires_in=settings.jwt_refresh_token_expire_days * 86400,
+        refresh_expires_in=_refresh_expires_in_seconds(
+            persist_session=tokens.persist_session
+        ),
         user=_user_response(user, password_must_change=password_must_change)
         if user is not None
         else None,
@@ -373,6 +332,7 @@ async def token_login(
         password=body.password,
         platform=platform,
         meta=_session_meta_from_request(request, platform=platform),
+        persist_session=body.persist_session,
     )
     if result.mfa_required:
         raise AuthenticationError("MFA required — complete /v1/auth/login/mfa first")
@@ -611,116 +571,3 @@ async def mfa_confirm(
         target_id=user.user_id,
     )
     return MfaConfirmResponse(recovery_codes=result.recovery_codes)
-
-
-@router.post("/invites", response_model=InviteResponse, status_code=201)
-async def create_invite(
-    admin: AdminUser,
-    body: CreateInviteRequest | None = None,
-    service: AuthService = Depends(get_auth_service),
-    user_repo: UserRepository = Depends(get_user_repo),
-    db: AsyncSession = Depends(get_db),
-):
-    invite = await service.create_invite(
-        created_by=admin.user_id,
-        expires_in_days=body.expires_in_days if body else None,
-    )
-    await record_admin_audit(
-        db,
-        actor_id=admin.user_id,
-        action="invite.create",
-        target_type="invite",
-        target_id=invite.id,
-        detail={"expires_in_days": body.expires_in_days if body else None},
-    )
-    now = datetime.now(UTC)
-    users = await user_repo.get_by_ids([admin.user_id])
-    return _invite_response(invite, now, users_by_id=users)
-
-
-@router.post("/invites/batch", response_model=InviteListResponse, status_code=201)
-async def create_invites_batch(
-    admin: AdminUser,
-    body: BatchCreateInviteRequest,
-    service: AuthService = Depends(get_auth_service),
-    user_repo: UserRepository = Depends(get_user_repo),
-    db: AsyncSession = Depends(get_db),
-):
-    """Mint multiple single-use invite codes (admin batch issuance)."""
-    invites = await service.create_invites_batch(
-        created_by=admin.user_id,
-        count=body.count,
-        expires_in_days=body.expires_in_days,
-    )
-    await record_admin_audit(
-        db,
-        actor_id=admin.user_id,
-        action="invite.batch_create",
-        target_type="invite",
-        detail={"count": body.count, "expires_in_days": body.expires_in_days},
-    )
-    now = datetime.now(UTC)
-    data = await _invite_responses(invites, now, user_repo)
-    return InviteListResponse(
-        data=data,
-        total=len(invites),
-    )
-
-
-@router.get("/invites/stats", response_model=InviteStatsResponse)
-async def invite_stats(
-    admin: AdminUser,
-    service: AuthService = Depends(get_auth_service),
-):
-    counts = await service.invite_stats()
-    return InviteStatsResponse(**counts)
-
-
-@router.get("/invites", response_model=InviteListResponse)
-async def list_invites(
-    admin: AdminUser,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=100),
-    status: Literal["active", "used", "expired", "revoked"] | None = Query(None),
-    search: str | None = Query(None, max_length=64),
-    service: AuthService = Depends(get_auth_service),
-    user_repo: UserRepository = Depends(get_user_repo),
-):
-    now = datetime.now(UTC)
-    invites, total = await service.list_invites(
-        page=page,
-        page_size=page_size,
-        status=status,
-        search=search,
-    )
-    data = await _invite_responses(invites, now, user_repo)
-    return InviteListResponse(
-        data=data,
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@router.post("/invites/{invite_id}/revoke", response_model=InviteResponse)
-async def revoke_invite(
-    invite_id: str,
-    admin: AdminUser,
-    service: AuthService = Depends(get_auth_service),
-    user_repo: UserRepository = Depends(get_user_repo),
-    db: AsyncSession = Depends(get_db),
-):
-    """Retire an unused invite (邀请码撤销). 404 unknown id; 422 if already used/revoked.
-    Returns the now-revoked invite so the client can update the row in place."""
-    invite = await service.revoke_invite(invite_id=invite_id)
-    await record_admin_audit(
-        db,
-        actor_id=admin.user_id,
-        action="invite.revoke",
-        target_type="invite",
-        target_id=invite_id,
-    )
-    now = datetime.now(UTC)
-    user_ids = [uid for uid in (invite.created_by, invite.used_by) if uid is not None]
-    users = await user_repo.get_by_ids(user_ids)
-    return _invite_response(invite, now, users_by_id=users)

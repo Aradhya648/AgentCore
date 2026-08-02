@@ -70,31 +70,16 @@ _FILE_EXTENSIONS: dict[str, str] = {
 
 _HOST_BIND_PATHS = ("/usr", "/lib", "/lib64", "/bin", "/etc")
 
-# runsc bind mounts sourced from the api container overlay (default /tmp) fail
-# mkdir with EINVAL inside gVisor; bundles must live on the DATA_DIR volume.
-_LEGACY_RUNTIME_ROOT = "/tmp/agentcore-sandbox"
+# Bundles must live on the DATA_DIR volume (settings.gvisor_runtime_root);
+# container /tmp overlay makes runsc mkdir fail with EINVAL inside gVisor.
 _ARTIFACT_MARKER = "__AGENTCORE_ARTIFACTS__"
 
 
 def _resolve_runtime_root(explicit: str | None) -> str:
+    """Prefer constructor override; else settings (default under data_dir)."""
     if explicit:
         return explicit
-    configured = settings.gvisor_runtime_root
-    if configured != _LEGACY_RUNTIME_ROOT:
-        return configured
-    for candidate in (
-        Path(settings.data_dir) / "sandbox",
-        Path("/data/sandbox"),
-    ):
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            probe = candidate / ".write_probe"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
-            return str(candidate.resolve())
-        except OSError:
-            continue
-    return configured
+    return settings.gvisor_runtime_root
 
 
 def _strip_artifact_payload(stdout: str) -> tuple[str, dict[str, str]]:

@@ -34,9 +34,8 @@ def _saturate(user_id: str) -> None:
         message_rate_limiter.check(user_id)
 
 
-async def test_send_message_blocked_when_rate_limited(client, make_invite, session_factory):
-    code = await make_invite("INV-RATE")
-    user_id = await register_and_login(client, code, "rateuser")
+async def test_send_message_blocked_when_rate_limited(client, session_factory):
+    user_id = await register_and_login(client, "rateuser")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
 
     # Re-enable rate limiting (the suite disables it globally) and saturate this
@@ -44,24 +43,29 @@ async def test_send_message_blocked_when_rate_limited(client, make_invite, sessi
     settings.rate_limit_enabled = True
     _saturate(user_id)
 
-    r = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{conv_id}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
 
     assert r.status_code == 429, r.text
     assert r.json()["error"]["code"] == "RATE_LIMITED"
     assert r.headers.get("retry-after")
 
 
-async def test_rate_limit_precedes_ownership_check(client, make_invite, session_factory):
+async def test_rate_limit_precedes_ownership_check(client, session_factory):
     # Rate limiting is the outermost gate: a saturated account hitting a
     # conversation it doesn't own still gets 429 (not 404), shedding load before
     # any resource-specific DB work.
-    code = await make_invite("INV-RATE-OWN")
-    user_id = await register_and_login(client, code, "rateowner")
+    user_id = await register_and_login(client, "rateowner")
 
     settings.rate_limit_enabled = True
     _saturate(user_id)
 
-    r = await client.post(f"/v1/conversations/{new_id()}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{new_id()}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
 
     assert r.status_code == 429, r.text
     assert r.json()["error"]["code"] == "RATE_LIMITED"

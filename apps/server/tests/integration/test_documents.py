@@ -30,8 +30,8 @@ _BUDGET = {"max_docs": 32, "max_chars": 24_000}
 # --- Tree CRUD API ---------------------------------------------------------------------------
 
 
-async def test_document_tree_crud_roundtrip(client, make_invite):
-    await register_and_login(client, None, "docu1")
+async def test_document_tree_crud_roundtrip(client):
+    await register_and_login(client, "docu1")
 
     # A folder node (user-owned → ai_maintained forced false).
     r = await client.post("/v1/documents", json={"name": "规则集", "kind": "folder"})
@@ -80,14 +80,14 @@ async def test_document_tree_crud_roundtrip(client, make_invite):
     assert (await client.get(f"/v1/documents/{folder['id']}")).status_code == 404
 
 
-async def test_documents_are_owner_scoped(client, new_client, make_invite):
-    await register_and_login(client, None, "docu2a")
+async def test_documents_are_owner_scoped(client, new_client):
+    await register_and_login(client, "docu2a")
     r = await client.post(
         "/v1/documents", json={"name": "私密.md", "role": "rule", "content": "x"}
     )
     doc_id = r.json()["id"]
     async with new_client() as other:
-        await register_and_login(other, None, "docu2b")
+        await register_and_login(other, "docu2b")
         assert (await other.get(f"/v1/documents/{doc_id}")).status_code == 404
         assert (await other.delete(f"/v1/documents/{doc_id}")).status_code == 404
 
@@ -505,8 +505,8 @@ async def test_dual_memory_roots_soft_deletes_empty_bare(session_factory):
         assert kept is not None and kept.parent_id == under_id
 
 
-async def test_create_rule_api_auto_parents_under_agentcore(client, make_invite):
-    await register_and_login(client, None, "acrule")
+async def test_create_rule_api_auto_parents_under_agentcore(client):
+    await register_and_login(client, "acrule")
     r = await client.post(
         "/v1/documents",
         json={"name": "新规则.md", "kind": "document", "role": "rule", "content": "x"},

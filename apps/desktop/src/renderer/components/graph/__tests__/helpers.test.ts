@@ -383,8 +383,8 @@ describe("computeGraphFold · debate compound", () => {
     expect(fold.unitOf.get("mod_r4_con")).toBe("mod");
   });
 
-  it("does not promote debaters to debateUnits when pretrial investigators hang under them", () => {
-    // 取证员 parent=主辩；group 须在 debate: 参与者命名空间之外，否则主辩被晋升独立单元 → 假分带。
+  it("does not promote non-participant children under debaters to debateUnits", () => {
+    // 白名单外 group 挂在主辩下时，主辩不得晋升独立单元 → 假分带。
     const runs: GraphRunLike[] = [
       { id: "mod", dependsOn: [], parentRunId: null, kind: "agent" },
       {
@@ -402,16 +402,16 @@ describe("computeGraphFold · debate compound", () => {
         group: "debate:debate",
       },
       {
-        id: "inv_pro",
+        id: "aux_pro",
         dependsOn: [],
         parentRunId: "mod_r1_pro",
-        group: "pretrial:investigators:pro",
+        group: "other:aux:pro",
       },
       {
-        id: "inv_con",
+        id: "aux_con",
         dependsOn: [],
         parentRunId: "mod_r1_con",
-        group: "pretrial:investigators:con",
+        group: "other:aux:con",
       },
     ];
     const fold = computeGraphFold(runs, null);
@@ -419,8 +419,8 @@ describe("computeGraphFold · debate compound", () => {
     expect(fold.debateUnits.has("mod_r1_pro")).toBe(false);
     expect(fold.debateUnits.has("mod_r1_con")).toBe(false);
     expect(fold.unitOf.get("mod_r1_pro")).toBe("mod");
-    expect(fold.unitOf.get("inv_pro")).toBe("mod");
-    expect(fold.unitOf.get("inv_con")).toBe("mod");
+    expect(fold.unitOf.get("aux_pro")).toBe("mod");
+    expect(fold.unitOf.get("aux_con")).toBe("mod");
     const { subTeams } = buildGraphStructure(runs, "__input__");
     expect(subTeams).toHaveLength(1);
     expect(subTeams[0]?.parentId).toBe("mod");
@@ -428,20 +428,20 @@ describe("computeGraphFold · debate compound", () => {
       expect.arrayContaining([
         "mod_r1_pro",
         "mod_r1_con",
-        "inv_pro",
-        "inv_con",
+        "aux_pro",
+        "aux_con",
       ]),
     );
   });
 
-  it("rejects legacy debate:investigators:* as participants (defense in depth)", () => {
-    const inv: GraphRunLike = {
-      id: "inv",
+  it("rejects non-whitelist debate:* groups as participants (defense in depth)", () => {
+    const aux: GraphRunLike = {
+      id: "aux",
       dependsOn: [],
       parentRunId: "mod_r1_pro",
-      group: "debate:investigators:pro",
+      group: "debate:other:pro",
     };
-    expect(isDebateParticipantRun(inv)).toBe(false);
+    expect(isDebateParticipantRun(aux)).toBe(false);
     const runs: GraphRunLike[] = [
       { id: "mod", dependsOn: [], parentRunId: null, kind: "agent" },
       {
@@ -451,7 +451,7 @@ describe("computeGraphFold · debate compound", () => {
         stance: "pro",
         group: "debate:debate",
       },
-      inv,
+      aux,
     ];
     const fold = computeGraphFold(runs, null);
     expect(fold.debateUnits.has("mod")).toBe(true);
@@ -520,15 +520,11 @@ describe("computeGraphFold · debate compound", () => {
       ].sort(),
     );
     // 侧栏仍可辨识 beat 文案；图上质询角标随独立节点消失。
-    expect(debateBeatLabel({ round: 1, revision: 2, beat: "cross_exam" })).toBe(
+    expect(debateBeatLabel({ round: 1, beat: "cross_exam" })).toBe(
       "第 1 轮·质询",
     );
-    expect(debateBeatLabel({ round: 2, revision: 3, beat: "statement" })).toBe(
-      "第 2 轮",
-    );
-    expect(debateBeatLabel({ round: 2, revision: 5, beat: "closing" })).toBe(
-      "结辩",
-    );
+    expect(debateBeatLabel({ round: 2, beat: "statement" })).toBe("第 2 轮");
+    expect(debateBeatLabel({ round: 2, beat: "closing" })).toBe("结辩");
   });
 });
 

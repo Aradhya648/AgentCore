@@ -13,9 +13,6 @@ from agentcore.conversation.common import (
     resolve_permission_axes,
     resolve_profile_set,
 )
-
-# Patch point for tests (alias of resolve_permission_axes).
-resolve_permission_preset = resolve_permission_axes
 from agentcore.conversation.history import load_chat_context
 from agentcore.conversation.turn_backend import build_turn_backend
 from agentcore.conversation.turn_persistence import (

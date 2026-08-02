@@ -45,9 +45,8 @@ async def test_usage_endpoints_require_auth(client):
     assert (await client.get(f"/v1/conversations/{new_id()}/cost")).status_code == 401
 
 
-async def test_message_cost_returns_payroll_and_turn_total(client, make_invite, session_factory):
-    code = await make_invite("INV-PAYROLL")
-    user_id = await register_and_login(client, code, "payrolluser")
+async def test_message_cost_returns_payroll_and_turn_total(client, session_factory):
+    user_id = await register_and_login(client, "payrolluser")
 
     conv_id, msg_id = new_id(), new_id()
     cap_id, mem_id = new_id(), new_id()
@@ -84,11 +83,10 @@ async def test_message_cost_returns_payroll_and_turn_total(client, make_invite, 
     assert body["usage"]["cache_hit"] == 120
 
 
-async def test_message_cost_is_user_scoped(client, make_invite, session_factory, new_client):
+async def test_message_cost_is_user_scoped(client, session_factory, new_client):
     # A second user must never see the first user's payroll (IDOR): the query is
     # scoped by user_id, so a non-owner gets zeros + an empty roster (no leak).
-    code = await make_invite("INV-SCOPE")
-    owner_id = await register_and_login(client, code, "owneru")
+    owner_id = await register_and_login(client, "owneru")
 
     msg_id = new_id()
     async with session_factory() as session:
@@ -99,9 +97,8 @@ async def test_message_cost_is_user_scoped(client, make_invite, session_factory,
             runs=[_run(new_id(), role="captain", total=500)],
         )
 
-    code2 = await make_invite("INV-SCOPE-2")
     async with new_client() as other:
-        await register_and_login(other, code2, "otheru")
+        await register_and_login(other, "otheru")
         r = await other.get(f"/v1/messages/{msg_id}/cost")
 
     assert r.status_code == 200, r.text
@@ -111,10 +108,9 @@ async def test_message_cost_is_user_scoped(client, make_invite, session_factory,
 
 
 async def test_conversation_cost_totals_and_ownership(
-    client, make_invite, session_factory, new_client
+    client, session_factory, new_client
 ):
-    code = await make_invite("INV-CONV")
-    user_id = await register_and_login(client, code, "convuser")
+    user_id = await register_and_login(client, "convuser")
 
     # Own the conversation so the read passes the ownership gate.
     async with session_factory() as session:
@@ -141,16 +137,14 @@ async def test_conversation_cost_totals_and_ownership(
     assert body["turns"] == 2  # two distinct message_ids
 
     # A non-owner is 404'd (consistent with other conversation reads).
-    code2 = await make_invite("INV-CONV-2")
     async with new_client() as other:
-        await register_and_login(other, code2, "convother")
+        await register_and_login(other, "convother")
         r = await other.get(f"/v1/conversations/{conv_id}/cost")
     assert r.status_code == 404
 
 
-async def test_usage_summary_windows_and_quota(client, make_invite, session_factory):
-    code = await make_invite("INV-SUMMARY")
-    user_id = await register_and_login(client, code, "summaryuser")
+async def test_usage_summary_windows_and_quota(client, session_factory):
+    user_id = await register_and_login(client, "summaryuser")
 
     async with session_factory() as session:
         await CostEventRepository(session).record_runs(
@@ -187,12 +181,11 @@ async def test_usage_summary_windows_and_quota(client, make_invite, session_fact
     assert "cny_per_usd" not in body
 
 
-async def test_usage_summary_quota_shows_global_limits(client, make_invite):
+async def test_usage_summary_quota_shows_global_limits(client):
     # Every account sees the same global quota_* caps (per-user override absent).
     from agentcore.config import settings
 
-    code = await make_invite("INV-SUMMARY-Q")
-    await register_and_login(client, code, "summaryquota")
+    await register_and_login(client, "summaryquota")
 
     r = await client.get("/v1/usage/summary")
 
@@ -205,12 +198,11 @@ async def test_usage_summary_quota_shows_global_limits(client, make_invite):
 
 
 async def test_usage_summary_recent_daily_cost_buckets_by_utc_day(
-    client, make_invite, session_factory
+    client, session_factory
 ):
     # 近 7 日趋势: spend is bucketed into UTC days and zero-filled to a 7-point,
     # oldest-first series ending today; rows older than the window are excluded.
-    code = await make_invite("INV-TREND")
-    user_id = await register_and_login(client, code, "trenduser")
+    user_id = await register_and_login(client, "trenduser")
 
     now = datetime.now(UTC)
     today = now.replace(hour=12, minute=0, second=0, microsecond=0)
@@ -255,9 +247,8 @@ async def test_usage_summary_recent_daily_cost_buckets_by_utc_day(
     assert sum(p["cost_total"] for p in points) == 900
 
 
-async def test_usage_summary_empty_is_zero(client, make_invite):
-    code = await make_invite("INV-EMPTY")
-    await register_and_login(client, code, "emptyuser")
+async def test_usage_summary_empty_is_zero(client):
+    await register_and_login(client, "emptyuser")
 
     r = await client.get("/v1/usage/summary")
     assert r.status_code == 200, r.text

@@ -1,5 +1,9 @@
 import { BrandMark } from "@/components/brand/BrandMark";
 import { Button } from "@/components/ui";
+import {
+  loadRememberedUsername,
+  saveRememberedUsername,
+} from "@/lib/rememberedUsername";
 import { LegalDocPane } from "@/pages/legal/LegalDocPane";
 import type { LegalDocId } from "@/pages/legal/types";
 import { persistAgentTownSession } from "@/services/agentTownSession";
@@ -56,7 +60,7 @@ function LegalLink({
 export function LoginPage() {
   const setAuthenticated = useAuthStore((s) => s.setAuthenticated);
   const [mode, setMode] = useState<Mode>("login");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => loadRememberedUsername());
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -93,6 +97,7 @@ export function LoginPage() {
         });
       }
       const user = await login(username.trim(), password);
+      saveRememberedUsername(username.trim());
       setAuthenticated(user);
       void persistAgentTownSession();
       // N4-A: same shell-meta write as AuthGate bootstrap `authenticated`, so a

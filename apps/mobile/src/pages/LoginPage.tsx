@@ -1,4 +1,8 @@
 import { login, register } from "@/api/auth";
+import {
+  getRememberedUsername,
+  setRememberedUsername,
+} from "@/lib/rememberedUsername";
 import type { LegalDocId } from "@/pages/legal/types";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -12,7 +16,10 @@ function legalPath(id: LegalDocId): string {
 export function LoginPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("login");
-  const [username, setUsername] = useState("");
+  // Prefill last successful login username; shared across login/register tabs.
+  const [username, setUsername] = useState(
+    () => getRememberedUsername() ?? "",
+  );
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -38,14 +45,16 @@ export function LoginPage() {
     setError(null);
     setBusy(true);
     try {
+      const trimmed = username.trim();
       if (mode === "register") {
         await register({
-          username: username.trim(),
+          username: trimmed,
           password,
           displayName: displayName.trim() || undefined,
         });
       }
-      await login(username.trim(), password);
+      await login(trimmed, password);
+      setRememberedUsername(trimmed);
       navigate("/", { replace: true });
     } catch (err) {
       setError(

@@ -44,8 +44,6 @@ async def recover_and_rebuild_window(
     execution_id: str,
     captain_run_id: str,
     pre_pause_override: str | None = None,
-    style_id: str | None = None,
-    format_id: str | None = None,
 ) -> RecoveredResume:
     """Settle the paused frame and rebuild the CEO message window.
 
@@ -79,8 +77,6 @@ async def recover_and_rebuild_window(
             decision=decision,
             note=note,
             selected=selected or [],
-            style_id=style_id,
-            format_id=format_id,
         )
         logger.info(
             "pipeline.resume_settled",

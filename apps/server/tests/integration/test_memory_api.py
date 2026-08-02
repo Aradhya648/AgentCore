@@ -31,9 +31,8 @@ def _isolated_memory_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
 
 
-async def test_per_file_roundtrip_and_cas(client, make_invite):
-    code = await make_invite("INV-MEM-1")
-    await register_and_login(client, code, "mem1")
+async def test_per_file_roundtrip_and_cas(client):
+    await register_and_login(client, "mem1")
 
     # A brand-new user's 偏好 leaf is empty (with a stable empty-content CAS tag).
     r = await client.get("/v1/users/me/memory/files/preferences")
@@ -74,9 +73,8 @@ async def test_per_file_roundtrip_and_cas(client, make_invite):
     assert (await client.get("/v1/users/me/memory/files/preferences")).json()["content"] == ""
 
 
-async def test_project_scope_isolated_and_enumerated(client, make_invite):
-    code = await make_invite("INV-MEM-2")
-    await register_and_login(client, code, "mem2")
+async def test_project_scope_isolated_and_enumerated(client):
+    await register_and_login(client, "mem2")
 
     await client.put(
         "/v1/users/me/memory/files/profile",
@@ -99,9 +97,8 @@ async def test_project_scope_isolated_and_enumerated(client, make_invite):
     assert r.json()["folders"] == [_PROJECT_FOLDER_ID]
 
 
-async def test_preferences_folder_id_is_ignored_and_stays_global(client, make_invite):
-    code = await make_invite("INV-MEM-3")
-    await register_and_login(client, code, "mem3")
+async def test_preferences_folder_id_is_ignored_and_stays_global(client):
+    await register_and_login(client, "mem3")
 
     # Writing preferences WITH a folder_id still lands on the GLOBAL 偏好 (invariant §1.4).
     await client.put(
@@ -113,9 +110,8 @@ async def test_preferences_folder_id_is_ignored_and_stays_global(client, make_in
     assert (await client.get("/v1/users/me/memory/projects")).json()["folders"] == []
 
 
-async def test_topics_list_read_write_clear_and_scope(client, make_invite):
-    code = await make_invite("INV-MEM-4")
-    await register_and_login(client, code, "mem4")
+async def test_topics_list_read_write_clear_and_scope(client):
+    await register_and_login(client, "mem4")
 
     # A brand-new user has no topics, and an unknown topic reads empty (stable empty tag).
     assert (await client.get("/v1/users/me/memory/topics")).json()["topics"] == []
@@ -156,9 +152,8 @@ async def test_topics_list_read_write_clear_and_scope(client, make_invite):
     assert (await client.get("/v1/users/me/memory/topics")).json()["topics"] == []
 
 
-async def test_topic_cas_conflict_is_not_clobbered(client, make_invite):
-    code = await make_invite("INV-MEM-5")
-    await register_and_login(client, code, "mem5")
+async def test_topic_cas_conflict_is_not_clobbered(client):
+    await register_and_login(client, "mem5")
 
     empty_version = (await client.get("/v1/users/me/memory/topics/笔记")).json()["version"]
     await client.put(
@@ -173,14 +168,13 @@ async def test_topic_cas_conflict_is_not_clobbered(client, make_invite):
 
 
 async def test_memory_updates_feed_lists_newest_first_across_conversations(
-    client, make_invite, session_factory
+    client, session_factory
 ):
     # 记忆动态 feed (记忆编辑器「最近更新」视图): the cross-conversation stream of what the AI
     # recently learned — newest-first, carrying each pass's source conversation + item detail.
     from agentcore.db.repositories import MemoryUpdateRepository, UserRepository
 
-    code = await make_invite("INV-MEM-6")
-    await register_and_login(client, code, "mem6")
+    await register_and_login(client, "mem6")
 
     async with session_factory() as session:
         user = await UserRepository(session).get_by_username("mem6")
@@ -235,13 +229,12 @@ async def test_memory_updates_feed_lists_newest_first_across_conversations(
 
 
 async def test_memory_updates_feed_isolated_per_user(
-    client, new_client, make_invite, session_factory
+    client, new_client, session_factory
 ):
     # One user's memory activity must never leak into another's feed (private per-user data).
     from agentcore.db.repositories import MemoryUpdateRepository, UserRepository
 
-    code = await make_invite("INV-MEM-7")
-    await register_and_login(client, code, "mem7a")
+    await register_and_login(client, "mem7a")
     async with session_factory() as session:
         owner = await UserRepository(session).get_by_username("mem7a")
         assert owner is not None
@@ -254,8 +247,7 @@ async def test_memory_updates_feed_isolated_per_user(
 
     # A different user sees an empty feed — the row is scoped to its owner.
     async with new_client() as other:
-        code2 = await make_invite("INV-MEM-8")
-        await register_and_login(other, code2, "mem7b")
+        await register_and_login(other, "mem7b")
         r = await other.get("/v1/users/me/memory/updates")
         assert r.status_code == 200, r.text
         assert r.json()["updates"] == []

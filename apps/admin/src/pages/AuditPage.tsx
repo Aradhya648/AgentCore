@@ -22,9 +22,6 @@ const ACTION_FILTERS: { value: string; label: string }[] = [
   { value: "user.set_password", label: "设置密码" },
   { value: "account.change_password", label: "修改密码" },
   { value: "user.delete", label: "注销账号" },
-  { value: "invite.create", label: "生成邀请码" },
-  { value: "invite.batch_create", label: "批量生成" },
-  { value: "invite.revoke", label: "撤销邀请码" },
   { value: "conversation.replay", label: "回放对话" },
 ];
 
@@ -54,14 +51,6 @@ function AuditTarget({ row }: { row: AdminAuditLogLine }) {
       >
         {label}
       </Link>
-    );
-  }
-
-  if (row.target_type === "invite") {
-    return (
-      <span className="font-mono text-xs text-muted-foreground" title={row.target_id}>
-        {label}
-      </span>
     );
   }
 

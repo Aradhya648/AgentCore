@@ -160,6 +160,7 @@ def check_staging_write_back() -> list[str]:
 def check_settings_defaults() -> list[str]:
     sys.path.insert(0, str(SERVER_ROOT))
     from agentcore.config import settings  # noqa: WPS433
+    from agentcore.config.workspace import WorkspaceSettings  # noqa: WPS433
 
     errors: list[str] = []
     expected = {
@@ -176,6 +177,16 @@ def check_settings_defaults() -> list[str]:
             _fail(f"settings.{attr}={got!r} (expected {want!r})")
         else:
             _ok(f"settings.{attr}={got!r}")
+
+    root_default = WorkspaceSettings.model_fields["gvisor_runtime_root"].default
+    if root_default == "/tmp/agentcore-sandbox":
+        errors.append("gvisor_runtime_root still defaults to /tmp legacy")
+        _fail("gvisor_runtime_root still defaults to /tmp legacy")
+    elif "tmp" in str(root_default).replace("\\", "/").split("/"):
+        errors.append(f"gvisor_runtime_root default looks tmp-based: {root_default!r}")
+        _fail(f"gvisor_runtime_root default looks tmp-based: {root_default!r}")
+    else:
+        _ok(f"gvisor_runtime_root default={root_default!r}")
     return errors
 
 

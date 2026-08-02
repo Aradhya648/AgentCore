@@ -1304,12 +1304,11 @@ async def test_update_directory_partial_preserves_other_field():
     assert view.who_can_dm == "friends"
 
 
-async def test_directory_normalizes_legacy_contacts():
-    svc, users, _chats, _blocks, directory, *_ = _make()
+async def test_update_directory_rejects_legacy_contacts():
+    svc, users, *_ = _make()
     alice = users.add("alice")
-    directory.set(alice.user_id, who_can_dm="contacts")
-    view = await svc.get_directory_settings(user_id=alice.user_id)
-    assert view.who_can_dm == "friends"
+    with pytest.raises(ValidationError, match="who_can_dm"):
+        await svc.update_directory_settings(user_id=alice.user_id, who_can_dm="contacts")
 
 
 # --- friends (§九) ---

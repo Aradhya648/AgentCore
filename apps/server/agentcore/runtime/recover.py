@@ -66,8 +66,6 @@ async def recover_turn(
     decision: CheckpointDecision | None = None,
     note: str = "",
     selected: list[str] | None = None,
-    style_id: str | None = None,
-    format_id: str | None = None,
     debate_tool: DebateTool | None = None,
 ) -> SettledSuspension:
     """Settle a resume decision or CONTINUE-redrive unfinished DAG from ``state``.
@@ -88,8 +86,6 @@ async def recover_turn(
             decision=decision,
             note=note,
             selected=selected or [],
-            style_id=style_id,
-            format_id=format_id,
             sink=sink,
             delegate_tool=delegate_tool,
             debate_tool=debate_tool,
@@ -134,8 +130,6 @@ async def _settle_resume(
     decision: CheckpointDecision,
     note: str,
     selected: list[str],
-    style_id: str | None,
-    format_id: str | None,
     sink: EventSink,
     delegate_tool: DelegateTool,
     debate_tool: DebateTool | None,
@@ -158,8 +152,6 @@ async def _settle_resume(
             decision=decision,
             note=note,
             selected=list(selected),
-            style_id=(style_id or "").strip(),
-            format_id=(format_id or "").strip(),
         )
         allowed = {option_label(o) for q in suspension.questions for o in q.get("options", [])}
         response.selected = [s for s in response.selected if s in allowed]

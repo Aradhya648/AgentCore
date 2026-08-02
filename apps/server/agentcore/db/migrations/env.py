@@ -13,7 +13,6 @@ from agentcore.db.models import (  # noqa: F401 - ensure all models are imported
     Conversation,
     CostEvent,
     Credentials,
-    Invite,
     Message,
     RefreshToken,
     RunSessionRow,

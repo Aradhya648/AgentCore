@@ -394,12 +394,36 @@ class TurnQueuedPayload(WirePayload):
 
     Replaces the retired HTTP 202 ``SendMessageQueuedResponse`` JSON. Same visibility
     fields; the waiting connection later continues with the drained turn on this stream.
+    ``degraded_from=steer`` when the client asked for steer but soft-insert was
+    unavailable (无 live accepting 窗口 / 回合已收口；协调插话路径不会带此字段).
     """
 
     queue_id: str
     position: int
     queue_depth: int
     conversation_id: str
+    degraded_from: Literal["steer"] | None = absent()
+
+
+class TurnQueueCancelledPayload(WirePayload):
+    """Per-item queue cancel ack (同对话再发 · drain 前取消). EPHEMERAL — multi-client UI clear."""
+
+    queue_id: str
+    conversation_id: str
+
+
+class TurnSteerAcceptedPayload(WirePayload):
+    """Classic in-flight soft-insert ack (同对话再发 P1). EPHEMERAL — toast on live clients.
+
+    Emitted when ``delivery=steer`` was parked on the live turn's pending queue
+    (not FIFO). ``content`` may be truncated for the toast; injection uses the
+    full body at the next ReAct step boundary.
+    """
+
+    steer_id: str
+    conversation_id: str
+    content: str
+    pending: int
 
 
 class ExecutionDetachedPayload(WirePayload):

@@ -249,7 +249,7 @@ async def prepare_fresh_turn(
         backend=backend,
         user_id=user_id,
         conversation_id=conversation_id,
-        permission_preset=(
+        permission_axes=(
             json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
         deep_research_auto=deep_research_auto,

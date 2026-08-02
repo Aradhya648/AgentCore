@@ -9,6 +9,7 @@ import {
   extractGraphAppendAuthorizedBy,
   extractStageCardTraces,
   extractToolPhases,
+  extractTurnQueued,
   extractWorkerToolPhases,
   fold,
 } from "@/protocol/fold";
@@ -517,5 +518,158 @@ describe("fold · run_phase", () => {
     ]);
     expect(turn.runs[0]?.phase).toBeUndefined();
     expect(turn.runs[0]?.phaseTool).toBeUndefined();
+  });
+});
+
+describe("extractTurnQueued", () => {
+  it("读取 position / queue_id / degraded_from", () => {
+    expect(
+      extractTurnQueued([
+        ev("turn_queued", {
+          queue_id: "q1",
+          position: 2,
+          queue_depth: 3,
+          conversation_id: "c1",
+          degraded_from: "steer",
+        }),
+      ]),
+    ).toEqual([
+      {
+        position: 2,
+        queueDepth: 3,
+        queueId: "q1",
+        degradedFrom: "steer",
+      },
+    ]);
+  });
+
+  it("多项 FIFO 并存（勿单槽覆盖）", () => {
+    expect(
+      extractTurnQueued([
+        ev("turn_queued", {
+          queue_id: "q1",
+          position: 1,
+          queue_depth: 2,
+          conversation_id: "c1",
+        }),
+        ev("turn_queued", {
+          queue_id: "q2",
+          position: 2,
+          queue_depth: 2,
+          conversation_id: "c1",
+        }),
+      ]),
+    ).toEqual([
+      {
+        position: 1,
+        queueDepth: 2,
+        queueId: "q1",
+        degradedFrom: undefined,
+      },
+      {
+        position: 2,
+        queueDepth: 2,
+        queueId: "q2",
+        degradedFrom: undefined,
+      },
+    ]);
+  });
+
+  it("turn_queue_cancelled 按 queue_id 清一项（保留其它）", () => {
+    expect(
+      extractTurnQueued([
+        ev("turn_queued", {
+          queue_id: "q1",
+          position: 1,
+          queue_depth: 2,
+          conversation_id: "c1",
+        }),
+        ev("turn_queued", {
+          queue_id: "q2",
+          position: 2,
+          queue_depth: 2,
+          conversation_id: "c1",
+        }),
+        ev("turn_queue_cancelled", {
+          queue_id: "q1",
+          conversation_id: "c1",
+        }),
+      ]),
+    ).toEqual([
+      {
+        position: 2,
+        queueDepth: 2,
+        queueId: "q2",
+        degradedFrom: undefined,
+      },
+    ]);
+  });
+
+  it("turn_queue_cancelled 清唯一项 → 空列表", () => {
+    expect(
+      extractTurnQueued([
+        ev("turn_queued", {
+          queue_id: "q1",
+          position: 1,
+          queue_depth: 1,
+          conversation_id: "c1",
+        }),
+        ev("turn_queue_cancelled", {
+          queue_id: "q1",
+          conversation_id: "c1",
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("message_start 后收起", () => {
+    expect(
+      extractTurnQueued([
+        ev("turn_queued", {
+          queue_id: "q1",
+          position: 1,
+          queue_depth: 1,
+          conversation_id: "c1",
+        }),
+        ev("message_start", { message_id: "m1", conversation_id: "c1" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("fold 对 turn_queue_cancelled no-op（不炸 assertNever）", () => {
+    const turn = fold([
+      ev("turn_queued", {
+        queue_id: "q1",
+        position: 1,
+        queue_depth: 1,
+        conversation_id: "c1",
+      }),
+      ev("turn_queue_cancelled", {
+        queue_id: "q1",
+        conversation_id: "c1",
+      }),
+      ev("message_start", { message_id: "m1", conversation_id: "c1" }),
+      ev("content_delta", { delta: "ok" }),
+      ev("message_end", { finish_reason: "end_turn" }),
+    ]);
+    expect(turn.content).toBe("ok");
+    expect(turn.status).toBe("completed");
+  });
+
+  it("fold 对 turn_steer_accepted no-op（不炸 assertNever）", () => {
+    const turn = fold([
+      ev("turn_steer_accepted", {
+        steer_id: "steer-1",
+        conversation_id: "c1",
+        content: "改成中文",
+        pending: 1,
+      }),
+      ev("message_start", { message_id: "m1", conversation_id: "c1" }),
+      ev("content_delta", { delta: "好的" }),
+      ev("message_end", { finish_reason: "end_turn" }),
+    ]);
+    expect(turn.content).toBe("好的");
+    expect(turn.status).toBe("completed");
+    expect(turn.userInterjections).toEqual([]);
   });
 });

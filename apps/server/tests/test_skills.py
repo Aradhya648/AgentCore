@@ -535,7 +535,6 @@ def test_ask_user_kickoff_skill_teaches_short_clarify():
     body = skill.body
     assert "assumptions" in body
     assert "questions" in body
-    assert "style_options" in body  # 兼容字段说明
     assert "短问" in body or "短澄清" in body
     assert "开工提案卡" not in body
     assert "提案体硬闸" not in body
@@ -545,9 +544,9 @@ def test_ask_user_kickoff_skill_teaches_short_clarify():
 
 def test_ask_user_kickoff_skill_mentions_compat_options_not_ledger():
     body = _body("ask_user_kickoff")
-    assert "format_options" in body
-    assert "不记账" in body or "不硬闸" in body
-    assert "style_options" in body
+    assert "style_options" not in body
+    assert "format_options" not in body
+    assert "短问" in body or "短澄清" in body
 
 
 def test_ask_user_kickoff_skill_teaches_software_delivery_not_default_html():

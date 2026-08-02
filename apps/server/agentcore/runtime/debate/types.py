@@ -145,11 +145,9 @@ class DebateConfig:
     evidence_pack: Any | None = None
     # 庭前证据完整度（一等公民）：full / partial / empty；非 full 时主持人 frame / 辩手须显式感知缺口。
     evidence_completeness: Literal["full", "partial", "empty"] = "full"
-    # 调查员路径下未有效交付的 side_key；pack 路径通常为空。
-    pretrial_failed_sides: list[str] = field(default_factory=list)
     # 庭前解析后的辩手 per-side 检索预算（None 键不写 = 沿用案卷残搜旧路径；0 = 禁外证）。
     debater_retrieval_budgets: dict[str, int] = field(default_factory=dict)
-    # 外证计划观测：skip / gap_fill / investigators 及原因（非 wire 必填）。
+    # 外证计划观测：庭前舰队已删后恒为 skip + reason（非 wire 必填）。
     external_evidence_mode: str = ""
     external_evidence_reason: str = ""
     # 裁判选型（§7.5）：开赛前 resolve；用户点名优先，可与辩手同模；route 写入主持人 LLM 调用。

@@ -21,7 +21,6 @@ import { toast } from "sonner";
 /**
  * The console's sections: 概览 / 用户 / 分析 / 审计 / 公告 / 系统.
  * URL-routed via react-router for bookmarkable deep links.
- * Invites UI is deprecated (open registration); API remains for legacy codes.
  */
 export type AdminTab =
   | "overview"

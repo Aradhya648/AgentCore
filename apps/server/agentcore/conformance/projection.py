@@ -775,13 +775,11 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "skipReason": p.get("skip_reason"),
                 "sides": list(p.get("sides") or []),
                 "orders": [],
-                "investigators": [],
                 "evidenceLedgerCount": 0,
                 "fallbackSelfSearch": False,
                 "evidenceReady": False,
                 "completeness": "empty",
                 "incomplete": True,
-                "failedSides": [],
             }
 
         elif etype == "debate_pretrial_orders":
@@ -792,18 +790,13 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                     "skipReason": None,
                     "sides": list(p.get("sides") or []),
                     "orders": [],
-                    "investigators": [],
                     "evidenceLedgerCount": 0,
                     "fallbackSelfSearch": False,
                     "evidenceReady": False,
                     "completeness": "empty",
                     "incomplete": True,
-                    "failedSides": [],
                 }
             debate_pretrial["orders"] = list(p.get("orders") or [])
-            debate_pretrial["investigatorCountPerSide"] = int(
-                p.get("investigator_count_per_side") or 0
-            )
 
         elif etype == "debate_pretrial_progress":
             if debate_pretrial is not None:
@@ -821,13 +814,11 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "skipReason": p.get("skip_reason"),
                 "sides": list(p.get("sides") or []),
                 "orders": list(p.get("orders") or []),
-                "investigators": list(p.get("investigators") or []),
                 "evidenceLedgerCount": int(p.get("evidence_ledger_count") or 0),
                 "fallbackSelfSearch": bool(p.get("fallback_self_search")),
                 "evidenceReady": bool(p.get("evidence_ready")),
                 "completeness": completeness,
                 "incomplete": bool(p.get("incomplete", completeness != "full")),
-                "failedSides": list(p.get("failed_sides") or []),
             }
             if p.get("external_evidence_mode") is not None:
                 debate_pretrial["externalEvidenceMode"] = p.get(
@@ -836,10 +827,6 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
             if p.get("external_evidence_reason") is not None:
                 debate_pretrial["externalEvidenceReason"] = p.get(
                     "external_evidence_reason"
-                )
-            if "retrieval_budget_per_investigator" in p:
-                debate_pretrial["retrievalBudgetPerInvestigator"] = int(
-                    p.get("retrieval_budget_per_investigator") or 0
                 )
 
         elif etype == "team_note_posted":
@@ -1037,7 +1024,7 @@ def project_turn(events: list[dict[str, Any]]) -> dict[str, Any]:
             # message_start / turn_saved / title_generated / followups_generated /
             # board_op_required / board_read_required / desktop_notify_required /
             # host_op_required / tool_progress / workspace_op_required /
-            # handoff_* / turn_queued /
+            # handoff_* / turn_queued / turn_queue_cancelled /
             # interaction_orphaned / escalation_* (run escalations folded above) —
             # not part of the normalized turn judge state beyond interactions[] fold
             # (no-op here). Mirrored by the frontend folds' assertNever switch

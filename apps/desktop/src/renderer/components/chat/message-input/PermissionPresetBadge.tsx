@@ -296,9 +296,6 @@ export function PermissionAxesBadge({ disabled }: { disabled?: boolean }) {
   );
 }
 
-/** @deprecated Prefer {@link PermissionAxesBadge}. */
-export const PermissionPresetBadge = PermissionAxesBadge;
-
 function axesCustomTip(axes: PermissionAxes): string {
   const file =
     FILE_WRITE_OPTIONS.find((o) => o.value === axes.file_write)?.short ?? "";

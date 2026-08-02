@@ -40,7 +40,6 @@ export type AskIntentMeta = {
 /** Decision → icon for ask_user settled stubs (tone comes from intent.resolved). */
 export const ASK_RESOLVED_DECISION_ICON = {
   continue: Check,
-  per_call: Check,
   adjust: Pencil,
   stop: OctagonX,
   research_first: OctagonX,
@@ -57,7 +56,6 @@ const ASK_CLARIFY_META = {
   showFooterHint: false,
   resolved: {
     continue: { label: "已按你的决定继续", tone: "success" },
-    per_call: { label: "已按你的决定继续", tone: "success" },
     adjust: { label: "已按你的调整继续", tone: "success" },
     stop: { label: "已停止本回合", tone: "destructive" },
     research_first: { label: "已停止本回合", tone: "destructive" },
@@ -81,7 +79,6 @@ export const ASK_INTENT_META = {
     showFooterHint: false,
     resolved: {
       continue: { label: "已选定方案", tone: "success" },
-      per_call: { label: "已选定方案", tone: "success" },
       adjust: { label: "已按你的调整继续", tone: "success" },
       stop: { label: "已停止本回合", tone: "destructive" },
       research_first: { label: "已停止本回合", tone: "destructive" },
@@ -100,7 +97,6 @@ export const ASK_INTENT_META = {
     showFooterHint: false,
     resolved: {
       continue: { label: "已确认风险处理项", tone: "success" },
-      per_call: { label: "已确认风险处理项", tone: "success" },
       adjust: { label: "已按你的调整继续", tone: "success" },
       stop: { label: "已停止本回合", tone: "destructive" },
       research_first: { label: "已停止本回合", tone: "destructive" },
@@ -119,7 +115,6 @@ export const ASK_INTENT_META = {
     showFooterHint: false,
     resolved: {
       continue: { label: "已确认整理方案", tone: "success" },
-      per_call: { label: "已确认整理方案", tone: "success" },
       adjust: { label: "已按你的调整继续", tone: "success" },
       stop: { label: "已停止本回合", tone: "destructive" },
       research_first: { label: "已停止本回合", tone: "destructive" },
@@ -138,7 +133,6 @@ export const ASK_INTENT_META = {
     showFooterHint: false,
     resolved: {
       continue: { label: "已确认复盘提案", tone: "success" },
-      per_call: { label: "已确认复盘提案", tone: "success" },
       adjust: { label: "已按你的调整继续", tone: "success" },
       stop: { label: "已停止本回合", tone: "destructive" },
       research_first: { label: "已停止本回合", tone: "destructive" },
@@ -177,7 +171,7 @@ export type TeamPrimitiveMeta = {
   resumeLead: string;
   resumeCta: string;
   notePlaceholder: string;
-  resolved: Record<Exclude<CheckpointDecision, "per_call">, TeamResolvedRow>;
+  resolved: Record<CheckpointDecision, TeamResolvedRow>;
   /** continue + non-empty note overrides the continue label. */
   continueWithNote: TeamResolvedRow;
 };
@@ -255,15 +249,10 @@ export function teamResolvedOutcome(
   hasNote: boolean,
 ): TeamResolvedOutcome {
   const table = TEAM_PRIMITIVE_META[primitive];
-  // Historical `per_call` resolves collapse to continue copy (UI no longer offers it).
-  const resolvedKey = decision === "per_call" ? "continue" : decision;
   if (decision === "continue" && hasNote) {
     return table.continueWithNote;
   }
-  return (
-    table.resolved[resolvedKey as keyof typeof table.resolved] ??
-    table.resolved.continue
-  );
+  return table.resolved[decision] ?? table.resolved.continue;
 }
 
 export function teamPendingMarkerLabel(

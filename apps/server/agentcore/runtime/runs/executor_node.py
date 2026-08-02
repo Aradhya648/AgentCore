@@ -131,12 +131,6 @@ _LIGHT_REPAIR_TOOL_NAMES: frozenset[str] = frozenset(
 )
 _LIGHT_REPAIR_MAX_ROUNDS = 4
 
-# Retired: short-round repair posture no longer strips list / crawl / click tools.
-# Constant kept for tests / compat; :func:`_narrow_for_repair_posture` is identity.
-_REPAIR_POSTURE_WITHHOLD: frozenset[str] = frozenset(
-    {"file_list", "web_search", "read_url", "browser_click"}
-)
-
 
 def _files_expected(deliverable: Any) -> bool:
     """True when this run's contract expects workspace landing."""
@@ -177,19 +171,6 @@ def _grant_citation_rework_reread(
             "contract.citation_reread_grant",
             paths=refreshed,
         )
-
-
-def _narrow_for_repair_posture(
-    worker_tools: Any,
-    allowed_tools: list[str] | None,
-) -> tuple[Any, list[str] | None]:
-    """Retired no-op: short-round posture no longer strips list / crawl tools.
-
-    Formerly withheld ``file_list`` / ``web_search`` / ``read_url`` / ``browser_click``
-    when ``max_rounds>0``. Kept as identity so call sites / tests need not relocate.
-    """
-    _ = _REPAIR_POSTURE_WITHHOLD
-    return worker_tools, allowed_tools
 
 
 def _retry_token_budget(*, ceiling: int, spent: int) -> int:

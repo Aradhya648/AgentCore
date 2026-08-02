@@ -159,7 +159,7 @@ async def run_chat_pipeline(
         delegated=(
             permission_axes is not None and permission_axes.implies_deep_research_auto
         ),
-        permission_preset=(
+        permission_axes=(
             json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
     )

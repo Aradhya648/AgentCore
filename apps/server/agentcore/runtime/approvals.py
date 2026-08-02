@@ -102,12 +102,12 @@ class DelegationGrant:
     execution_id: str
 
 
-# Kept as an alias for resume / settlement that still speak the old card dialect
-# (grant_delegation / per_call / deny). Kickoff maps continue→grant; historical
-# per_call→per_call (UI entry removed); stop→deny. Hot-path
-# ``request_delegation_authorization`` was retired.
+# Settlement dialect for the 委派授权卡 (delegation_authorization interaction).
+# Distinct from CheckpointDecision (开工卡 / ask_user / plan_review).
+# Hot-path ``request_delegation_authorization`` was retired; card still settles
+# grant_delegation / per_call / deny.
 class DelegationAuthorizationDecision(StrEnum):
-    """Settlement dialect for kickoff capability-authorization choices."""
+    """Settlement dialect for per-delegation tool authorization choices."""
 
     GRANT_DELEGATION = "grant_delegation"
     PER_CALL = "per_call"

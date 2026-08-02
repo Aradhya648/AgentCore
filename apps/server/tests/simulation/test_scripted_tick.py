@@ -362,13 +362,12 @@ async def test_scripted_demo_pulse_includes_vote_beat():
 
 
 @pytest.mark.asyncio
-async def test_scripted_advance_five_ticks_without_llm(client, make_invite):
+async def test_scripted_advance_five_ticks_without_llm(client):
     """No mock LLM patch: missing DeepSeek + scripted opt-in still advances ticks."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
     try:
-        invite = await make_invite("SCRIPTED-TICK")
-        await register_and_login(client, invite, "scripted-tick", password=TEST_PASSWORD)
+        await register_and_login(client, "scripted-tick", password=TEST_PASSWORD)
 
         create_res = await client.post(
             "/v1/simulation/runs",
@@ -396,14 +395,13 @@ async def test_scripted_advance_five_ticks_without_llm(client, make_invite):
 
 @pytest.mark.asyncio
 async def test_scripted_demo_pulse_persists_observable_events(
-    client, make_invite, session_factory
+    client, session_factory
 ):
     """Scripted multi-tick run leaves interaction and/or world_event in sim_event."""
     original = settings.simulation_enabled
     settings.simulation_enabled = True
     try:
-        invite = await make_invite("SCRIPTED-DEMO")
-        await register_and_login(client, invite, "scripted-demo", password=TEST_PASSWORD)
+        await register_and_login(client, "scripted-demo", password=TEST_PASSWORD)
 
         create_res = await client.post(
             "/v1/simulation/runs",
@@ -436,7 +434,7 @@ async def test_scripted_demo_pulse_persists_observable_events(
 
 
 @pytest.mark.asyncio
-async def test_advance_without_deepseek_auto_scripted(client, make_invite, monkeypatch):
+async def test_advance_without_deepseek_auto_scripted(client, monkeypatch):
     """Without DeepSeek credentials, advance_tick falls back to scripted (no hard throw)."""
     from unittest.mock import AsyncMock
 
@@ -451,8 +449,7 @@ async def test_advance_without_deepseek_auto_scripted(client, make_invite, monke
     )
 
     try:
-        invite = await make_invite("AUTO-SCRIPTED")
-        await register_and_login(client, invite, "auto-scripted", password=TEST_PASSWORD)
+        await register_and_login(client, "auto-scripted", password=TEST_PASSWORD)
 
         create_res = await client.post(
             "/v1/simulation/runs",

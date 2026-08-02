@@ -10,6 +10,7 @@ factory + repositories + provider all faked, so no DB is required).
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import agentcore.conversation.compaction as compaction
 from agentcore.conversation.compaction import (
@@ -37,6 +38,56 @@ def test_select_fold_keeps_recency_window():
     fold = _select_fold(batch, recency=20, min_fold=4)
     # 30 − 20 = 10 oldest fold; the newest 20 stay verbatim.
     assert [m.content for m in fold] == [f"m{i}" for i in range(10)]
+
+
+def test_conversation_summary_context_compacted_flag_only():
+    """REST summary exposes a boolean flag, never the rolling-summary body."""
+    from agentcore.api.schemas.conversations import (
+        ConversationSummary,
+        conversation_summary_from_orm,
+    )
+
+    base = dict(
+        id="c1",
+        title="t",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    both = conversation_summary_from_orm(
+        SimpleNamespace(
+            **base,
+            compaction_summary="## 事实\n- X",
+            compacted_through=datetime(2026, 1, 1, 12, tzinfo=UTC),
+            folder_id=None,
+            local_container_root_id=None,
+            pinned=False,
+            archived=False,
+            permission_axes={},
+            deep_research_auto=False,
+            model_profile_id=None,
+        )
+    )
+    assert both.context_compacted is True
+    dumped = both.model_dump()
+    assert "compaction_summary" not in dumped
+    assert "compacted_through" not in dumped
+
+    missing = conversation_summary_from_orm(
+        SimpleNamespace(
+            **base,
+            compaction_summary="orphan",
+            compacted_through=None,
+            folder_id=None,
+            local_container_root_id=None,
+            pinned=False,
+            archived=False,
+            permission_axes={},
+            deep_research_auto=False,
+            model_profile_id=None,
+        )
+    )
+    assert missing.context_compacted is False
+    assert ConversationSummary.model_fields["context_compacted"].default is False
 
 
 def test_select_fold_noop_when_tail_within_recency():
@@ -205,7 +256,9 @@ class _FakeProvider:
 async def test_summarize_uses_flash_non_thinking_and_injects_budget(monkeypatch):
     monkeypatch.setattr(compaction.settings, "compaction_summary_char_budget", 4000, raising=True)
     provider = _FakeProvider("## 已确立的事实\n- X")
-    out = await _summarize(provider, "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH)
+    out = await _summarize(
+        provider, "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH, conversation_id="c1"
+    )
     assert out == "## 已确立的事实\n- X"
     req = provider.requests[0]
     assert req.model == "deepseek-v4-flash"
@@ -218,7 +271,9 @@ async def test_summarize_uses_flash_non_thinking_and_injects_budget(monkeypatch)
 async def test_summarize_truncates_overlong_output(monkeypatch):
     monkeypatch.setattr(compaction.settings, "compaction_summary_char_budget", 100, raising=True)
     provider = _FakeProvider("H" + "x" * 500 + "T")
-    out = await _summarize(provider, "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH)
+    out = await _summarize(
+        provider, "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH, conversation_id="c1"
+    )
     assert len(out) <= 100
 
 
@@ -230,14 +285,135 @@ async def test_summarize_returns_empty_on_timeout(monkeypatch):
             await asyncio.sleep(1)
             return LLMResponse(content="never")
 
-    out = await _summarize(_SlowProvider(), "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH)
+    out = await _summarize(
+        _SlowProvider(), "", [_msg("user", "hi")], model=DEEPSEEK_V4_FLASH, conversation_id="c1"
+    )
     assert out == ""
 
 
-# --- schedule_compaction (live token trigger + dedupe) ---
+# --- schedule_compaction_if_due (dual trigger + dedupe) ---
 
 
-async def test_schedule_fires_above_threshold(monkeypatch):
+async def test_if_due_fires_on_token_threshold(monkeypatch):
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
+    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 100, raising=True)
+    calls: list[tuple[str, int | None]] = []
+    fired = asyncio.Event()
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append((conversation_id, trigger_input_tokens))
+        fired.set()
+
+    async def _never_message(_cid):
+        raise AssertionError("token due must short-circuit before DB message check")
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    monkeypatch.setattr(compaction, "_is_message_due", _never_message, raising=True)
+    await compaction.schedule_compaction_if_due("c1", 150)
+    await asyncio.wait_for(fired.wait(), 1)
+    assert calls == [("c1", 150)]
+    await asyncio.sleep(0)
+    assert "c1" not in compaction._inflight
+
+
+async def test_if_due_fires_on_message_trigger(monkeypatch):
+    """Message due: DB ``_select_fold`` non-empty with message_trigger_min_fold, even under token."""
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
+    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 64_000, raising=True)
+    calls: list[tuple[str, int | None]] = []
+    fired = asyncio.Event()
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append((conversation_id, trigger_input_tokens))
+        fired.set()
+
+    async def _msg_due(_cid):
+        return True
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    monkeypatch.setattr(compaction, "_is_message_due", _msg_due, raising=True)
+    await compaction.schedule_compaction_if_due("c1", 100)  # under token threshold
+    await asyncio.wait_for(fired.wait(), 1)
+    assert calls == [("c1", 100)]
+
+
+async def test_if_due_noop_when_neither_trigger(monkeypatch):
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
+    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 64_000, raising=True)
+    calls: list[str] = []
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append(conversation_id)
+
+    async def _msg_due(_cid):
+        return False
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    monkeypatch.setattr(compaction, "_is_message_due", _msg_due, raising=True)
+    await compaction.schedule_compaction_if_due("c1", 100)
+    await asyncio.sleep(0.02)
+    assert calls == []
+
+
+async def test_if_due_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", False, raising=True)
+    calls: list[str] = []
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append(conversation_id)
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    await compaction.schedule_compaction_if_due("c1", 10_000_000)
+    await asyncio.sleep(0.02)
+    assert calls == []
+
+
+async def test_if_due_dedupes_while_inflight(monkeypatch):
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
+    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 100, raising=True)
+    calls: list[str] = []
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append(conversation_id)
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    compaction._inflight.add("c1")
+    try:
+        await compaction.schedule_compaction_if_due("c1", 150)
+        await asyncio.sleep(0.02)
+        assert calls == []
+    finally:
+        compaction._inflight.discard("c1")
+
+
+async def test_if_due_skips_during_failure_cooldown(monkeypatch):
+    """Cooldown blocks both token and message triggers — no arm while active."""
+    import time
+
+    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
+    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 100, raising=True)
+    calls: list[str] = []
+
+    async def _rec(conversation_id, *, trigger_input_tokens=None):
+        calls.append(conversation_id)
+
+    async def _never_message(_cid):
+        raise AssertionError("cooldown must short-circuit before DB message check")
+
+    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
+    monkeypatch.setattr(compaction, "_is_message_due", _never_message, raising=True)
+    compaction._failure_cooldown_until["c1"] = time.monotonic() + 60
+    try:
+        await compaction.schedule_compaction_if_due("c1", 150)
+        await asyncio.sleep(0.02)
+        assert calls == []
+    finally:
+        compaction._failure_cooldown_until.pop("c1", None)
+
+
+async def test_if_due_arms_after_cooldown_expires(monkeypatch):
+    import time
+
     monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
     monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 100, raising=True)
     calls: list[tuple[str, int | None]] = []
@@ -248,57 +424,170 @@ async def test_schedule_fires_above_threshold(monkeypatch):
         fired.set()
 
     monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
-    compaction.schedule_compaction("c1", 150)
-    await asyncio.wait_for(fired.wait(), 1)
-    assert calls == [("c1", 150)]
-    # The in-flight guard clears once the pass finishes.
-    await asyncio.sleep(0)
-    assert "c1" not in compaction._inflight
-
-
-async def test_schedule_noop_below_threshold(monkeypatch):
-    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
-    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 64000, raising=True)
-    calls: list[str] = []
-
-    async def _rec(conversation_id, *, trigger_input_tokens=None):
-        calls.append(conversation_id)
-
-    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
-    compaction.schedule_compaction("c1", 100)
-    await asyncio.sleep(0.02)
-    assert calls == []
-
-
-async def test_schedule_noop_when_disabled(monkeypatch):
-    monkeypatch.setattr(compaction.settings, "compaction_enabled", False, raising=True)
-    calls: list[str] = []
-
-    async def _rec(conversation_id, *, trigger_input_tokens=None):
-        calls.append(conversation_id)
-
-    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
-    compaction.schedule_compaction("c1", 10_000_000)
-    await asyncio.sleep(0.02)
-    assert calls == []
-
-
-async def test_schedule_dedupes_while_inflight(monkeypatch):
-    monkeypatch.setattr(compaction.settings, "compaction_enabled", True, raising=True)
-    monkeypatch.setattr(compaction.settings, "compaction_trigger_input_tokens", 100, raising=True)
-    calls: list[str] = []
-
-    async def _rec(conversation_id, *, trigger_input_tokens=None):
-        calls.append(conversation_id)
-
-    monkeypatch.setattr(compaction, "compact_conversation", _rec, raising=True)
-    compaction._inflight.add("c1")  # pretend a pass is already running
+    compaction._failure_cooldown_until["c1"] = time.monotonic() - 1  # already expired
     try:
-        compaction.schedule_compaction("c1", 150)
-        await asyncio.sleep(0.02)
-        assert calls == []  # the duplicate was suppressed
+        await compaction.schedule_compaction_if_due("c1", 150)
+        await asyncio.wait_for(fired.wait(), 1)
+        assert calls == [("c1", 150)]
+        assert "c1" not in compaction._failure_cooldown_until
     finally:
-        compaction._inflight.discard("c1")
+        compaction._failure_cooldown_until.pop("c1", None)
+        await asyncio.sleep(0)
+
+
+def test_compaction_message_due_uses_select_fold_not_history_len():
+    """Message due is ``_select_fold`` on the DB batch — never turn ``history_len``.
+
+    A batch with only 20 msgs (recency=12 → fold=8) stays not-due under min_fold=16,
+    even though a loader history_len that counted a summary block could look "long".
+    """
+    assert compaction.compaction_message_due(_msgs(20), recency=12, min_fold=16) is False
+    # 12 + 16 = 28 → foldable exactly at message-trigger boundary (all-user so no floor).
+    batch = [_msg("user", f"m{i}", i) for i in range(28)]
+    assert compaction.compaction_message_due(batch, recency=12, min_fold=16) is True
+    # Explicit: due helper does not take / consult history_len.
+    assert "history_len" not in compaction.compaction_message_due.__code__.co_varnames
+    assert "history_len" not in compaction.schedule_compaction_if_due.__code__.co_varnames
+
+
+def test_select_fold_recency_12_keeps_near_window():
+    batch = [_msg("user", f"m{i}", i) for i in range(30)]
+    fold = _select_fold(batch, recency=12, min_fold=4)
+    assert len(fold) == 18
+    assert [m.content for m in fold] == [f"m{i}" for i in range(18)]
+
+
+def test_default_compaction_settings_match_design():
+    from agentcore.config.persistence import PersistenceSettings
+
+    defaults = PersistenceSettings()
+    assert defaults.compaction_recency_messages == 12
+    assert defaults.compaction_trigger_input_tokens == 32_000
+    assert defaults.compaction_message_trigger_min_fold == 16
+    assert defaults.compaction_min_fold_messages == 4
+    assert defaults.compaction_failure_cooldown_seconds == 90
+
+
+async def test_finalize_cloud_and_local_call_if_due(monkeypatch):
+    """Cloud + local finalize both await schedule_compaction_if_due (not bare schedule)."""
+    from agentcore.conversation.store import cloud as cloud_mod
+    from agentcore.conversation.store.cloud import CloudStore
+    from agentcore.core.error_codes import ErrorCode
+    from agentcore.runtime.events import FinishReason
+
+    calls: list[tuple[str, int]] = []
+
+    async def _if_due(conversation_id, input_tokens):
+        calls.append((conversation_id, input_tokens))
+
+    class MsgRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id(self, *_a, **_k):
+            return None
+
+        async def create(self, **kw):
+            return SimpleNamespace(id=kw["message_id"])
+
+        async def upsert_assistant(self, **kw):
+            return SimpleNamespace(id=kw["message_id"])
+
+        async def user_message_for_assistant(self, **_k):
+            return None
+
+        async def set_followups(self, *_a, **_k):
+            pass
+
+    class ConvRepo:
+        def __init__(self, _s):
+            pass
+
+        async def get_by_id_unscoped(self, _cid):
+            return SimpleNamespace(title="t")
+
+    class MetricsRepo:
+        def __init__(self, _s):
+            pass
+
+        async def record(self, **_kw):
+            return None
+
+    class CM:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(cloud_mod, "async_session_factory", lambda: CM())
+    monkeypatch.setattr(cloud_mod, "MessageRepository", MsgRepo)
+    monkeypatch.setattr(cloud_mod, "ConversationRepository", ConvRepo)
+    monkeypatch.setattr(cloud_mod, "TurnMetricsRepository", MetricsRepo)
+    monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
+    monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", _if_due)
+    monkeypatch.setattr(CloudStore, "clear_stream_segments", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "agentcore.billing.turn_ledger.reconcile_turn_cost_ledger",
+        AsyncMock(return_value=[]),
+    )
+
+    sink = SimpleNamespace(emit=lambda *_a, **_k: None)
+    # ERROR path skips followups mint but still schedules compaction.
+    await CloudStore().finalize(
+        mode="cloud",
+        result={
+            "message_id": "m-cloud",
+            "content": "",
+            "error": "超时",
+            "error_code": ErrorCode.LLM_TIMEOUT,
+            "finish_reason": FinishReason.ERROR,
+            "rounds": 0,
+            "input_tokens": 42,
+            "journal_entries": [],
+        },
+        conversation_id="c-cloud",
+        user_id="u1",
+        folder_id=None,
+        backend=SimpleNamespace(location="cloud"),
+        sink=sink,
+        user_message="hi",
+        llm_credentials=None,
+        trace_id="a" * 32,
+        turn_id="turn1",
+        duration_ms=10,
+    )
+    assert ("c-cloud", 42) in calls
+
+    calls.clear()
+    monkeypatch.setattr(
+        cloud_mod, "build_provider", lambda *_a, **_k: SimpleNamespace(close=AsyncMock())
+    )
+    monkeypatch.setattr(cloud_mod, "resolve_user_model", lambda *_a, **_k: "m")
+    from agentcore.conversation.common import FollowupsMintResult
+
+    monkeypatch.setattr(
+        cloud_mod, "mint_followups", AsyncMock(return_value=FollowupsMintResult(items=[]))
+    )
+    await CloudStore().finalize(
+        mode="local",
+        conversation_id="c-local",
+        user_id="u1",
+        user_message="hi",
+        assistant_content="",
+        runs={
+            "events": [],
+            "finish_reason": "error",
+            "error": {"code": ErrorCode.LLM_TIMEOUT, "message": "超时"},
+        },
+        user_message_id="u1m",
+        message_id="m-local",
+        input_tokens=7,
+        trace_id="b" * 32,
+        finish_reason=FinishReason.ERROR.value,
+    )
+    assert ("c-local", 7) in calls
 
 
 # --- compact_conversation (DB-bound runner; session/repos/provider all faked) ---
@@ -403,10 +692,13 @@ def _wire_runner(monkeypatch, *, conv, messages, provider, credentials=...) -> d
 async def test_compact_conversation_first_fold_persists_summary_and_watermark(
     monkeypatch,
 ):
+    import time
+
     messages = _msgs(30)  # 30 − 20 recency = 10 oldest fold
     conv = _conv(summary=None, watermark=None)
     provider = _CloseProvider("## 已确立的事实\n- X")
     rec = _wire_runner(monkeypatch, conv=conv, messages=messages, provider=provider)
+    compaction._failure_cooldown_until["c1"] = time.monotonic() + 60
 
     ok = await compaction.compact_conversation("c1", trigger_input_tokens=12345)
 
@@ -417,6 +709,8 @@ async def test_compact_conversation_first_fold_persists_summary_and_watermark(
     # Watermark = created_at of the LAST folded (10th-oldest, index 9) message.
     assert rec["set"]["compacted_through"] == messages[9].created_at
     assert rec["set"]["input_tokens"] == 12345
+    # Successful write clears any prior failure cooldown.
+    assert "c1" not in compaction._failure_cooldown_until
 
 
 async def test_compact_conversation_noop_when_nothing_to_fold(monkeypatch):
@@ -431,36 +725,50 @@ async def test_compact_conversation_noop_when_nothing_to_fold(monkeypatch):
     assert ok is False
     assert rec["built"] is False  # gated BEFORE any LLM spend
     assert rec["set"] is None
+    # No-op (nothing to fold) is not a failure — must not arm cooldown.
+    assert "c1" not in compaction._failure_cooldown_until
 
 
 async def test_compact_conversation_skips_empty_summary(monkeypatch):
     # Enough to fold, but the model yields nothing (timeout/refusal) → never persist
-    # a blank summary; leave state untouched so the next over-threshold turn retries.
+    # a blank summary; leave state untouched and arm failure cooldown.
     messages = _msgs(30)
     conv = _conv(summary="旧摘要", watermark=None)
     provider = _CloseProvider("   ")
     rec = _wire_runner(monkeypatch, conv=conv, messages=messages, provider=provider)
+    monkeypatch.setattr(
+        compaction.settings, "compaction_failure_cooldown_seconds", 90, raising=True
+    )
+    compaction._failure_cooldown_until.pop("c1", None)
 
     ok = await compaction.compact_conversation("c1", trigger_input_tokens=777)
 
     assert ok is False
     assert provider.closed is True  # built + closed, but no write
     assert rec["set"] is None
+    assert "c1" in compaction._failure_cooldown_until
+    compaction._failure_cooldown_until.pop("c1", None)
 
 
 async def test_compact_conversation_byok_without_key_skips_without_watermark(
     monkeypatch,
 ):
-    # Gate returns None (no platform/BYOK) → skip WITHOUT folding.
+    # Gate returns None (no platform/BYOK) → skip WITHOUT folding; arm cooldown.
     messages = _msgs(30)
     conv = _conv(summary=None, watermark=None)
     provider = _CloseProvider("unused")
     rec = _wire_runner(
         monkeypatch, conv=conv, messages=messages, provider=provider, credentials=None
     )
+    monkeypatch.setattr(
+        compaction.settings, "compaction_failure_cooldown_seconds", 90, raising=True
+    )
+    compaction._failure_cooldown_until.pop("c1", None)
 
     ok = await compaction.compact_conversation("c1", trigger_input_tokens=500)
 
     assert ok is False
     assert rec["built"] is False  # no provider, no LLM call
     assert rec["set"] is None
+    assert "c1" in compaction._failure_cooldown_until
+    compaction._failure_cooldown_until.pop("c1", None)

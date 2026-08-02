@@ -1,26 +1,56 @@
 /**
  * Mid-flight send（生成中再发）：POST 恒 SSE。
- * 协调 → `user_interjection` 短确认；经典在飞 → 先 `turn_queued`（进 live turn 呈现排队条），
- * 缓冲后续帧直至主路空闲，再开 turn2 用户气泡并续流——对齐桌面 midFlight / 发送即有流。
+ * 协调 + steer → `user_interjection` 短确认；经典 + steer → `turn_steer_accepted` toast；
+ * queue（或 steer 降级）→ 先 `turn_queued`（立即主时间线用户气泡 + 排队轻态），
+ * 缓冲后续帧直至主路空闲，再续流 turn2——对齐桌面 midFlight / 发送即有流。
+ * ``delivery`` 必填（缺 → 422）。
  */
 import { apiUrl, authHeader, refreshTokens } from "@/api/client";
 import type { MessageAttachment } from "@/lib/attachments";
 import { StreamHttpError } from "@/lib/errors";
-import type { SSEEvent, TurnQueuedPayload } from "@agentcore/contract-types";
+import type { MessageDelivery } from "@/lib/messageDelivery";
+import type {
+  SSEEvent,
+  TurnQueuedPayload,
+  TurnSteerAcceptedPayload,
+} from "@agentcore/contract-types";
 
 export type MidFlightSendResult =
   | { kind: "received" }
-  | { kind: "delivered" }
-  | { kind: "queued"; position: number; queueDepth: number }
+  | {
+      kind: "steered";
+      steerId: string;
+      pending: number;
+    }
+  | {
+      kind: "queued";
+      position: number;
+      queueDepth: number;
+      queueId: string;
+      degradedFrom?: "steer";
+    }
   | { kind: "blocked"; code?: string; message?: string }
   | { kind: "error"; message: string };
 
 type DeliverMode = "open" | "buffering" | "live" | "aborted";
 
 export type MidFlightHooks = {
-  /** 立即 fold 到当前 live turn（turn_queued / user_interjection）。 */
+  /** 立即 fold 到当前 live turn（user_interjection / turn_steer_accepted；turn_queued 亦可）。 */
   onLiveEvent: (event: SSEEvent) => void;
-  /** 主路空闲后插入 turn2 用户气泡（只调一次）。 */
+  /**
+   * ``turn_queued``：立即主时间线用户气泡 + 排队轻态（drain 前可取消）。
+   * 先于缓冲 / beginTurn2；多项各调一次（各 queue_id）。
+   */
+  onQueued: (info: {
+    queueId: string;
+    position: number;
+    queueDepth: number;
+    degradedFrom?: "steer";
+  }) => void;
+  /**
+   * 主路空闲后开跑 turn2（只调一次）。
+   * 用户气泡应已由 {@link onQueued} 插入——此处勿再插泡。
+   */
   beginTurn2: () => void;
   /** turn2 开跑后的事件（含缓冲回放）。 */
   onTurn2Event: (event: SSEEvent) => void;
@@ -79,8 +109,9 @@ export async function sendMidFlightMessage(
   hooks: MidFlightHooks,
   attachments?: MessageAttachment[],
   signal?: AbortSignal,
+  delivery: MessageDelivery = "steer",
 ): Promise<MidFlightSendResult> {
-  const payload: Record<string, unknown> = { content };
+  const payload: Record<string, unknown> = { content, delivery };
   if (attachments && attachments.length > 0) payload.attachments = attachments;
 
   const gate = { mode: "open" as DeliverMode };
@@ -165,13 +196,37 @@ export async function sendMidFlightMessage(
         return;
       }
 
+      if (event.type === "turn_steer_accepted") {
+        const p = event.payload as TurnSteerAcceptedPayload;
+        gate.mode = "live";
+        result = {
+          kind: "steered",
+          steerId: p.steer_id,
+          pending: p.pending,
+        };
+        hooks.onLiveEvent(event);
+        return;
+      }
+
       if (event.type === "turn_queued") {
         const p = event.payload as TurnQueuedPayload;
+        const position = p.position ?? 1;
+        const queueDepth = p.queue_depth ?? 1;
+        const queueId = p.queue_id;
         result = {
           kind: "queued",
-          position: p.position ?? 1,
-          queueDepth: p.queue_depth ?? 1,
+          position,
+          queueDepth,
+          queueId,
+          degradedFrom: p.degraded_from,
         };
+        // 立即主时间线用户气泡 + 排队轻态（产品：Queue 可见可取消）。
+        hooks.onQueued({
+          queueId,
+          position,
+          queueDepth,
+          degradedFrom: p.degraded_from,
+        });
         hooks.onLiveEvent(event);
         gate.mode = "buffering";
         if (hooks.isPrimaryIdle()) flushBufferAndGoLive();

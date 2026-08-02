@@ -11,7 +11,7 @@ import {
 } from "@/lib/desktopDownload";
 import type { AskAssumption, AskOption, AskQuestion } from "@/types/events";
 import { Check, FolderOpen, Loader2 } from "lucide-react";
-import type { AskTone, AskUserContent } from "./AskUserFields";
+import type { AskTone } from "./AskUserFields";
 
 /** Kickoff option selection uses primary so chosen cards read clearly vs idle. */
 export const COMMENCE_TONE = interactiveCheckpointTone.primary;
@@ -20,10 +20,6 @@ export type AskAnswerState = {
   answers: Record<string, string[]>;
   otherOn: Record<string, boolean>;
   otherText: Record<string, string>;
-  styleId: string | null;
-  setStyleId: (id: string | null) => void;
-  formatId: string | null;
-  setFormatId: (id: string | null) => void;
   note: string;
   setNote: (v: string) => void;
   toggleChoice: (q: AskQuestion, opt: string) => void;
@@ -82,78 +78,6 @@ export function PlanChips({
           </span>
         </span>
       ))}
-    </div>
-  );
-}
-
-export function StylePills({
-  content,
-  answer,
-  disabled,
-  tone = COMMENCE_TONE,
-}: {
-  content: AskUserContent;
-  answer: Pick<AskAnswerState, "styleId" | "setStyleId">;
-  disabled: boolean;
-  tone?: AskTone;
-}) {
-  if (content.styleOptions.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">风格</span>
-      {content.styleOptions.map((s) => {
-        const active = s.id === answer.styleId;
-        return (
-          <Button
-            key={s.id}
-            variant="ghost"
-            disabled={disabled}
-            onClick={() => !disabled && answer.setStyleId(active ? null : s.id)}
-            className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
-              active ? tone.optActive : tone.optIdle
-            }`}
-          >
-            {s.label}
-          </Button>
-        );
-      })}
-    </div>
-  );
-}
-
-export function FormatPills({
-  content,
-  answer,
-  disabled,
-  tone = COMMENCE_TONE,
-}: {
-  content: AskUserContent;
-  answer: Pick<AskAnswerState, "formatId" | "setFormatId">;
-  disabled: boolean;
-  tone?: AskTone;
-}) {
-  if (content.formatOptions.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-muted-foreground">形态</span>
-      {content.formatOptions.map((s) => {
-        const active = s.id === answer.formatId;
-        return (
-          <Button
-            key={s.id}
-            variant="ghost"
-            disabled={disabled}
-            onClick={() =>
-              !disabled && answer.setFormatId(active ? null : s.id)
-            }
-            className={`h-auto rounded-lg border px-2.5 py-1 text-xs font-normal disabled:opacity-40 ${
-              active ? tone.optActive : tone.optIdle
-            }`}
-          >
-            {s.label}
-          </Button>
-        );
-      })}
     </div>
   );
 }

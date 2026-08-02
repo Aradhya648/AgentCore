@@ -27,8 +27,6 @@ describe("AskUserCard manual help", () => {
               context: "",
               assumptions: [],
               questions: [],
-              styleOptions: [],
-              formatOptions: [],
             }}
             intent="decision"
             onSubmit={() => {}}

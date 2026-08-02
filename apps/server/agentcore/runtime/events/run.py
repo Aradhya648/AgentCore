@@ -607,15 +607,50 @@ def turn_queued(
     position: int,
     queue_depth: int,
     conversation_id: str,
+    degraded_from: str | None = None,
 ) -> SSEEvent:
-    """同对话 FIFO 排队 ack（D9 · 发送即有流）——取代退役的 HTTP 202 queued JSON。"""
+    """同对话 FIFO 排队 ack（D9 · 发送即有流）——取代退役的 HTTP 202 queued JSON。
+
+    ``degraded_from="steer"`` when classic in-flight could not soft-insert
+    (无 accepting 窗口 / 回合已收口 → 回落 FIFO).
+    """
+    payload: dict[str, Any] = {
+        "queue_id": queue_id,
+        "position": position,
+        "queue_depth": queue_depth,
+        "conversation_id": conversation_id,
+    }
+    if degraded_from is not None:
+        payload["degraded_from"] = degraded_from
+    return SSEEvent(type=EventType.TURN_QUEUED, payload=payload)
+
+
+def turn_queue_cancelled(*, queue_id: str, conversation_id: str) -> SSEEvent:
+    """同对话排队项取消 ack（多端清 UI）。"""
     return SSEEvent(
-        type=EventType.TURN_QUEUED,
+        type=EventType.TURN_QUEUE_CANCELLED,
+        payload={"queue_id": queue_id, "conversation_id": conversation_id},
+    )
+
+
+def turn_steer_accepted(
+    *,
+    steer_id: str,
+    conversation_id: str,
+    content: str,
+    pending: int,
+) -> SSEEvent:
+    """经典 in-flight 软插入 ack（同对话再发 P1）——客户端 toast「已插入，下一工具步生效」。
+
+    ``content`` should already be truncated for the toast (see ``turn_steer.content_preview``).
+    """
+    return SSEEvent(
+        type=EventType.TURN_STEER_ACCEPTED,
         payload={
-            "queue_id": queue_id,
-            "position": position,
-            "queue_depth": queue_depth,
+            "steer_id": steer_id,
             "conversation_id": conversation_id,
+            "content": content,
+            "pending": pending,
         },
     )
 
@@ -756,12 +791,12 @@ def debate_pretrial_started(**payload: Any) -> SSEEvent:
 
 
 def debate_pretrial_orders(**payload: Any) -> SSEEvent:
-    """主辩点单就绪（含各方任务 + 对称取证员数量）。"""
+    """庭前准备摘要（Evidence Pack / 空订单 + 外证计划）。"""
     return SSEEvent(type=EventType.DEBATE_PRETRIAL_ORDERS, payload=dict(payload))
 
 
 def debate_pretrial_progress(**payload: Any) -> SSEEvent:
-    """取证员完成/失败增量（台账计数实时）。"""
+    """庭前台账计数增量（legacy；生产热路径不再发射）。"""
     return SSEEvent(type=EventType.DEBATE_PRETRIAL_PROGRESS, payload=dict(payload))
 
 

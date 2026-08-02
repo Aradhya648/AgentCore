@@ -49,9 +49,6 @@ describe("decision meta", () => {
     expect(teamResolvedOutcome("debate", "continue", true).label).toBe(
       "已授权开赛 · 嘱咐已注入",
     );
-    expect(teamResolvedOutcome("delegate", "per_call", false).label).toBe(
-      "已授权开工 · 首波已放行",
-    );
   });
 
   it("pending marker + resume captions share one table", () => {

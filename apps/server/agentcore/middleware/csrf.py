@@ -33,7 +33,9 @@ _EXEMPT_PREFIXES = (
 )
 
 
-def issue_csrf_token(response: Response, user_id: str) -> str:
+def issue_csrf_token(
+    response: Response, user_id: str, *, persist_session: bool = True
+) -> str:
     """Mint a CSRF token for ``user_id`` and attach it to the login/refresh response.
 
     Returned via the CORS-exposed ``X-CSRF-Token`` header (what the SPA reads) plus a
@@ -41,15 +43,17 @@ def issue_csrf_token(response: Response, user_id: str) -> str:
     """
     token = sign_csrf_token(user_id)
     response.headers[CSRF_HEADER] = token
-    response.set_cookie(
-        key=CSRF_COOKIE,
-        value=token,
-        max_age=settings.jwt_refresh_token_expire_days * 86400,
-        httponly=False,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        path="/",
-    )
+    cookie_kwargs: dict = {
+        "key": CSRF_COOKIE,
+        "value": token,
+        "httponly": False,
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "path": "/",
+    }
+    if persist_session:
+        cookie_kwargs["max_age"] = settings.jwt_refresh_token_expire_days * 86400
+    response.set_cookie(**cookie_kwargs)
     return token
 
 

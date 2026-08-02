@@ -43,7 +43,6 @@ function summary(messageId: string) {
     context: "",
     assumptions: [],
     questions: [],
-    style_options: [],
   };
 }
 

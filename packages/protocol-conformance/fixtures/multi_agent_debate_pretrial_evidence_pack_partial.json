@@ -1,0 +1,811 @@
+{
+  "name": "multi_agent_debate_pretrial_evidence_pack_partial",
+  "description": "庭前取证：Evidence Pack 截断 → skip 外证舰队（completeness=partial）",
+  "events": [
+    {
+      "type": "message_start",
+      "payload": {
+        "message_id": "m1",
+        "conversation_id": "conv_demo"
+      },
+      "timestamp": "2026-01-01T00:00:00.001Z"
+    },
+    {
+      "type": "content_delta",
+      "payload": {
+        "delta": "附件截断，跳过外证舰队直接开辩。"
+      },
+      "timestamp": "2026-01-01T00:00:00.002Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "plan_type": "debate",
+        "task_summary": "正反辩论：是否采用方案 A",
+        "agents": [
+          {
+            "id": "debate_mod_ep_partial",
+            "role": "主持人",
+            "thinking": false
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_ep_partial",
+            "agent_id": "debate_mod_ep_partial",
+            "task": "主持正反辩论：长约截断",
+            "depends_on": [],
+            "parent_run_id": "captain1"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.003Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_ep_partial",
+        "agent_id": "debate_mod_ep_partial",
+        "parent_run_id": "captain1",
+        "kind": "agent"
+      },
+      "timestamp": "2026-01-01T00:00:00.004Z"
+    },
+    {
+      "type": "debate_pretrial_started",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "moderator_run_id": "debate_mod_ep_partial",
+        "thorough": true,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方"
+          },
+          {
+            "key": "con",
+            "name": "反对方"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.005Z"
+    },
+    {
+      "type": "debate_pretrial_orders",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "moderator_run_id": "debate_mod_ep_partial",
+        "thorough": true,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方"
+          },
+          {
+            "key": "con",
+            "name": "反对方"
+          }
+        ],
+        "orders": [],
+        "evidence_pack": {
+          "motion": "是否采用方案 A",
+          "completeness": "partial",
+          "notes": "从主持人上下文组装共享证据包（截断附件）",
+          "sources": [
+            {
+              "source_id": "att:long",
+              "kind": "attachment",
+              "label": "长约.md",
+              "path": "attachments/长约.md",
+              "excerpt": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+              "complete": false,
+              "failure": "truncated"
+            }
+          ],
+          "dispute_candidates": []
+        },
+        "path": "evidence_pack",
+        "completeness": "partial",
+        "incomplete": true,
+        "external_evidence": {
+          "mode": "skip",
+          "retrieval_budget": 0,
+          "sides": [],
+          "allow_read_url": false,
+          "max_tasks_per_side": 0,
+          "reason": "evidence_pack_partial",
+          "allow_external": false
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.006Z"
+    },
+    {
+      "type": "debate_pretrial_completed",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "moderator_run_id": "debate_mod_ep_partial",
+        "thorough": true,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方"
+          },
+          {
+            "key": "con",
+            "name": "反对方"
+          }
+        ],
+        "status": "skipped",
+        "skip_reason": "evidence_pack",
+        "orders": [],
+        "fallback_self_search": false,
+        "evidence_ready": true,
+        "completeness": "partial",
+        "incomplete": false,
+        "evidence_pack": {
+          "motion": "是否采用方案 A",
+          "completeness": "partial",
+          "notes": "从主持人上下文组装共享证据包（截断附件）",
+          "sources": [
+            {
+              "source_id": "att:long",
+              "kind": "attachment",
+              "label": "长约.md",
+              "path": "attachments/长约.md",
+              "excerpt": "条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…条款正文…",
+              "complete": false,
+              "failure": "truncated"
+            }
+          ],
+          "dispute_candidates": []
+        },
+        "external_evidence_mode": "skip",
+        "external_evidence_reason": "evidence_pack_partial",
+        "evidence_ledger_count": 1,
+        "evidence_ledger_delta": [
+          {
+            "id": "#e1",
+            "url": "",
+            "title": "长约.md",
+            "snippet": "条款正文…",
+            "site": "",
+            "date": "",
+            "tier": "primary",
+            "side_key": "evidence_pack"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.007Z"
+    },
+    {
+      "type": "debate_round_started",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "moderator_run_id": "debate_mod_ep_partial",
+        "round_no": 1,
+        "focus": "截断条款",
+        "cross_exam_enabled": false,
+        "opening": "共享包不完整，双方有界补证后立论。",
+        "form": "debate"
+      },
+      "timestamp": "2026-01-01T00:00:00.008Z"
+    },
+    {
+      "type": "run_plan",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "plan_type": "debate",
+        "task_summary": "",
+        "agents": [
+          {
+            "id": "d_pro",
+            "role": "支持方",
+            "thinking": true
+          },
+          {
+            "id": "d_con",
+            "role": "反对方",
+            "thinking": true
+          }
+        ],
+        "runs": [
+          {
+            "id": "debate_mod_ep_partial_r1_pro",
+            "agent_id": "d_pro",
+            "task": "依部分证据包论证支持",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_ep_partial",
+            "stance": "pro",
+            "group": "debate:debate",
+            "round": 1
+          },
+          {
+            "id": "debate_mod_ep_partial_r1_con",
+            "agent_id": "d_con",
+            "task": "依部分证据包论证反对",
+            "depends_on": [],
+            "parent_run_id": "debate_mod_ep_partial",
+            "stance": "con",
+            "group": "debate:debate",
+            "round": 1
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:00.009Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_pro",
+        "agent_id": "debate_mod_ep_partial_r1_pro",
+        "parent_run_id": "debate_mod_ep_partial",
+        "kind": "agent",
+        "stance": "pro",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:00.010Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_pro",
+        "agent_id": "debate_mod_ep_partial_r1_pro",
+        "delta": "支持【已核实·#e1】。"
+      },
+      "timestamp": "2026-01-01T00:00:00.011Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_pro",
+        "agent_id": "debate_mod_ep_partial_r1_pro",
+        "output_summary": "支持方",
+        "duration_ms": 500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:00.510Z"
+    },
+    {
+      "type": "run_started",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_con",
+        "agent_id": "debate_mod_ep_partial_r1_con",
+        "parent_run_id": "debate_mod_ep_partial",
+        "kind": "agent",
+        "stance": "con",
+        "round": 1
+      },
+      "timestamp": "2026-01-01T00:00:00.511Z"
+    },
+    {
+      "type": "run_output_delta",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_con",
+        "agent_id": "debate_mod_ep_partial_r1_con",
+        "delta": "反对【已核实·#e1】。"
+      },
+      "timestamp": "2026-01-01T00:00:00.512Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_ep_partial_r1_con",
+        "agent_id": "debate_mod_ep_partial_r1_con",
+        "output_summary": "反对方",
+        "duration_ms": 500,
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.011Z"
+    },
+    {
+      "type": "run_completed",
+      "payload": {
+        "run_id": "debate_mod_ep_partial",
+        "agent_id": "debate_mod_ep_partial",
+        "output_summary": "1 轮·部分证据包",
+        "duration_ms": 1500,
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        }
+      },
+      "timestamp": "2026-01-01T00:00:01.504Z"
+    },
+    {
+      "type": "debate_result",
+      "payload": {
+        "execution_id": "exec_ep_partial",
+        "moderator_run_id": "debate_mod_ep_partial",
+        "form": "debate",
+        "motion": "是否采用方案 A",
+        "stop_reason": "converged",
+        "opening": "共享包不完整，双方有界补证后立论。",
+        "narrative_first": false,
+        "sides": [
+          {
+            "key": "pro",
+            "name": "支持方",
+            "stance": "支持",
+            "is_subject": false
+          },
+          {
+            "key": "con",
+            "name": "反对方",
+            "stance": "反对",
+            "is_subject": false
+          }
+        ],
+        "rounds": [
+          {
+            "round_no": 1,
+            "focus": "截断条款",
+            "summary": "部分证据包交锋",
+            "verdict": {
+              "real_clash": true,
+              "new_arguments": false,
+              "converged": true,
+              "stop_reason": "converged",
+              "rationale": "承认缺口后收敛"
+            },
+            "sides": [
+              {
+                "key": "pro",
+                "name": "支持方",
+                "run_id": "debate_mod_ep_partial_r1_pro",
+                "ok": true
+              },
+              {
+                "key": "con",
+                "name": "反对方",
+                "run_id": "debate_mod_ep_partial_r1_con",
+                "ok": true
+              }
+            ],
+            "clashes": [],
+            "cross_exam": [],
+            "scores": {}
+          }
+        ],
+        "closings": [],
+        "brief": {
+          "crux": "截断条款",
+          "strongest_points": {
+            "pro": "支持",
+            "con": "反对"
+          },
+          "handoffs": [],
+          "decisive": "",
+          "leaning": "未决",
+          "confidence": "low",
+          "recommendation": "补齐全文后再辩"
+        },
+        "evidence_ledger": [
+          {
+            "id": "#e1",
+            "url": "",
+            "title": "长约.md",
+            "snippet": "条款正文…",
+            "site": "长约.md",
+            "date": "",
+            "tier": "unknown",
+            "side_key": "evidence_pack",
+            "dossier_path": "attachments/长约.md",
+            "origin_id": "",
+            "dossier_label": "长约.md"
+          }
+        ]
+      },
+      "timestamp": "2026-01-01T00:00:01.505Z"
+    },
+    {
+      "type": "message_end",
+      "payload": {
+        "finish_reason": "end_turn",
+        "usage": {
+          "input_tokens": 700,
+          "output_tokens": 120,
+          "reasoning_tokens": 0,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 0
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        },
+        "rounds": 0
+      },
+      "timestamp": "2026-01-01T00:00:01.506Z"
+    }
+  ],
+  "projected": {
+    "status": "completed",
+    "finishReason": "end_turn",
+    "content": "附件截断，跳过外证舰队直接开辩。",
+    "reasoning": "",
+    "captainContext": [],
+    "process": [
+      {
+        "kind": "content",
+        "text": "附件截断，跳过外证舰队直接开辩。"
+      },
+      {
+        "kind": "team",
+        "execution_id": "exec_ep_partial"
+      }
+    ],
+    "citations": [],
+    "evidenceLedger": [],
+    "citedIds": [],
+    "agents": [
+      {
+        "id": "debate_mod_ep_partial",
+        "role": "主持人",
+        "thinking": false,
+        "status": "completed",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_pro",
+        "role": "支持方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      },
+      {
+        "id": "d_con",
+        "role": "反对方",
+        "thinking": true,
+        "status": "idle",
+        "currentRunId": null,
+        "output": "",
+        "reasoning": "",
+        "toolProgress": null
+      }
+    ],
+    "runs": [
+      {
+        "id": "debate_mod_ep_partial",
+        "agentId": "debate_mod_ep_partial",
+        "task": "主持正反辩论：长约截断",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "1 轮·部分证据包",
+        "debrief": null,
+        "durationMs": 1500,
+        "error": null,
+        "failureKind": null,
+        "productLanded": null,
+        "parentRunId": "captain1",
+        "kind": "agent",
+        "role": "主持人",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        },
+        "stance": null,
+        "group": null,
+        "round": 0,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": []
+      },
+      {
+        "id": "debate_mod_ep_partial_r1_pro",
+        "agentId": "d_pro",
+        "task": "依部分证据包论证支持",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "支持方",
+        "debrief": null,
+        "durationMs": 500,
+        "error": null,
+        "failureKind": null,
+        "productLanded": null,
+        "parentRunId": "debate_mod_ep_partial",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        },
+        "stance": "pro",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "支持【已核实·#e1】。"
+          }
+        ]
+      },
+      {
+        "id": "debate_mod_ep_partial_r1_con",
+        "agentId": "d_con",
+        "task": "依部分证据包论证反对",
+        "status": "completed",
+        "dependsOn": [],
+        "outputSummary": "反对方",
+        "debrief": null,
+        "durationMs": 500,
+        "error": null,
+        "failureKind": null,
+        "productLanded": null,
+        "parentRunId": "debate_mod_ep_partial",
+        "kind": "agent",
+        "role": "member",
+        "model": "deepseek-v4-flash",
+        "usage": {
+          "input": 1200,
+          "output": 300,
+          "reasoning": 120,
+          "cache_hit": 800,
+          "cache_miss": 400
+        },
+        "cost": {
+          "input": 240000,
+          "cached": 64000,
+          "output": 120000,
+          "total": 360000,
+          "currency": "CNY",
+          "pricing_source": "curated"
+        },
+        "stance": "con",
+        "group": "debate:debate",
+        "round": 1,
+        "continuesRunId": null,
+        "revised": null,
+        "replacesRunId": null,
+        "actId": "act-1",
+        "checkpoint": null,
+        "receivedContext": [],
+        "escalations": [],
+        "process": [
+          {
+            "kind": "content",
+            "text": "反对【已核实·#e1】。"
+          }
+        ]
+      }
+    ],
+    "acts": [
+      {
+        "actId": "act-1",
+        "kind": "debate",
+        "title": null,
+        "anchorRunId": null,
+        "authorizedBy": null
+      }
+    ],
+    "progress": {
+      "completed": 3,
+      "total": 3
+    },
+    "interactions": [],
+    "cost": {
+      "input": 240000,
+      "cached": 64000,
+      "output": 120000,
+      "total": 360000,
+      "currency": "CNY",
+      "pricing_source": "curated"
+    },
+    "debate": {
+      "execution_id": "exec_ep_partial",
+      "moderator_run_id": "debate_mod_ep_partial",
+      "form": "debate",
+      "motion": "是否采用方案 A",
+      "stop_reason": "converged",
+      "opening": "共享包不完整，双方有界补证后立论。",
+      "narrative_first": false,
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方",
+          "stance": "支持",
+          "is_subject": false
+        },
+        {
+          "key": "con",
+          "name": "反对方",
+          "stance": "反对",
+          "is_subject": false
+        }
+      ],
+      "rounds": [
+        {
+          "round_no": 1,
+          "focus": "截断条款",
+          "summary": "部分证据包交锋",
+          "verdict": {
+            "real_clash": true,
+            "new_arguments": false,
+            "converged": true,
+            "stop_reason": "converged",
+            "rationale": "承认缺口后收敛"
+          },
+          "sides": [
+            {
+              "key": "pro",
+              "name": "支持方",
+              "run_id": "debate_mod_ep_partial_r1_pro",
+              "ok": true
+            },
+            {
+              "key": "con",
+              "name": "反对方",
+              "run_id": "debate_mod_ep_partial_r1_con",
+              "ok": true
+            }
+          ],
+          "clashes": [],
+          "cross_exam": [],
+          "scores": {}
+        }
+      ],
+      "closings": [],
+      "brief": {
+        "crux": "截断条款",
+        "strongest_points": {
+          "pro": "支持",
+          "con": "反对"
+        },
+        "handoffs": [],
+        "decisive": "",
+        "leaning": "未决",
+        "confidence": "low",
+        "recommendation": "补齐全文后再辩"
+      },
+      "evidence_ledger": [
+        {
+          "id": "#e1",
+          "url": "",
+          "title": "长约.md",
+          "snippet": "条款正文…",
+          "site": "长约.md",
+          "date": "",
+          "tier": "unknown",
+          "side_key": "evidence_pack",
+          "dossier_path": "attachments/长约.md",
+          "origin_id": "",
+          "dossier_label": "长约.md"
+        }
+      ]
+    },
+    "debateRounds": [
+      {
+        "round_no": 1,
+        "focus": "截断条款",
+        "summary": "",
+        "verdict": null,
+        "sides": [],
+        "clashes": [],
+        "cross_exam": [],
+        "witness_exam": [],
+        "findings": [],
+        "thread_turns": []
+      }
+    ],
+    "debatePretrial": {
+      "status": "skipped",
+      "thorough": true,
+      "skipReason": "evidence_pack",
+      "sides": [
+        {
+          "key": "pro",
+          "name": "支持方"
+        },
+        {
+          "key": "con",
+          "name": "反对方"
+        }
+      ],
+      "orders": [],
+      "evidenceLedgerCount": 1,
+      "fallbackSelfSearch": false,
+      "evidenceReady": true,
+      "completeness": "partial",
+      "incomplete": false,
+      "externalEvidenceMode": "skip",
+      "externalEvidenceReason": "evidence_pack_partial"
+    },
+    "crossExamEnabled": false,
+    "debateOpening": "共享包不完整，双方有界补证后立论。",
+    "teamSynthesisPreview": null,
+    "deliveryStatus": null,
+    "turnWarning": null,
+    "teamNotes": [],
+    "userInterjections": []
+  }
+}

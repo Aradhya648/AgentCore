@@ -181,7 +181,18 @@ export const EVENT_PARITY: Record<SSEEventType, ParityEntry> = {
   },
   turn_queued: {
     verdict: "ported",
-    surface: "ChatPage · 排队等待条（extractTurnQueued）",
+    surface:
+      "ChatPage · turn_queued 立即主时间线用户气泡 + queuedTurns 轻态（多项 FIFO）",
+  },
+  turn_queue_cancelled: {
+    verdict: "ported",
+    surface:
+      "ChatPage · 按 queue_id 清 store + 乐观气泡（cancel API 成功/404 本地清；fold no-op）",
+  },
+  turn_steer_accepted: {
+    verdict: "ported",
+    surface:
+      "ChatPage · toast「已插入，下一工具步生效」（fold no-op；midFlight steered）",
   },
   execution_detached: {
     verdict: "internal",
@@ -452,6 +463,11 @@ export const DESKTOP_CHAT_PARITY: Record<string, ParityEntry> = {
     verdict: "ported",
     surface:
       "ChatPage · InterjectionBubbles（主时间线用户气泡 + 四态文案；对齐桌面）",
+  },
+  QueuedTurnsBar: {
+    verdict: "ported",
+    surface:
+      "ChatPage · QueuedTurnsBar + 用户气泡排队轻态（queuedTurns 多 FIFO；按项取消）",
   },
   SourceCards: { verdict: "ported", surface: "AssistantView · 来源" },
   CitationTierBadge: {

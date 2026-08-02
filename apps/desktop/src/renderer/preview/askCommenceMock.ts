@@ -48,15 +48,6 @@ export const ASK_COMMENCE_MOCK: AskUserContent = {
       default: "只要中文",
     },
   ],
-  styleOptions: [
-    { id: "s0", label: "克制专业" },
-    { id: "s1", label: "活泼产品感" },
-    { id: "s2", label: "深色科技" },
-  ],
-  formatOptions: [
-    { id: "f0", label: "PowerPoint（.pptx）" },
-    { id: "f1", label: "Marp Markdown" },
-  ],
 };
 
 export type AskCommenceVariantId =

@@ -357,8 +357,6 @@ function PendingEscalation({
     context: "",
     assumptions: [],
     questions: escalation.questions,
-    styleOptions: [],
-    formatOptions: [],
   };
   const ans = useAskAnswer(content);
   const tone = interactiveCheckpointTone.primary;

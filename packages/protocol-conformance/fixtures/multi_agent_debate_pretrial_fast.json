@@ -1,6 +1,6 @@
 {
   "name": "multi_agent_debate_pretrial_fast",
-  "description": "庭前取证：thorough=False 不带队秒过（skip_reason=fast）",
+  "description": "庭前取证：thorough=False 不带庭前重流程秒过（skip_reason=fast）",
   "events": [
     {
       "type": "message_start",
@@ -91,12 +91,10 @@
         "status": "skipped",
         "skip_reason": "fast",
         "orders": [],
-        "investigators": [],
         "fallback_self_search": false,
         "evidence_ready": false,
         "completeness": "empty",
         "incomplete": false,
-        "failed_sides": [],
         "evidence_ledger_count": 0,
         "evidence_ledger_delta": []
       },
@@ -688,13 +686,11 @@
         }
       ],
       "orders": [],
-      "investigators": [],
       "evidenceLedgerCount": 0,
       "fallbackSelfSearch": false,
       "evidenceReady": false,
       "completeness": "empty",
-      "incomplete": false,
-      "failedSides": []
+      "incomplete": false
     },
     "crossExamEnabled": false,
     "debateOpening": null,

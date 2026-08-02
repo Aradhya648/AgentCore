@@ -1,8 +1,8 @@
 """Create or promote an admin user (production bootstrap).
 
-Registration is invite-gated (D6), and a fresh deployment has no invites — so the
-very first admin cannot self-register. Run this once on a new deployment to mint
-the initial admin, who can then issue invite codes from the app's 成员 settings.
+Registration is open (``REGISTRATION_OPEN``), but a fresh deployment may still
+want a known admin before anyone self-registers. Run this once to mint or
+promote the initial admin.
 
 Run from ``apps/server``::
 

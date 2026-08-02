@@ -27,8 +27,5 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "user.set_password": "设置密码",
   "user.delete": "注销账号",
   "account.change_password": "修改密码",
-  "invite.create": "生成邀请码",
-  "invite.batch_create": "批量生成邀请码",
-  "invite.revoke": "撤销邀请码",
   "conversation.replay": "回放对话",
 };

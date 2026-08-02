@@ -288,7 +288,7 @@ def test_core_teaches_split_criterion_over_count():
     assert "勿先" in hint and "ask_user_kickoff" in hint
     assert "糊建站" in hint or "做个网站" in hint
     assert "短问" in hint or "短澄清" in hint
-    assert "提案墙" in hint or "style_options" in hint
+    assert "提案墙" in hint
     assert "pptx" in hint.lower() and "marp" in hint.lower()
     assert "先设计再实现" in hint
     assert "只留方向句" in hint
@@ -551,14 +551,14 @@ def test_core_teaches_delivery_path_by_workspace_type():
 
 
 def test_core_teaches_presentation_honesty():
-    # 演讲/PPT：诚实性钩子保留；场面 format_options 硬教法已拆除。
+    # 演讲/PPT：诚实性钩子保留；场面 format_options 已退役。
     hint = _CEO_CORE_HINT
     assert "pptx" in hint.lower() and "marp" in hint.lower()
     assert "PPT 已落盘可直接使用" in hint
     assert "静默" in hint or "只交" in hint
     kickoff = build_system_skill_registry().get("ask_user_kickoff").body
-    assert "format_options" in kickoff  # 兼容字段说明
-    assert "不记账" in kickoff or "不硬闸" in kickoff
+    assert "format_options" not in kickoff
+    assert "style_options" not in kickoff
     orch = _TEAM_ORCHESTRATION_ADVANCED
     assert "python-pptx" in orch
     assert "代写全章节大纲" in orch or "Marp 语法" in orch
@@ -567,7 +567,7 @@ def test_core_teaches_presentation_honesty():
 def test_core_teaches_short_clarify_not_scene_ledger():
     hint = _CEO_CORE_HINT
     assert "短问" in hint or "短澄清" in hint
-    assert "提案墙" in hint or "style_options" in hint
+    assert "提案墙" in hint
     kickoff = build_system_skill_registry().get("ask_user_kickoff").body
     assert "短问" in kickoff or "短澄清" in kickoff
     assert "开工提案卡" not in kickoff

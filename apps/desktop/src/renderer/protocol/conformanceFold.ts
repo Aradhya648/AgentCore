@@ -473,6 +473,8 @@ export function foldToProjectedTurn(events: SSEEvent[]): ProjectedTurn {
       case "tool_use_progress":
       case "coordination_wait":
       case "turn_queued":
+      case "turn_steer_accepted":
+      case "turn_queue_cancelled":
       case "browser_live_frame":
       case "browser_live_status":
       case "batch_metrics":
@@ -762,8 +764,8 @@ function mergeTurnLedger(
 
 /**
  * Plan 声明序（对齐 oracle / 手机）。仅在无 continue_run 时重排——有续派时保持
- * frame 序（与直播图一致，避免证人/红队复攻插队）。庭前取证无 continue：主辩先声明、
- * 取证员先执行，frame 序会把 inv 排到主辩前，此处校正。
+ * frame 序（与直播图一致，避免证人/红队复攻插队）。庭前无 continue：主辩先声明；
+ * 旧 journal 若仍有附属 run 先执行，frame 序会插到主辩前，此处校正。
  */
 function orderRunsForProjectedTurn(
   planIds: readonly string[],

@@ -82,7 +82,6 @@ export function buildAgentNodePresentation(
   const debate = isDebateAgentNode(d);
   const revisionBadge = buildRevisionBadge({
     isRevision: d.isRevision,
-    revision: d.revision,
     continuationIndex: d.continuationIndex,
     round: d.round,
     isDebate: debate,

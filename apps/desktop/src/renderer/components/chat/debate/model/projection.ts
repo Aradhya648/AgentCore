@@ -8,8 +8,6 @@ import {
   debateGroups,
   debateLiveRounds,
   isDebateFormGroup,
-  isDebateParticipantGroup,
-  isPretrialInvestigatorGroup,
 } from "@/stores/execution";
 import type {
   DebateClash,
@@ -159,8 +157,8 @@ function runOutputText(execution: Execution, run: RunNode | null): string {
 }
 
 /** 把一个回合的 {@link Execution} 归一成 {@link DebateModel}；非辩论 / 进行中尚无任何
- * 轮次且无庭前取证 → null (不渲染)。收场以 `debate` 为权威；否则从 `debateRounds` + run 树重建。
- * 庭前取证可在首轮立论前单独撑起赛事页（治「卡一过就开跑、看不到准备过程」）。 */
+ * 轮次且无庭前准备 → null (不渲染)。收场以 `debate` 为权威；否则从 `debateRounds` + run 树重建。
+ * 庭前准备可在首轮立论前单独撑起赛事页（`debate_pretrial_started` 即可，不依赖调查员事件）。 */
 export function toDebateModel(execution: Execution): DebateModel | null {
   if (execution.debate) {
     return settledModel(execution, execution.debate);
@@ -168,52 +166,13 @@ export function toDebateModel(execution: Execution): DebateModel | null {
   return liveModel(execution);
 }
 
-/** 庭前取证 → 展示态；enrich 取证员 run 状态供 live 进度。 */
+/** 庭前取证 → 展示态（组卷轻态；不 enrich 取证员 run / 舰队进度）。 */
 function resolvePretrial(execution: Execution): DebatePretrialView | null {
   const raw = execution.debatePretrial;
   if (!raw) return null;
+  const preparing = raw.status === "running";
   const sides: DebatePretrialSideView[] = raw.sides.map((side) => {
     const order = raw.orders.find((o) => o.side_key === side.key);
-    const invs = raw.investigators.filter((i) => i.side_key === side.key);
-    let investigatorDone = invs.filter((i) => i.ok).length;
-    let investigatorTotal = invs.length;
-    let running = false;
-    if (invs.length > 0) {
-      for (const inv of invs) {
-        const run = execution.runs.find((r) => r.id === inv.run_id);
-        if (run?.status === "running" || run?.status === "pending") {
-          running = true;
-        }
-        if (run?.status === "completed") {
-          // live 未 completed 事件时用 run 态补齐 ok
-          if (!inv.ok) investigatorDone += 1;
-        }
-      }
-    } else if (raw.status === "running") {
-      // 点单后、completed 前：用 parent 子 run 估进度（取证员 parent=主辩）。
-      const parentIds = new Set(
-        execution.runs
-          .filter(
-            (r) =>
-              (r.stance === side.key || r.sideKey === side.key) &&
-              isDebateParticipantGroup(r.group),
-          )
-          .map((r) => r.id),
-      );
-      const children = execution.runs.filter(
-        (r) =>
-          r.parentRunId &&
-          parentIds.has(r.parentRunId) &&
-          isPretrialInvestigatorGroup(r.group),
-      );
-      investigatorTotal = children.length;
-      investigatorDone = children.filter(
-        (r) => r.status === "completed",
-      ).length;
-      running = children.some(
-        (r) => r.status === "running" || r.status === "pending",
-      );
-    }
     return {
       sideKey: side.key,
       name: side.name,
@@ -222,9 +181,7 @@ function resolvePretrial(execution: Execution): DebatePretrialView | null {
         query: t.query,
         ...(t.purpose ? { purpose: t.purpose } : {}),
       })),
-      investigatorDone,
-      investigatorTotal,
-      running,
+      preparing,
     };
   });
   return {
@@ -237,17 +194,11 @@ function resolvePretrial(execution: Execution): DebatePretrialView | null {
     sides,
     completeness: raw.completeness,
     incomplete: raw.incomplete,
-    failedSides: raw.failedSides ?? [],
     ...(raw.externalEvidenceMode != null
       ? { externalEvidenceMode: raw.externalEvidenceMode }
       : {}),
     ...(raw.externalEvidenceReason != null
       ? { externalEvidenceReason: raw.externalEvidenceReason }
-      : {}),
-    ...(raw.retrievalBudgetPerInvestigator != null
-      ? {
-          retrievalBudgetPerInvestigator: raw.retrievalBudgetPerInvestigator,
-        }
       : {}),
   };
 }
@@ -324,7 +275,7 @@ function settledModel(
 }
 
 /** 进行中：2 方走 {@link debateGroups} 左右对开，多方走 {@link debateLiveRounds}；逐轮的
- * 焦点/小结/裁判 由 `debateRounds` (主持人增量) 按轮号合并。无任何轮次且无庭前取证 → null。 */
+ * 焦点/小结/裁判 由 `debateRounds` (主持人增量) 按轮号合并。无任何轮次且无庭前准备 → null。 */
 function liveModel(execution: Execution): DebateModel | null {
   const groups = debateGroups(execution);
   const rounds =

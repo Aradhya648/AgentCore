@@ -73,8 +73,6 @@ describe("composeAnswer with bind_local_folder pick", () => {
         default: "",
       },
     ],
-    styleOptions: [],
-    formatOptions: [],
   };
 
   it("puts the folder-annotated option into the composed resolve text", () => {
@@ -87,8 +85,6 @@ describe("composeAnswer with bind_local_folder pick", () => {
       },
       {},
       {},
-      null,
-      null,
       "",
     );
     expect(text).toContain("绑定本机执行环境（AgentCore-desktop）");
@@ -103,8 +99,6 @@ describe("composeAnswer with bind_local_folder pick", () => {
       },
       {},
       {},
-      null,
-      null,
       "",
     );
     expect(text).toContain(

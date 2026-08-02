@@ -29,6 +29,10 @@ DURABLE_VECTOR_WAIVERS: dict[EventType, str] = {
         "Execution.batches / 手机 conformance fold 显式 no-op），但**不进**规范化 ProjectedTurn "
         "表面，故没有 golden 能断言其往返。属知情记账，非静默盲区。"
     ),
+    EventType.DEBATE_PRETRIAL_PROGRESS: (
+        "庭前路径收敛后 ``run_pretrial_phase`` 不再调用 on_progress（点单 LLM / 取证员热路径已撤）；"
+        "事件类型仍 DURABLE 以兼容旧 journal 重放，但新回合不再产出，故无新向量覆盖。"
+    ),
 }
 
 

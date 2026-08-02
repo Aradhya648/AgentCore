@@ -1,6 +1,6 @@
 {
   "name": "presentation_kickoff_format_options",
-  "description": "演讲/PPT 开工卡：checkpoint_required 强制非空 format_options；resume selected=f0 结构化记账（presentation_format ledger 同形）",
+  "description": "退役棘轮：场面 format_options 已拆除；普通短澄清挂起",
   "events": [
     {
       "type": "message_start",
@@ -23,25 +23,10 @@
         "checkpoint_id": "cp_fmt",
         "conversation_id": "conv_demo",
         "question": "这份课件用哪种交付形态？",
-        "context": "演讲 / PPT 意图：必须选定形态后再开做。",
+        "context": "演讲 / PPT 意图：缺信息靠短问，错了再改。",
         "assumptions": [],
         "questions": [],
-        "style_options": [],
-        "format_options": [
-          {
-            "id": "f0",
-            "label": "PowerPoint（.pptx）— 真幻灯片文件；有 code_execute 时推荐"
-          },
-          {
-            "id": "f1",
-            "label": "Marp Markdown 幻灯片 — 无代码执行时推荐"
-          },
-          {
-            "id": "f2",
-            "label": "仅讲稿大纲 — 只要讲稿、不要幻灯片文件"
-          }
-        ],
-        "intent": "kickoff"
+        "intent": "decision"
       },
       "timestamp": "2026-01-01T00:00:00.003Z"
     },
@@ -51,9 +36,7 @@
         "checkpoint_id": "cp_fmt",
         "decision": "continue",
         "note": "选 PowerPoint",
-        "selected": [
-          "f0"
-        ]
+        "selected": []
       },
       "timestamp": "2026-01-01T00:00:00.004Z"
     },
@@ -120,7 +103,7 @@
         "id": "cp_fmt",
         "status": "resolved",
         "question": "这份课件用哪种交付形态？",
-        "context": "演讲 / PPT 意图：必须选定形态后再开做。"
+        "context": "演讲 / PPT 意图：缺信息靠短问，错了再改。"
       }
     ],
     "cost": {

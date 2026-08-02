@@ -91,7 +91,7 @@ async def run_workflow_pipeline(
         trace_id=get_log_value("trace_id"),
         captain_run_id=captain_run_id,
         delegated=True,
-        permission_preset=(
+        permission_axes=(
             json.dumps(permission_axes.to_dict()) if permission_axes is not None else None
         ),
     )

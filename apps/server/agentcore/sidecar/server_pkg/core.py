@@ -38,8 +38,8 @@ class SidecarServer(HandlerMixin, TurnExecutionMixin):
         self._root: Path | None = None
         self._creds: LLMCredentials | None = None
         self._approvals_enabled = True
-        # Conversation permission mode (会话级权限模式). Sidecar has no conversation DB —
-        # the desktop sends ``permissionPreset`` on initialize and refreshes it per turn.
+        # Conversation permission axes. Sidecar has no conversation DB — the desktop
+        # sends ``permissionAxes`` on initialize and refreshes them per turn.
         self._permission_axes: PermissionAxes = DEFAULT_PERMISSION_AXES
         # The local durable-pause store (§8.6 paused-turn port, local impl), set from
         # ``initialize``'s ``dataDir``. ``None`` ⇒ no data dir ⇒ pauses stay in-memory.

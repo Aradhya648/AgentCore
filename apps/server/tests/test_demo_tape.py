@@ -1189,7 +1189,7 @@ async def test_tape_followups_persist_emits_and_skips_mint(monkeypatch, tmp_path
     )
     monkeypatch.setattr(cloud_mod, "persist_turn_journal", AsyncMock())
     monkeypatch.setattr(cloud_mod, "schedule_consolidation", lambda _c: None)
-    monkeypatch.setattr(cloud_mod, "schedule_compaction", lambda *_a: None)
+    monkeypatch.setattr(cloud_mod, "schedule_compaction_if_due", AsyncMock(return_value=None))
     monkeypatch.setattr(cloud_mod, "mint_followups", mint)
     monkeypatch.setattr(
         cloud_mod.settings, "workspace_snapshot_enabled", False, raising=False
@@ -2408,7 +2408,6 @@ def test_build_tape_sanitizes_run_context_memory():
                 "context": "",
                 "assumptions": [],
                 "questions": [{"id": "q1", "prompt": "选一项"}],
-                "style_options": [],
                 "intent": "decision",
             },
             AskUserSuspension,

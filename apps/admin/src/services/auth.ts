@@ -45,9 +45,14 @@ export async function fetchMe(): Promise<AuthUser> {
 export async function login(
   username: string,
   password: string,
+  persistSession = false,
 ): Promise<LoginOutcome> {
   return parseLoginResponse(
-    await api.post<LoginResponse>("/v1/auth/login", { username, password }),
+    await api.post<LoginResponse>("/v1/auth/login", {
+      username,
+      password,
+      persist_session: persistSession,
+    }),
   );
 }
 

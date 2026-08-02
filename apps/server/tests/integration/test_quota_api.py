@@ -72,23 +72,24 @@ async def _make_conversation(session_factory, *, user_id: str) -> str:
         return conv.id
 
 
-async def test_send_message_blocked_when_over_monthly_quota(client, make_invite, session_factory):
-    code = await make_invite("INV-QUOTA")
-    user_id = await register_and_login(client, code, "quotauser")
+async def test_send_message_blocked_when_over_monthly_quota(client, session_factory):
+    user_id = await register_and_login(client, "quotauser")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_OVER_MONTHLY_NANO
     )
 
-    r = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{conv_id}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
 
     assert r.status_code == 429, r.text
     assert r.json()["error"]["code"] == "QUOTA_EXCEEDED"
 
 
-async def test_regenerate_blocked_when_over_monthly_quota(client, make_invite, session_factory):
-    code = await make_invite("INV-QUOTA-REGEN")
-    user_id = await register_and_login(client, code, "quotaregen")
+async def test_regenerate_blocked_when_over_monthly_quota(client, session_factory):
+    user_id = await register_and_login(client, "quotaregen")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_OVER_MONTHLY_NANO
@@ -102,12 +103,11 @@ async def test_regenerate_blocked_when_over_monthly_quota(client, make_invite, s
     assert r.json()["error"]["code"] == "QUOTA_EXCEEDED"
 
 
-async def test_per_user_override_tightens_cap(client, make_invite, session_factory):
+async def test_per_user_override_tightens_cap(client, session_factory):
     # Spend (¥3) is UNDER the global ¥10 cap, so default config would let the turn
     # through — but the user's own ¥2 monthly override trips 429. Proves the turn
     # gate resolves limits via QuotaLimits.for_user (per-user), not just config.
-    code = await make_invite("INV-QUOTA-OVR")
-    user_id = await register_and_login(client, code, "quotaovr")
+    user_id = await register_and_login(client, "quotaovr")
     conv_id = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=conv_id, total=_UNDER_GLOBAL_NANO
@@ -115,22 +115,27 @@ async def test_per_user_override_tightens_cap(client, make_invite, session_facto
     async with session_factory() as session:
         await UserRepository(session).set_quota(user_id, monthly_cost_cny=2.0)
 
-    r = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{conv_id}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
 
     assert r.status_code == 429, r.text
     assert r.json()["error"]["code"] == "QUOTA_EXCEEDED"
 
 
-async def test_ownership_check_precedes_quota(client, make_invite, session_factory):
+async def test_ownership_check_precedes_quota(client, session_factory):
     # Ownership (404) is checked before quota (429): posting to a conversation the
     # user doesn't own returns 404 even when the user is over quota.
-    code = await make_invite("INV-QUOTA-OWN")
-    user_id = await register_and_login(client, code, "quotaowner")
+    user_id = await register_and_login(client, "quotaowner")
     owned = await _make_conversation(session_factory, user_id=user_id)
     await _seed_spend(
         session_factory, user_id=user_id, conversation_id=owned, total=_OVER_MONTHLY_NANO
     )
 
-    r = await client.post(f"/v1/conversations/{new_id()}/messages", json={"content": "hi"})
+    r = await client.post(
+        f"/v1/conversations/{new_id()}/messages",
+        json={"content": "hi", "delivery": "steer"},
+    )
 
     assert r.status_code == 404, r.text

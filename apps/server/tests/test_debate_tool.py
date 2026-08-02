@@ -1,4 +1,4 @@
-﻿"""DebateTool 集成自测（辩论编排设计.md · per-PR 零 LLM 硬门禁）。
+"""DebateTool 集成自测（辩论编排设计.md · per-PR 零 LLM 硬门禁）。
 
 与 ``test_debate_moderator`` 互补：那个用假 RoundRunner 只验证主持人循环本身；这个走【真实
 RoundRunner】——首轮 ``build_agent_executor`` + ``WaveScheduler`` 派并行辩手、后续轮
@@ -311,8 +311,8 @@ async def test_multi_round_cross_round_memory():
         {"motion": "该不该做 X", "form": "debate", "sides": _sides()}, _ctx()
     )
     assert result.success is True
-    # 3 轮 × 2 辩手 = 6 次立论 stream + 结辩 2 + 庭前取证员 4（thorough 自动派单 2×2）→ 12。
-    assert llm.stream_calls == 12
+    # 3 轮 × 2 辩手 = 6 次立论 stream + 结辩 2 → 8（庭前取证员热路径已撤，不再计 4）。
+    assert llm.stream_calls == 8
     # 后续轮经 continue_run 注入「本轮焦点 + 对方上轮论点」→ 辩手跨轮带记忆
     msgs = [m.content for req in llm.stream_requests for m in req.messages]
     assert any("第 2 轮" in c for c in msgs)
@@ -338,8 +338,8 @@ async def test_cross_exam_real_runner_lands_exchanges():
     )
     assert result.success is True
     assert llm.cross_exam_calls == 1
-    # 庭前取证员 4 + 1 轮 × 2 立论 + 2 质询作答 + 2 结辩 = 10
-    assert llm.stream_calls == 10
+    # 1 轮 × 2 立论 + 2 质询作答 + 2 结辩 = 6（庭前取证员热路径已撤）
+    assert llm.stream_calls == 6
     msgs = [m.content for req in llm.stream_requests for m in req.messages]
     assert any("质询环节" in c for c in msgs)
 

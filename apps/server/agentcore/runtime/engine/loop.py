@@ -389,8 +389,15 @@ async def react_loop(
     # deliverable_only (workers / debaters also set that flag and nest under the
     # captain Task; gating on it would clobber the captain mirror).
     captain_token = None
+    # Classic turn steer (P1): accepting window = captain loop lifetime.
+    steer_cid = ""
     if role == "captain":
         captain_token = current_captain_loop.set(CaptainLoopMirror(controller=controller))
+        steer_cid = (tool_context.conversation_id or "").strip()
+        if steer_cid:
+            from agentcore.runtime.turn_steer import begin_accepting
+
+            begin_accepting(steer_cid)
 
     def _enter_wind_down(reason: str, instruction: str) -> None:
         nonlocal wind_down_active, wind_down_reason, wind_down_effective_allowed
@@ -592,6 +599,22 @@ async def react_loop(
             # semantics (引擎纯化), mirroring on_content / on_reasoning.
             if round_idx and on_round_begin is not None:
                 messages.extend(on_round_begin())
+
+            # Classic turn steer (P1 · 同对话再发): drain mid-turn user supplements at
+            # every step top (incl. round 0), AFTER on_round_begin and BEFORE LLM.
+            # Parallel to coordination inject below — do NOT merge / fake coord_inject.
+            if role == "captain" and steer_cid:
+                from agentcore.runtime.turn_steer import drain_as_messages
+
+                steer_msgs = drain_as_messages(steer_cid)
+                if steer_msgs:
+                    messages.extend(steer_msgs)
+                    logger.info(
+                        "engine.turn_steer_inject",
+                        round=round_idx,
+                        injected=len(steer_msgs),
+                        conversation_id=steer_cid,
+                    )
 
             # CEO 协调模式 Phase 2: only the captain consumes team events (workers share
             # the ContextVar but must not block on the coordination queue).
@@ -1191,5 +1214,14 @@ async def react_loop(
         _export_terminal_state()
         return _exit(*result)
     finally:
+        if steer_cid:
+            from agentcore.runtime.turn_steer import (
+                end_accepting,
+                promote_leftovers_to_queue,
+            )
+
+            leftovers = end_accepting(steer_cid)
+            if leftovers:
+                promote_leftovers_to_queue(leftovers)
         if captain_token is not None:
             current_captain_loop.reset(captain_token)

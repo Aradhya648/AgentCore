@@ -56,8 +56,6 @@ export interface AgentNodeData {
   handleDirection?: "vertical" | "horizontal";
   isSubtask?: boolean;
   isRevision?: boolean;
-  /** @deprecated Prefer {@link continuationIndex}; kept as version-shaped (index+1) for debateBeatLabel fallback. */
-  revision?: number;
   /** 接续序号（1-based）；角标「续 ×N」。 */
   continuationIndex?: number;
   continuesRunId?: string | null;
@@ -125,9 +123,6 @@ export const PEEK_ARTIFACT_CAP = 6;
  * scrolls inside; never grow the RF footprint past the ELK slot.
  */
 export const FACE_CARD_HEIGHT = NODE_HEIGHT;
-
-/** @deprecated Prefer {@link FACE_CARD_HEIGHT}; kept as alias for call sites. */
-export const FACE_CARD_MAX_HEIGHT = FACE_CARD_HEIGHT;
 
 export const STATUS_STYLES: Record<string, { ring: string; bg: string }> = {
   pending: { ring: "ring-muted-foreground/30", bg: "bg-card" },
@@ -354,7 +349,6 @@ export interface RevisionBadgePresentation {
  */
 export function buildRevisionBadge(opts: {
   isRevision?: boolean;
-  revision?: number;
   continuationIndex?: number;
   round?: number;
   isDebate: boolean;
@@ -363,9 +357,7 @@ export function buildRevisionBadge(opts: {
   const idx =
     opts.continuationIndex && opts.continuationIndex > 0
       ? opts.continuationIndex
-      : opts.revision && opts.revision > 1
-        ? opts.revision - 1
-        : 0;
+      : 0;
   if (!opts.isRevision || idx < 1) return null;
   if (opts.isDebate) {
     // 协作图节点不会是折叠拍；若误传入则不挂角标（态在轮内 phase）。
@@ -378,7 +370,7 @@ export function buildRevisionBadge(opts: {
     }
     const label = debateBeatLabel({
       round: opts.round,
-      revision: opts.revision,
+      continuationIndex: opts.continuationIndex,
       beat: opts.beat,
     });
     return {

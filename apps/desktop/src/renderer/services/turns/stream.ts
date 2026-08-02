@@ -48,6 +48,8 @@ export interface SendTurnSpec {
    * After `turn_saved` reconciles it, this id is gone — the signal that the
    * turn is persisted and a retry must regenerate rather than resend. */
   optimisticUserId: string;
+  /** 必填分流；空闲开跑传 ``steer``。 */
+  delivery?: "steer" | "queue";
 }
 
 /**
@@ -63,7 +65,13 @@ export interface SendTurnSpec {
  * 「已排队」），drain 后同连接续流——不再有 202 JSON / 另行 attach 守望。
  */
 export async function sendTurn(spec: SendTurnSpec): Promise<void> {
-  const { conversationId, content, attachments, optimisticUserId } = spec;
+  const {
+    conversationId,
+    content,
+    attachments,
+    optimisticUserId,
+    delivery = "steer",
+  } = spec;
   const store = useConversationStore.getState();
   // Every turn write routes to this conversation's slice by id (not the active
   // key), so a turn keeps streaming into its own bubble after the user switches
@@ -190,6 +198,7 @@ export async function sendTurn(spec: SendTurnSpec): Promise<void> {
           conversationId,
           content,
           attachments,
+          delivery,
           signal: ac.signal,
         });
       }
@@ -204,6 +213,7 @@ export async function sendTurn(spec: SendTurnSpec): Promise<void> {
         conversationId,
         content,
         attachments,
+        delivery,
         signal: ac.signal,
       });
     }

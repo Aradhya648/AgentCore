@@ -170,9 +170,8 @@ async def test_admin_users_require_auth(client):
     assert (await client.patch("/v1/admin/users/anyone", json={"role": "admin"})).status_code == 401
 
 
-async def test_non_admin_cannot_access_admin_users(client, make_invite):
-    code = await make_invite("INV-NA")
-    await register_and_login(client, code, "regular")
+async def test_non_admin_cannot_access_admin_users(client):
+    await register_and_login(client, "regular")
     me = (await client.get("/v1/auth/me")).json()["id"]
 
     assert (await client.get("/v1/admin/users")).status_code == 403
@@ -361,10 +360,9 @@ async def test_admin_changes_role(client, make_admin, session_factory):
 async def test_admin_disable_revokes_target_access(client, new_client, make_admin):
     username, password = await make_admin()
     await login_admin(client, username, password)
-    code = (await client.post("/v1/auth/invites", json={})).json()["code"]
 
     async with new_client() as target:
-        await register_and_login(target, code, "victim")
+        await register_and_login(target, "victim")
         uid = (await target.get("/v1/auth/me")).json()["id"]
         assert (await target.get("/v1/auth/me")).status_code == 200
 
@@ -381,10 +379,9 @@ async def test_admin_disable_revokes_target_access(client, new_client, make_admi
 async def test_admin_resets_user_password(client, new_client, make_admin):
     username, password = await make_admin()
     await login_admin(client, username, password)
-    code = (await client.post("/v1/auth/invites", json={})).json()["code"]
 
     async with new_client() as target:
-        await register_and_login(target, code, "forgetful")
+        await register_and_login(target, "forgetful")
         uid = (await target.get("/v1/auth/me")).json()["id"]
 
         r = await client.post(f"/v1/admin/users/{uid}/reset-password")
@@ -416,9 +413,8 @@ async def test_reset_password_unknown_user_404(client, make_admin):
     assert (await client.post(f"/v1/admin/users/{uuid4()}/reset-password")).status_code == 404
 
 
-async def test_reset_password_requires_admin(client, make_invite):
-    code = await make_invite("INV-RP")
-    await register_and_login(client, code, "plainuser")
+async def test_reset_password_requires_admin(client):
+    await register_and_login(client, "plainuser")
     me = (await client.get("/v1/auth/me")).json()["id"]
     # even targeting self, the role gate refuses a non-admin before the service runs
     assert (await client.post(f"/v1/admin/users/{me}/reset-password")).status_code == 403
@@ -432,10 +428,9 @@ _CUSTOM_PW = "custompass99"
 async def test_admin_sets_user_password(client, new_client, make_admin):
     username, password = await make_admin()
     await login_admin(client, username, password)
-    code = (await client.post("/v1/auth/invites", json={})).json()["code"]
 
     async with new_client() as target:
-        await register_and_login(target, code, "settarget")
+        await register_and_login(target, "settarget")
         uid = (await target.get("/v1/auth/me")).json()["id"]
 
         r = await client.post(
@@ -464,10 +459,9 @@ async def test_admin_sets_user_password(client, new_client, make_admin):
 async def test_set_password_force_change_false(client, new_client, make_admin):
     username, password = await make_admin()
     await login_admin(client, username, password)
-    code = (await client.post("/v1/auth/invites", json={})).json()["code"]
 
     async with new_client() as target:
-        await register_and_login(target, code, "permuser")
+        await register_and_login(target, "permuser")
         uid = (await target.get("/v1/auth/me")).json()["id"]
 
         r = await client.post(
@@ -490,10 +484,9 @@ async def test_set_password_force_change_false(client, new_client, make_admin):
 async def test_set_password_weak_rejected(client, new_client, make_admin):
     username, password = await make_admin()
     await login_admin(client, username, password)
-    code = (await client.post("/v1/auth/invites", json={})).json()["code"]
 
     async with new_client() as target:
-        await register_and_login(target, code, "weaktarget")
+        await register_and_login(target, "weaktarget")
         uid = (await target.get("/v1/auth/me")).json()["id"]
 
     assert (
@@ -515,9 +508,8 @@ async def test_set_password_unknown_user_404(client, make_admin):
     ).status_code == 404
 
 
-async def test_set_password_requires_admin(client, make_invite):
-    code = await make_invite("INV-SP2")
-    await register_and_login(client, code, "plainuser2")
+async def test_set_password_requires_admin(client):
+    await register_and_login(client, "plainuser2")
     me = (await client.get("/v1/auth/me")).json()["id"]
     assert (
         await client.post(
@@ -576,12 +568,11 @@ async def test_admin_delete_unknown_user_404(client, make_admin):
     assert (await client.delete(f"/v1/admin/users/{uuid4()}")).status_code == 404
 
 
-async def test_delete_user_requires_admin(client, make_invite):
+async def test_delete_user_requires_admin(client):
     # unauthenticated → 401 (the gate rejects before any lookup)
     assert (await client.delete(f"/v1/admin/users/{uuid4()}")).status_code == 401
     # a logged-in non-admin → 403, even targeting their own account
-    code = await make_invite("INV-DELU")
-    await register_and_login(client, code, "regular_delu")
+    await register_and_login(client, "regular_delu")
     me = (await client.get("/v1/auth/me")).json()["id"]
     assert (await client.delete(f"/v1/admin/users/{me}")).status_code == 403
 
@@ -662,9 +653,8 @@ async def test_admin_usage_and_system_require_auth(client):
     assert (await client.get("/v1/admin/system")).status_code == 401
 
 
-async def test_non_admin_cannot_access_usage_or_system(client, make_invite):
-    code = await make_invite("INV-NA2")
-    await register_and_login(client, code, "regular2")
+async def test_non_admin_cannot_access_usage_or_system(client):
+    await register_and_login(client, "regular2")
     assert (await client.get("/v1/admin/usage/summary")).status_code == 403
     assert (await client.get("/v1/admin/system")).status_code == 403
 
@@ -895,9 +885,8 @@ async def test_admin_observability_requires_auth(client):
     ).status_code == 401
 
 
-async def test_non_admin_cannot_access_observability(client, make_invite):
-    code = await make_invite("INV-OBS")
-    await register_and_login(client, code, "regular_obs")
+async def test_non_admin_cannot_access_observability(client):
+    await register_and_login(client, "regular_obs")
     assert (await client.get("/v1/admin/observability/summary")).status_code == 403
     assert (
         await client.get(f"/v1/admin/observability/conversations/{new_id()}")
@@ -1416,9 +1405,8 @@ async def test_admin_user_detail_requires_auth(client):
     assert (await client.get(f"/v1/admin/users/{new_id()}/detail")).status_code == 401
 
 
-async def test_non_admin_cannot_access_user_detail(client, make_invite):
-    code = await make_invite("INV-DETAIL")
-    await register_and_login(client, code, "regular_detail")
+async def test_non_admin_cannot_access_user_detail(client):
+    await register_and_login(client, "regular_detail")
     me = (await client.get("/v1/auth/me")).json()["id"]
     assert (await client.get(f"/v1/admin/users/{me}/detail")).status_code == 403
 
@@ -1560,9 +1548,8 @@ async def test_admin_overview_requires_auth(client):
     assert (await client.get("/v1/admin/overview")).status_code == 401
 
 
-async def test_non_admin_cannot_access_overview(client, make_invite):
-    code = await make_invite("INV-OV")
-    await register_and_login(client, code, "regular_ov")
+async def test_non_admin_cannot_access_overview(client):
+    await register_and_login(client, "regular_ov")
     assert (await client.get("/v1/admin/overview")).status_code == 403
 
 
@@ -1637,9 +1624,8 @@ async def test_admin_conversations_requires_auth(client):
     assert (await client.get("/v1/admin/conversations/turns")).status_code == 401
 
 
-async def test_non_admin_cannot_access_conversations(client, make_invite):
-    code = await make_invite("INV-CONV")
-    await register_and_login(client, code, "regular_conv")
+async def test_non_admin_cannot_access_conversations(client):
+    await register_and_login(client, "regular_conv")
     assert (await client.get("/v1/admin/conversations")).status_code == 403
     assert (await client.get("/v1/admin/conversations/turns")).status_code == 403
 

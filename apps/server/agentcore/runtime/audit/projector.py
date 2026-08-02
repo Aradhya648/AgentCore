@@ -621,21 +621,10 @@ def project_permission_axes_changed(
     )
 
 
-def project_permission_preset_changed(
-    *,
-    previous: str | dict,
-    next_preset: str | dict,
-) -> AuditDraft:
-    """Back-compat wrapper — prefer :func:`project_permission_axes_changed`."""
-    prev = previous if isinstance(previous, dict) else {"legacy": previous}
-    nxt = next_preset if isinstance(next_preset, dict) else {"legacy": next_preset}
-    return project_permission_axes_changed(previous=prev, next_axes=nxt)
-
-
-def project_permission_preset_snapshot(
+def project_permission_axes_snapshot(
     recorder: AuditRecorder,
     *,
-    permission_preset: str,
+    permission_axes: str,
 ) -> AuditDraft:
     """Turn-entry snapshot so the security ledger knows the mode in force."""
     return AuditDraft(
@@ -646,5 +635,5 @@ def project_permission_preset_snapshot(
         run_id=recorder.captain_run_id,
         target_type="interaction",
         target_ref="permission_axes",
-        detail={"permission_axes": permission_preset},
+        detail={"permission_axes": permission_axes},
     )

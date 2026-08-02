@@ -26,9 +26,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ChoiceQuestion,
   CommenceNote,
-  FormatPills,
   PlanChips,
-  StylePills,
   splitBriefContext,
 } from "./AskCommenceParts";
 import type { AskUserContent } from "./AskUserFields";
@@ -218,9 +216,6 @@ export function AskCommenceKickoffBody({
           />
         ))}
         {bindError && <p className="text-xs text-destructive">{bindError}</p>}
-
-        <StylePills content={content} answer={answer} disabled={busy} />
-        <FormatPills content={content} answer={answer} disabled={busy} />
 
         {/* 恰好一题时「其他…」已覆盖自定义；多题才保留跨题附言，且默认折叠。 */}
         {content.questions.length !== 1 && (

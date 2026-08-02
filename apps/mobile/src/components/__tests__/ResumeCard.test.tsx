@@ -33,8 +33,6 @@ function summary(over: Partial<PausedTurnSummary> = {}): PausedTurnSummary {
     primitive: "delegate",
     max_rounds: 0,
     thorough: true,
-    offer_research_first: false,
-    research_first_recommended: false,
     ...over,
   };
 }
@@ -57,14 +55,14 @@ describe("ResumeCard · ask_user", () => {
       target: { value: "  选 A  " },
     });
     fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith("continue", "选 A", [], null, null);
+    expect(onResume).toHaveBeenCalledWith("continue", "选 A", []);
   });
 
   it("停止 submits stop", () => {
     const onResume = vi.fn();
     render(<ResumeCard paused={summary()} onResume={onResume} />);
     fireEvent.click(screen.getByText("停止"));
-    expect(onResume).toHaveBeenCalledWith("stop", "", [], null, null);
+    expect(onResume).toHaveBeenCalledWith("stop", "", []);
   });
 
   it("proposal_pick chip 选择映射进 selected", () => {
@@ -88,13 +86,7 @@ describe("ResumeCard · ask_user", () => {
     );
     fireEvent.click(screen.getByText("方案 A"));
     fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "方案 A",
-      ["方案 A"],
-      null,
-      null,
-    );
+    expect(onResume).toHaveBeenCalledWith("continue", "方案 A", ["方案 A"]);
   });
 
   it("organize_plan 确认=全保留（无勾选 UI 时 selected 含全部选项）", () => {
@@ -120,13 +112,7 @@ describe("ResumeCard · ask_user", () => {
       />,
     );
     fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "",
-      ["a → b", "删 x"],
-      null,
-      null,
-    );
+    expect(onResume).toHaveBeenCalledWith("continue", "", ["a → b", "删 x"]);
   });
 
   it("daily_review 默认全选，取消勾选后提交带 selected", () => {
@@ -174,13 +160,10 @@ describe("ResumeCard · ask_user", () => {
     // Seed all three; uncheck one.
     fireEvent.click(screen.getByText("主题：周报节奏"));
     fireEvent.click(screen.getByRole("button", { name: /确认落盘/ }));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "",
-      ["偏好简洁", "规则先问"],
-      null,
-      null,
-    );
+    expect(onResume).toHaveBeenCalledWith("continue", "", [
+      "偏好简洁",
+      "规则先问",
+    ]);
   });
 
   it("daily_review 全取消后确认落盘禁用", () => {
@@ -211,54 +194,6 @@ describe("ResumeCard · ask_user", () => {
     expect((cta as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(cta);
     expect(onResume).not.toHaveBeenCalled();
-  });
-
-  it("style_options continue 直传 style_id 与 selected sN", () => {
-    const onResume = vi.fn();
-    render(
-      <ResumeCard
-        paused={summary({
-          style_options: [
-            { id: "s0", label: "深色科技" },
-            { id: "s1", label: "简约商务" },
-          ],
-        })}
-        onResume={onResume}
-      />,
-    );
-    fireEvent.click(screen.getByText("简约商务"));
-    fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "风格：简约商务",
-      ["s1"],
-      "s1",
-      null,
-    );
-  });
-
-  it("format_options continue 直传 format_id 与 selected fN", () => {
-    const onResume = vi.fn();
-    render(
-      <ResumeCard
-        paused={summary({
-          format_options: [
-            { id: "f0", label: "PowerPoint（.pptx）" },
-            { id: "f1", label: "Marp Markdown" },
-          ],
-        })}
-        onResume={onResume}
-      />,
-    );
-    fireEvent.click(screen.getByText("Marp Markdown"));
-    fireEvent.click(screen.getByText("继续"));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "形态：Marp Markdown",
-      ["f1"],
-      null,
-      "f1",
-    );
   });
 });
 
@@ -294,7 +229,7 @@ describe("ResumeCard · plan_review", () => {
     });
     expect(adjust.disabled).toBe(false);
     fireEvent.click(adjust);
-    expect(onResume).toHaveBeenCalledWith("adjust", "换个方向", [], null, null);
+    expect(onResume).toHaveBeenCalledWith("adjust", "换个方向", []);
   });
 });
 
@@ -328,7 +263,7 @@ describe("ResumeCard · team_preview", () => {
       target: { value: "更简洁" },
     });
     fireEvent.click(screen.getByText("授权并开工"));
-    expect(onResume).toHaveBeenCalledWith("continue", "更简洁", [], null, null);
+    expect(onResume).toHaveBeenCalledWith("continue", "更简洁", []);
   });
 
   it("debate 仅开赛 + 停止；嘱咐走 continue", () => {
@@ -352,13 +287,7 @@ describe("ResumeCard · team_preview", () => {
       target: { value: "最关心成本谁买单" },
     });
     fireEvent.click(screen.getByText("开赛"));
-    expect(onResume).toHaveBeenCalledWith(
-      "continue",
-      "最关心成本谁买单",
-      [],
-      null,
-      null,
-    );
+    expect(onResume).toHaveBeenCalledWith("continue", "最关心成本谁买单", []);
   });
 
   it("开工卡不再提供 research_first 第三键（庭前取证内化）", () => {
@@ -370,23 +299,11 @@ describe("ResumeCard · team_preview", () => {
           workers: [],
           motion: "辩题",
           sides: [{ name: "正方", stance: "赞成" }],
-          offer_research_first: true,
-          research_first_recommended: true,
         })}
         onResume={onResume}
       />,
     );
     expect(screen.queryByText("先多视角调研再辩")).toBeNull();
     expect(screen.getByText("开赛")).toBeTruthy();
-  });
-
-  it("delegate 即使 offer_research_first 也不显示第三键", () => {
-    render(
-      <ResumeCard
-        paused={teamPreview({ offer_research_first: true })}
-        onResume={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText("先多视角调研再辩")).toBeNull();
   });
 });

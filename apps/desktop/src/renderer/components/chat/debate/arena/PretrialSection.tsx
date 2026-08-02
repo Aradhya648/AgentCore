@@ -8,9 +8,10 @@ import {
 } from "./debateLayoutPreference";
 
 const SKIP_LABEL: Record<string, string> = {
-  fast: "快速档 · 已跳过庭前取证",
-  dossier_sufficient: "案卷已充分 · 庭前取证秒过",
+  fast: "快速档 · 已跳过庭前准备",
+  dossier_sufficient: "案卷已充分 · 庭前秒过",
   evidence_pack: "共享证据包已齐 · 跳过外证",
+  no_pack: "无共享证据包 · 立论期检索补证",
 };
 
 const COMPLETENESS_LABEL: Record<string, string> = {
@@ -21,23 +22,21 @@ const COMPLETENESS_LABEL: Record<string, string> = {
 
 const EXTERNAL_MODE_LABEL: Record<string, string> = {
   skip: "外证 · 已跳过",
-  gap_fill: "外证 · 有界补证",
-  investigators: "外证 · 取证员",
 };
 
 const STATUS_BADGE: Record<
   string,
   { label: string; tone: "primary" | "success" | "muted" | "destructive" }
 > = {
-  running: { label: "取证中", tone: "primary" },
+  running: { label: "准备中", tone: "primary" },
   done: { label: "已完成", tone: "success" },
   skipped: { label: "已跳过", tone: "muted" },
   degraded: { label: "已降级", tone: "destructive" },
 };
 
 /**
- * 庭前取证区块（对标证人席）：各队点单 / 取证进度 + 台账条目计数。
- * 开赛后首轮立论前可见，治「卡一过就开跑、看不到准备过程」。
+ * 庭前准备区块：组卷 / 证据包轻态 + 可选任务单摘要（无取证员舰队进度）。
+ * 开赛后首轮立论前可见；靠 `debate_pretrial_started|completed` 撑住首屏，不依赖调查员事件。
  */
 export function PretrialSection({
   pretrial,
@@ -52,7 +51,7 @@ export function PretrialSection({
   const statusMeta = STATUS_BADGE[pretrial.status] ?? STATUS_BADGE.running;
   const skipLine =
     pretrial.status === "skipped" && pretrial.skipReason
-      ? (SKIP_LABEL[pretrial.skipReason] ?? "已跳过庭前取证")
+      ? (SKIP_LABEL[pretrial.skipReason] ?? "已跳过庭前准备")
       : null;
   // 权威=completed：running 不渲染完整度；缺字段=未知不告警；intentional skip 非失败态。
   const completeness = pretrial.completeness;
@@ -75,18 +74,24 @@ export function PretrialSection({
       `外证 · ${pretrial.externalEvidenceMode}`)
     : null;
   const useSplit = layoutMode === "split" && pretrial.sides.length === 2;
+  const subtitle =
+    pretrial.status === "running"
+      ? "组装共享证据包"
+      : pretrial.evidenceReady
+        ? "证据已就绪"
+        : "庭前准备";
 
   return (
     <div className="space-y-3">
       <div className="mt-1 border-t border-border pt-3 text-center">
-        <h4 className="text-base font-semibold text-foreground">庭前取证</h4>
+        <h4 className="text-base font-semibold text-foreground">庭前准备</h4>
         <p className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground">
           <ModeratorIdentity
             model={moderatorModel}
             gavelSize={13}
             className="text-xs"
           />
-          <span>各方带着立场找证据</span>
+          <span>{subtitle}</span>
           <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
           {pretrial.evidenceLedgerCount > 0 ? (
             <Badge tone="muted">台账 {pretrial.evidenceLedgerCount} 条</Badge>
@@ -102,19 +107,11 @@ export function PretrialSection({
           <p className="mt-1 text-xs text-muted-foreground">{skipLine}</p>
         ) : null}
         {showIncompleteAlarm ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            取证不完整
-            {pretrial.failedSides && pretrial.failedSides.length > 0
-              ? ` · 缺口方 ${pretrial.failedSides.join("、")}`
-              : ""}
-            {pretrial.externalEvidenceMode === "gap_fill"
-              ? " · 已跑有界补证"
-              : ""}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">证据不完整</p>
         ) : null}
         {pretrial.status === "degraded" && pretrial.fallbackSelfSearch ? (
           <p className="mt-1 text-xs text-muted-foreground">
-            取证未齐 · 将回退辩手立论自检索
+            庭前未齐 · 将回退辩手立论自检索
           </p>
         ) : null}
       </div>
@@ -159,11 +156,11 @@ function SideBlock({
   side: DebatePretrialView["sides"][number];
 }) {
   const progressLabel =
-    side.investigatorTotal > 0
-      ? `${side.investigatorDone}/${side.investigatorTotal} 取证员`
-      : side.tasks.length > 0
-        ? `${side.tasks.length} 项任务`
-        : "待命";
+    side.tasks.length > 0
+      ? `${side.tasks.length} 项任务`
+      : side.preparing
+        ? "组卷中"
+        : "已就绪";
 
   return (
     <div
@@ -172,8 +169,8 @@ function SideBlock({
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-foreground">{side.name}</span>
-        {side.running ? <Badge tone="primary">取证中</Badge> : null}
-        {!side.running && side.investigatorTotal > 0 ? (
+        {side.preparing ? <Badge tone="primary">准备中</Badge> : null}
+        {!side.preparing && side.tasks.length > 0 ? (
           <Badge tone="success">完成</Badge>
         ) : null}
         <span className="text-xs text-muted-foreground">{progressLabel}</span>

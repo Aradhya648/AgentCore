@@ -88,12 +88,11 @@ async def _seed_turn_with_journal(
 
 
 @pytest.mark.asyncio
-async def test_run_llm_window_owner_fold(client, session_factory, make_invite):
+async def test_run_llm_window_owner_fold(client, session_factory):
     turn_id = str(uuid4())
     run_id = "cap"
     username = f"llmwin_{uuid4().hex[:8]}"
-    invite_code = await make_invite(f"INV-LLMWIN-{uuid4().hex[:6]}")
-    await register_and_login(client, invite_code, username)
+    await register_and_login(client, username)
     _, conversation_id = await _resolve_user_and_conversation(
         session_factory, username, "llm window"
     )
@@ -121,13 +120,11 @@ async def test_run_llm_window_owner_fold(client, session_factory, make_invite):
 
 
 @pytest.mark.asyncio
-async def test_run_llm_window_idor(client, session_factory, make_invite):
+async def test_run_llm_window_idor(client, session_factory):
     turn_id = str(uuid4())
-    owner_invite = await make_invite(f"INV-LLMW-OWN-{uuid4().hex[:6]}")
-    attacker_invite = await make_invite(f"INV-LLMW-ATK-{uuid4().hex[:6]}")
     owner_name = f"llmwin_owner_{uuid4().hex[:8]}"
     attacker_name = f"llmwin_atk_{uuid4().hex[:8]}"
-    await register_and_login(client, owner_invite, owner_name)
+    await register_and_login(client, owner_name)
     _, conversation_id = await _resolve_user_and_conversation(
         session_factory, owner_name, "private"
     )
@@ -143,7 +140,7 @@ async def test_run_llm_window_idor(client, session_factory, make_invite):
     from agentcore.main import app
 
     async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as other:
-        await register_and_login(other, attacker_invite, attacker_name)
+        await register_and_login(other, attacker_name)
         r = await other.get(
             f"/v1/conversations/{conversation_id}/messages/{turn_id}/runs/cap/llm-window"
         )

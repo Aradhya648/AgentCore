@@ -192,7 +192,6 @@ describe("toMessage (reload hydrate)", () => {
                 context: "",
                 assumptions: [],
                 questions: [],
-                style_options: [],
               },
             },
           ],

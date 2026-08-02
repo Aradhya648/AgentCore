@@ -10,8 +10,7 @@ import type { Execution, RunNode } from "./types";
 
 /**
  * 辩论参与者 group 白名单（辩形态 / 证人席）。
- * 禁止 `startsWith("debate:")`——庭前取证员曾挂 `debate:investigators:*` + parent=主辩，
- * 会把主辩晋升独立 debateUnits → ELK「第 N 次委派」假分带。
+ * 禁止 `startsWith("debate:")`——非白名单 group（含历史附属 run）不得晋升独立 debateUnits。
  */
 export const DEBATE_PARTICIPANT_GROUPS = new Set([
   "debate:debate",
@@ -51,13 +50,6 @@ export function isDebateTaggedRun(r: {
   return r.stance != null || isDebateParticipantGroup(r.group);
 }
 
-/** 庭前取证员：`pretrial:investigators:{side}`（离开 debate: 参与者命名空间）。 */
-export function isPretrialInvestigatorGroup(
-  group: string | null | undefined,
-): boolean {
-  return group?.startsWith("pretrial:investigators:") ?? false;
-}
-
 /** Fold one 逐轮叙事 update (`debate_round_started` → focus only, verdict null;
  * `debate_round` → full focus/summary/verdict/sides) into the accumulated list,
  * keyed by `round_no` (a later `debate_round` overwrites the earlier focus-only
@@ -88,12 +80,9 @@ function emptyRunningPretrial(
     skipReason: ("skip_reason" in p ? p.skip_reason : null) ?? null,
     sides: (p.sides ?? []).map((s) => ({ key: s.key, name: s.name })),
     orders: [],
-    investigators: [],
     evidenceLedgerCount: 0,
     fallbackSelfSearch: false,
     evidenceReady: false,
-    // running 不宣称完整度（权威=completed）；orders 亦不强吸。
-    failedSides: [],
   };
 }
 
@@ -117,7 +106,7 @@ export function foldDebatePretrial(
   if (type === "debate_pretrial_orders") {
     const p = payload as DebatePretrialOrdersPayload;
     const base = current ?? emptyRunningPretrial(p);
-    const next: DebatePretrialState = {
+    return {
       ...base,
       thorough: p.thorough !== false,
       sides:
@@ -133,9 +122,6 @@ export function foldDebatePretrial(
         source: o.source ?? "empty",
       })),
     };
-    const perSide = p.investigator_count_per_side ?? 0;
-    if (perSide > 0) next.investigatorCountPerSide = perSide;
-    return next;
   }
   if (type === "debate_pretrial_progress") {
     // 与 oracle 一致：无 started 时 progress 不落态。
@@ -166,30 +152,16 @@ export function foldDebatePretrial(
       })),
       source: o.source ?? "empty",
     })),
-    investigators: (p.investigators ?? []).map((inv) => ({
-      side_key: inv.side_key,
-      run_id: inv.run_id,
-      parent_run_id: inv.parent_run_id,
-      ok: Boolean(inv.ok),
-      ...(inv.task_query ? { task_query: inv.task_query } : {}),
-    })),
     evidenceLedgerCount: p.evidence_ledger_count ?? 0,
     fallbackSelfSearch: Boolean(p.fallback_self_search),
     evidenceReady: Boolean(p.evidence_ready),
     ...(completeness != null ? { completeness } : {}),
     ...(incomplete != null ? { incomplete } : {}),
-    failedSides: Array.isArray(p.failed_sides) ? [...p.failed_sides] : [],
     ...(p.external_evidence_mode != null
       ? { externalEvidenceMode: p.external_evidence_mode }
       : {}),
     ...(p.external_evidence_reason != null
       ? { externalEvidenceReason: p.external_evidence_reason }
-      : {}),
-    ...("retrieval_budget_per_investigator" in p
-      ? {
-          retrievalBudgetPerInvestigator:
-            p.retrieval_budget_per_investigator ?? 0,
-        }
       : {}),
   };
 }
@@ -263,12 +235,18 @@ export function isDebateFoldedBeat(
  */
 export function debateBeatLabel(opts: {
   round?: number;
-  revision?: number;
+  /** 接续序号（1-based）；无 round 时作「第 N 轮」回退（N = index+1）。 */
+  continuationIndex?: number;
   beat?: DebateBeat | null;
 }): string {
   const beat = opts.beat ?? "statement";
   if (beat === "closing") return "结辩";
-  const n = opts.round && opts.round > 0 ? opts.round : (opts.revision ?? 0);
+  const n =
+    opts.round && opts.round > 0
+      ? opts.round
+      : opts.continuationIndex && opts.continuationIndex > 0
+        ? opts.continuationIndex + 1
+        : 0;
   if (beat === "cross_exam") return `第 ${n} 轮·质询`;
   if (beat === "witness_exam") return `第 ${n} 轮·证人`;
   if (beat === "attack") return `第 ${n} 轮·攻击`;
@@ -290,7 +268,7 @@ export function debateBeatLabel(opts: {
 export function isDebate(execution: Execution): boolean {
   // 收场产物是辩论的强信号（debate_result 必带）。进行中无产物时退回辩手 run 的标签：
   // 2 方正反带 stance；多方圆桌/红队/证人席靠显式 group 白名单（禁 debate:* 前缀——
-  // 取证员等附属 run 不得把整场误判 / 击穿布局）。
+  // 历史庭前附属 run 等不得把整场误判 / 击穿布局）。
   return (
     execution.debate != null || execution.runs.some((r) => isDebateTaggedRun(r))
   );

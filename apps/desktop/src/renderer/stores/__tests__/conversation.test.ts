@@ -758,8 +758,6 @@ describe("ask_user cards (统一开场引导 + 途中拍板)", () => {
         default: "潜在客户",
       },
     ],
-    style_options: [{ id: "s0", label: "深色科技" }],
-    format_options: [{ id: "f0", label: "PowerPoint（.pptx）" }],
   });
 
   describe("InteractionStore ask_user + process stamp (live)", () => {
@@ -778,8 +776,6 @@ describe("ask_user cards (统一开场引导 + 途中拍板)", () => {
       expect(entryToCheckpoint(mustGet("c1"))).toMatchObject({
         id: "c1",
         status: "pending",
-        styleOptions: [{ id: "s0", label: "深色科技" }],
-        formatOptions: [{ id: "f0", label: "PowerPoint（.pptx）" }],
       });
       expect(
         rt().messages[0].process?.some((s) => s.kind === "checkpoint"),
@@ -864,7 +860,6 @@ describe("non-blocking ask cards (ask_user blocking=false)", () => {
         default: "不要",
       },
     ],
-    style_options: [],
   });
 
   describe("InteractionStore question_posted + process stamp (live)", () => {

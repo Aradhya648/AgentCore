@@ -92,7 +92,7 @@ export function DebateView({
   onFill,
 }: {
   debate: DebateResultPayload;
-  /** 庭前取证折叠态；缺省 / 老会话 → 不渲染。 */
+  /** 庭前准备折叠态；缺省 / 老会话 → 不渲染。 */
   pretrial?: DebatePretrialProjection | null;
   /** 有则展示「回复拍板 / 派查证」并回填 composer；只读上下文省略。 */
   onFill?: (text: string) => void;
@@ -131,13 +131,13 @@ export function DebateView({
 }
 
 const PRETRIAL_STATUS: Record<string, string> = {
-  running: "取证中",
-  done: "已取证",
+  running: "准备中",
+  done: "已就绪",
   skipped: "已跳过",
   degraded: "已降级",
 };
 
-/** 庭前取证极简行：各队名 + 台账条数；无则不渲染。 */
+/** 庭前准备极简行：组卷轻态 + 台账条数；无则不渲染（无取证员舰队）。 */
 function PretrialBlock({
   pretrial,
 }: {
@@ -162,25 +162,19 @@ function PretrialBlock({
     pretrial.incomplete === true &&
     pretrial.status !== "running" &&
     !pretrial.skipReason;
-  const external =
-    pretrial.externalEvidenceMode === "skip"
-      ? "外证跳过"
-      : pretrial.externalEvidenceMode === "gap_fill"
-        ? "有界补证"
-        : pretrial.externalEvidenceMode === "investigators"
-          ? "取证员外证"
-          : "";
+  const external = pretrial.externalEvidenceMode === "skip" ? "外证跳过" : "";
   return (
     <div className="debate-field">
-      <span className="debate-field-label">庭前取证</span>
+      <span className="debate-field-label">庭前准备</span>
       <span className="debate-field-value">
         {status}
+        {pretrial.status === "running" ? " · 组装证据包" : ""}
         {pretrial.evidenceLedgerCount > 0
           ? ` · 台账 ${pretrial.evidenceLedgerCount} 条`
           : ""}
         {completeness ? ` · 完整度 ${completeness}` : ""}
         {external ? ` · ${external}` : ""}
-        {showIncompleteAlarm ? " · 取证不完整" : ""}
+        {showIncompleteAlarm ? " · 证据不完整" : ""}
         {sideNames ? ` · ${sideNames}` : ""}
       </span>
     </div>
@@ -433,7 +427,7 @@ export function LiveDebateNarrative({
     <div className="debate">
       <div className="debate-head">
         <span className="debate-title">
-          {rounds.length === 0 ? "庭前取证" : "辩论进行中"}
+          {rounds.length === 0 ? "庭前准备" : "辩论进行中"}
         </span>
         {rounds.length > 0 ? (
           <span className="debate-tag">{rounds.length} 轮</span>

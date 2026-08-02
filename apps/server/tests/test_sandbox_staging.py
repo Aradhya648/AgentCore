@@ -17,7 +17,7 @@ from agentcore.tools.sandbox.staging import (
     SANDBOX_OCI_GID,
     SANDBOX_OCI_UID,
     collect_changes,
-    prepare_staged_workspace_for_sandbox,
+    prepare_bind_tree_for_sandbox,
     snapshot_tree,
     stage_workspace,
     write_back,
@@ -218,7 +218,7 @@ def test_prepare_staging_grants_sandbox_uid_write_and_other_read(tmp_path: Path)
     staging.mkdir()
     (staging / "seed.txt").write_text("seed", encoding="utf-8")
 
-    prepare_staged_workspace_for_sandbox(staging)
+    prepare_bind_tree_for_sandbox(staging)
 
     st_dir = staging.stat()
     st_file = (staging / "seed.txt").stat()

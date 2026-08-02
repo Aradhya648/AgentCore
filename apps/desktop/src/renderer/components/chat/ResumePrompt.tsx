@@ -812,13 +812,7 @@ function AskUserResumeCard({ turn }: { turn: PendingResume }) {
       intent={turn.intent}
       disclosureKey={turn.checkpointId}
       conversationId={turn.conversationId}
-      onSubmit={async (
-        decision,
-        note,
-        selected = [],
-        styleId = null,
-        formatId = null,
-      ) => {
+      onSubmit={async (decision, note, selected = []) => {
         const result = await submitInteraction({
           id: turn.checkpointId,
           kind: "ask_user",
@@ -828,8 +822,6 @@ function AskUserResumeCard({ turn }: { turn: PendingResume }) {
             decision: decision as PlanReviewUserDecision,
             note,
             selected,
-            styleId,
-            formatId,
           },
         });
         if (result !== "ok") {

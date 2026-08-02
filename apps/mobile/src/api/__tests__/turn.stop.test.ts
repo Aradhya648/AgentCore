@@ -6,7 +6,7 @@ vi.mock("@/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetch(...args),
 }));
 
-import { stopConversation } from "../turn";
+import { cancelQueuedTurn, stopConversation } from "../turn";
 
 describe("stopConversation", () => {
   beforeEach(() => {
@@ -36,5 +36,30 @@ describe("stopConversation", () => {
   it("网络失败 → 抛错", async () => {
     apiFetch.mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(stopConversation("c1")).rejects.toThrow();
+  });
+});
+
+describe("cancelQueuedTurn", () => {
+  beforeEach(() => {
+    apiFetch.mockReset();
+  });
+
+  it("成功 → cancelled", async () => {
+    apiFetch.mockResolvedValue({ ok: true, status: 200 });
+    await expect(cancelQueuedTurn("c1", "q1")).resolves.toBe("cancelled");
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/v1/conversations/c1/queued-turns/q1/cancel",
+      { method: "POST" },
+    );
+  });
+
+  it("404 → gone（调用方本地清轻态，不抛）", async () => {
+    apiFetch.mockResolvedValue({ ok: false, status: 404 });
+    await expect(cancelQueuedTurn("c1", "q1")).resolves.toBe("gone");
+  });
+
+  it("其它非 2xx → 抛错", async () => {
+    apiFetch.mockResolvedValue({ ok: false, status: 503 });
+    await expect(cancelQueuedTurn("c1", "q1")).rejects.toThrow(/取消排队失败/);
   });
 });

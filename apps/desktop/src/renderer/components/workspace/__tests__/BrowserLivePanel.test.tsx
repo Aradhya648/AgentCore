@@ -4,8 +4,8 @@
  * - 连接中 / 无直播(no_session) / 会话已结束(session_closed) / 断线重连各态文案。
  * - 逐帧换图：帧到达即 createObjectURL 换 <img src>、并 revoke 上一帧 URL（防泄漏）。
  * - 卸载回收：unmount 时 revoke 末帧 URL + stop() 收口 SSE。
- * - M2 接管流转：有活直播才显「接管」；turn running 无 login → 不显；pending browserLogin
- *   例外仍显；start 成功→接管中条+归还；start 失败(turn_running)显因回落；归还/会话结束/卸载
+ * - M2 接管流转：有活直播才显「接管」；turn 运行中仍显（D8）；pending browserLogin
+ *   仅影响归还提示；start 成功→接管中条+归还；start 失败(no_session)显因回落；归还/会话结束/卸载
  *   都收口 end 并把留档乐观并入 store；键盘输入捕获 → 批量 POST。
  * mock services/browserLive 直接驱动回调；services/browserTakeover 仅 mock 网络（保留真坐标/批处理/
  * 文案纯函数）；桩 URL.createObjectURL/revoke（jsdom 缺失）。块注释隔开 @vitest-environment 指令。
@@ -353,14 +353,14 @@ describe("BrowserLivePanel · M2 接管流转", () => {
     });
   });
 
-  it("surfaces a start failure (turn_running reason) and stays idle", async () => {
+  it("surfaces a start failure (no_session reason) and stays idle", async () => {
     const { TakeoverStartError } = await import("@/services/browserTakeover");
-    mockStartTakeover.mockRejectedValue(new TakeoverStartError("turn_running"));
+    mockStartTakeover.mockRejectedValue(new TakeoverStartError("no_session"));
     render(<BrowserLivePanel conversationId="c1" />);
     goLive();
     await clickAsync("接管");
 
-    expect(screen.getByText("有正在进行的回合，等它结束后再接管")).toBeTruthy();
+    expect(screen.getByText("当前没有进行中的浏览器会话")).toBeTruthy();
     // Back to idle → the 接管 affordance returns, no 接管中 bar.
     expect(screen.getByText("接管")).toBeTruthy();
     expect(screen.queryByText("归还控制")).toBeNull();

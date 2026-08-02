@@ -113,7 +113,7 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
         "userMessage",
         "userMessageId",
       ] as const;
-      const startTurnOptionalStrings = ["subpath", "permissionPreset"] as const;
+      const startTurnOptionalStrings = ["subpath"] as const;
       expect(() =>
         assertShape(
           "sidecar:startTurn",
@@ -147,11 +147,7 @@ describe("ipc-validate（IPC 边界结构校验 · IPC-004）", () => {
         "decision",
         "note",
       ] as const;
-      const resumeOptionalStrings = [
-        "subpath",
-        "userMessageId",
-        "permissionPreset",
-      ] as const;
+      const resumeOptionalStrings = ["subpath", "userMessageId"] as const;
       expect(() =>
         assertShape(
           "sidecar:resume",

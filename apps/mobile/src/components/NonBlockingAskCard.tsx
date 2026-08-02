@@ -76,36 +76,6 @@ export function NonBlockingAskCard({
         );
       })}
 
-      {ask.styleOptions.length > 0 && (
-        <div className="ask-chips">
-          {ask.styleOptions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="ask-chip"
-              onClick={() => pick("风格", s.label)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {ask.formatOptions.length > 0 && (
-        <div className="ask-chips">
-          {ask.formatOptions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="ask-chip"
-              onClick={() => pick("形态", s.label)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="ask-hint">
         <CornerDownLeft size={12} className="ask-icon" aria-hidden />
         <span>点选项即回填到输入框，可改后发送；不回复就按默认继续。</span>

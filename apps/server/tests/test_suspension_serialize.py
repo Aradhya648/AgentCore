@@ -223,8 +223,6 @@ def test_ask_user_suspension_round_trips():
                 "default": "",
             }
         ],
-        style_options=[{"id": "s0", "label": "深色科技"}],
-        format_options=[{"id": "f0", "label": "PowerPoint（.pptx）"}],
         intent="kickoff",
         journal_entries=[{"kind": "checkpoint_required", "payload": {}, "ts": "t"}],
         trace_id="trace456",
@@ -243,8 +241,6 @@ def test_ask_user_suspension_round_trips():
     assert restored.questions[0]["prompt"] == "A 还是 B?"
     assert restored.questions[0]["options"] == [{"label": "A"}, {"label": "B"}]
     assert restored.questions[0]["multiple"] is True
-    assert restored.style_options == [{"id": "s0", "label": "深色科技"}]
-    assert restored.format_options == [{"id": "f0", "label": "PowerPoint（.pptx）"}]
     assert restored.intent == "kickoff"
     # transcript / history are NOT serialized (Phase 2 ⑤): resume echoes the call via the
     # serialized tool_call_id (asserted above) and rebuilds the window from turn_journal.

@@ -3,10 +3,8 @@ import { parseCheckpointIntent } from "@/lib/checkpointIntent";
 import type { components } from "@/types/api.generated";
 import type {
   AskAssumption,
-  AskFormatOption,
   AskOption,
   AskQuestion,
-  AskStyleOption,
   CeoReviewSummary,
   CheckpointIntent,
   PlanReviewPending,
@@ -32,7 +30,7 @@ export type ResumeOrigin = "sidecar" | "server";
  *
  * `kind` selects the card the {@link ResumePrompt} renders: plan_review reviews the
  * finished `steps` + gated `pending`; ask_user re-asks the unified card content
- * (`question` + `assumptions` / `questions` / `styleOptions` / `formatOptions`).
+ * (`question` + `assumptions` / `questions`).
  * The unused set is empty for the other kind.
  */
 export interface PendingResume {
@@ -82,10 +80,6 @@ export interface PendingResume {
   }>;
   maxRounds: number;
   thorough: boolean;
-  /** debate kickoff: show「先多视角调研再辩」third action (缺省 false). */
-  offerResearchFirst: boolean;
-  /** debate kickoff: elevate research-first as visual primary (缺省 false). */
-  researchFirstRecommended: boolean;
   /** Phase 3：裁判模型；缺省不展示跨模型署名。 */
   moderatorModel?: string;
   moderatorOrigin?: "platform" | "byok";
@@ -108,10 +102,6 @@ export interface PendingResume {
   assumptions: AskAssumption[];
   /** ask_user: the askable items (途中岔路通常一个；开场可多个). */
   questions: AskQuestion[];
-  /** ask_user: 风格预设 (视觉类产物才有). */
-  styleOptions: AskStyleOption[];
-  /** ask_user: 交付形态预设 (演讲/PPT 等才有). */
-  formatOptions: AskFormatOption[];
   /** ask_user: wire may still send kickoff; UI treats as generic clarification. */
   intent: CheckpointIntent;
   /** Where the durable frame lives — drives {@link runResume} sidecar vs server routing. */
@@ -236,22 +226,6 @@ const toQuestions = (raw: PausedTurnSummary["questions"]): AskQuestion[] =>
 
 const toIntent = (raw: unknown): CheckpointIntent => parseCheckpointIntent(raw);
 
-const toStyleOptions = (
-  raw: PausedTurnSummary["style_options"],
-): AskStyleOption[] =>
-  (raw ?? []).map((s, i) => ({
-    id: String(s.id ?? `s${i}`),
-    label: String(s.label ?? ""),
-  }));
-
-const toFormatOptions = (
-  raw: PausedTurnSummary["format_options"],
-): AskFormatOption[] =>
-  (raw ?? []).map((s, i) => ({
-    id: String(s.id ?? `f${i}`),
-    label: String(s.label ?? ""),
-  }));
-
 /** One recovery-frame summary tagged with where its durable frame lives. */
 export type PausedTurnEntry = {
   summary: PausedTurnSummary;
@@ -324,13 +298,6 @@ function entryFromSummary(
     sides: toSides((s as { sides?: unknown }).sides),
     maxRounds: Number((s as { max_rounds?: unknown }).max_rounds ?? 0),
     thorough: (s as { thorough?: unknown }).thorough !== false,
-    offerResearchFirst: Boolean(
-      (s as { offer_research_first?: unknown }).offer_research_first,
-    ),
-    researchFirstRecommended: Boolean(
-      (s as { research_first_recommended?: unknown })
-        .research_first_recommended,
-    ),
     ...(typeof moderatorModel === "string" && moderatorModel.trim()
       ? { moderatorModel }
       : {}),
@@ -378,8 +345,6 @@ function entryFromSummary(
     context: s.context ?? "",
     assumptions: toAssumptions(s.assumptions),
     questions: toQuestions(s.questions),
-    styleOptions: toStyleOptions(s.style_options),
-    formatOptions: toFormatOptions(s.format_options),
     intent: toIntent((s as { intent?: unknown }).intent),
     origin,
   };

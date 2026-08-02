@@ -251,7 +251,7 @@ export function BrowserLivePanel({
       );
       setTakeover("active");
     } catch (err) {
-      // start 失败（turn_running / no_session / …）→ 复位 + 显因。
+      // start 失败（no_session / …）→ 复位 + 显因。
       setTakeover("idle");
       setTakeoverError(takeoverStartErrorMessage(err));
     }

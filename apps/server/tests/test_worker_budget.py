@@ -267,35 +267,6 @@ def test_build_plan_enriches_reviewer_least_privilege_tools():
     assert "code_search" in tools
 
 
-def test_repair_posture_narrow_is_noop():
-    """Retired: short-round posture no longer strips list / crawl / click tools."""
-    from agentcore.runtime.runs.executor_node import (
-        _narrow_for_repair_posture,
-    )
-    from agentcore.tools.registry import ToolRegistry
-
-    allowed = [
-        "browser_navigate",
-        "browser_click",
-        "browser_snapshot",
-        "file_list",
-        "read_url",
-        "web_search",
-    ]
-    reg = ToolRegistry()
-    out_reg, narrowed = _narrow_for_repair_posture(reg, allowed)
-    assert out_reg is reg
-    assert narrowed is allowed
-    assert narrowed == [
-        "browser_navigate",
-        "browser_click",
-        "browser_snapshot",
-        "file_list",
-        "read_url",
-        "web_search",
-    ]
-
-
 def test_should_tighten_verify_exec_thrash_for_repair_verify_posture():
     """E3：修码验证短姿态启用收紧；files 短写不再走 zero_write催写（已删）。"""
     from agentcore.runtime.engine.governance import create_loop_controller

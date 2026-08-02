@@ -25,8 +25,7 @@ union (base :class:`TurnSuspension` + :class:`PlanReviewSuspension` /
 - **ask_user** — the CEO paused mid-loop on its ``ask_user`` checkpoint (the one
   asking primitive — opening 引导 or mid-task fork). Resume maps the user's answer
   to the ``ask_user`` tool result and continues the CEO loop (no plan tail). Carries
-  the card payload (message / context / assumptions / questions / style_options /
-  format_options) so
+  the card payload (message / context / assumptions / questions) so
   resume can re-emit it.
 
 Every frame shares: the CEO ``transcript`` at the pause (system + history + user +
@@ -373,10 +372,6 @@ class TeamPreviewSuspension(TurnSuspension):
     thorough: bool = True
     # Resume blob for debate.execute (motion/form/sides/thorough).
     debate_arguments: dict[str, Any] = field(default_factory=dict)
-    # Debate kickoff: show「先多视角调研再辩」on the resume card (persisted at pause).
-    offer_research_first: bool = False
-    # Debate kickoff: elevate research-first as visual primary (persisted at pause).
-    research_first_recommended: bool = False
     # 委派批次协作参数：开工卡挂在 setup_note_wall **之前**，coordination / team_brief /
     # seed_notes 此刻只活在 DelegateTool 实例上（未上墙、未进 journal）。耐久恢复走全新
     # 工具实例（_coordination 缺省 "none"），不随帧回灌则 wall 批降级为 none —— worker 被
@@ -399,9 +394,8 @@ class AskUserSuspension(TurnSuspension):
     and continues the CEO loop. Carries the unified card payload so resume re-emits the
     full prompt: ``question`` (the framing / opening line — the tool's ``message``),
     ``context`` background, plus the rich opening content ``assumptions`` (起步计划
-    chips), ``questions`` (the askable items, each with kind/options/multiple/default),
-    ``style_options`` (visual presets), and ``format_options`` (presentation delivery
-    forms). All but ``question`` are empty for a compact mid-task fork.
+    chips) and ``questions`` (the askable items, each with kind/options/multiple/default).
+    All but ``question`` are empty for a compact mid-task fork.
     """
 
     kind: ClassVar[SuspensionKind] = SuspensionKind.ASK_USER
@@ -410,8 +404,6 @@ class AskUserSuspension(TurnSuspension):
     context: str = ""
     assumptions: list[dict[str, Any]] = field(default_factory=list)
     questions: list[dict[str, Any]] = field(default_factory=list)
-    style_options: list[dict[str, Any]] = field(default_factory=list)
-    format_options: list[dict[str, Any]] = field(default_factory=list)
     intent: AskCheckpointIntent = "decision"
 
 
@@ -438,8 +430,6 @@ _EMPTY_SUMMARY_EXTRAS: dict[str, Any] = {
     "context": "",
     "assumptions": [],
     "questions": [],
-    "style_options": [],
-    "format_options": [],
     "intent": None,
 }
 
@@ -509,10 +499,6 @@ def _team_preview_frame_extras(s: TurnSuspension) -> dict[str, Any]:
         "thorough": s.thorough,
         "debate_arguments": dict(s.debate_arguments),
     }
-    if s.offer_research_first:
-        extras["offer_research_first"] = True
-    if s.research_first_recommended:
-        extras["research_first_recommended"] = True
     # 委派批次协作参数（见类注释）：非缺省才落帧，旧帧读回走缺省。
     if s.coordination != "none":
         extras["coordination"] = s.coordination
@@ -537,8 +523,6 @@ def _team_preview_from_extras(data: dict[str, Any]) -> dict[str, Any]:
         "max_rounds": int(data.get("max_rounds") or 0),
         "thorough": bool(data.get("thorough", True)),
         "debate_arguments": dict(data.get("debate_arguments") or {}),
-        "offer_research_first": bool(data.get("offer_research_first")),
-        "research_first_recommended": bool(data.get("research_first_recommended")),
         "coordination": str(data.get("coordination") or "none"),
         "team_brief": data.get("team_brief") or None,
         "seed_notes": list(data.get("seed_notes") or []),
@@ -547,7 +531,7 @@ def _team_preview_from_extras(data: dict[str, Any]) -> dict[str, Any]:
 
 def _team_preview_summary_extras(s: TurnSuspension) -> dict[str, Any]:
     assert isinstance(s, TeamPreviewSuspension)
-    out: dict[str, Any] = {
+    return {
         **_EMPTY_SUMMARY_EXTRAS,
         "workers": list(s.workers),
         "tools": list(s.tools),
@@ -558,11 +542,6 @@ def _team_preview_summary_extras(s: TurnSuspension) -> dict[str, Any]:
         "max_rounds": s.max_rounds,
         "thorough": s.thorough,
     }
-    if s.offer_research_first:
-        out["offer_research_first"] = True
-    if s.research_first_recommended:
-        out["research_first_recommended"] = True
-    return out
 
 
 def _ask_user_frame_extras(s: TurnSuspension) -> dict[str, Any]:
@@ -572,8 +551,6 @@ def _ask_user_frame_extras(s: TurnSuspension) -> dict[str, Any]:
         "context": s.context,
         "assumptions": list(s.assumptions),
         "questions": list(s.questions),
-        "style_options": list(s.style_options),
-        "format_options": list(s.format_options),
         "intent": s.intent,
     }
 
@@ -584,8 +561,6 @@ def _ask_user_from_extras(data: dict[str, Any]) -> dict[str, Any]:
         "context": data.get("context", "") or "",
         "assumptions": list(data.get("assumptions") or []),
         "questions": list(data.get("questions") or []),
-        "style_options": list(data.get("style_options") or []),
-        "format_options": list(data.get("format_options") or []),
         "intent": data.get("intent") or "decision",
     }
 
@@ -598,8 +573,6 @@ def _ask_user_summary_extras(s: TurnSuspension) -> dict[str, Any]:
         "context": s.context,
         "assumptions": list(s.assumptions),
         "questions": list(s.questions),
-        "style_options": list(s.style_options),
-        "format_options": list(s.format_options),
         "intent": s.intent,
     }
 

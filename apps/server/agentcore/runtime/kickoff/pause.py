@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any, Protocol
 
 from agentcore.core.logging import get_logger
@@ -103,8 +102,6 @@ async def persist_kickoff(
             max_rounds=summary.max_rounds,
             thorough=summary.thorough,
             debate_arguments=dict(summary.debate_arguments),
-            offer_research_first=bool(summary.offer_research_first),
-            research_first_recommended=bool(summary.research_first_recommended),
             # 委派批次协作参数：挂起点在 setup_note_wall 之前，这三样只活在工具实例上，
             # 不落帧则耐久恢复（全新工具实例）后 wall 批降级 none、seed 便签丢失。
             # DebateTool 无这些属性 → getattr 缺省（辩论批无便签墙）。
@@ -145,51 +142,7 @@ async def await_kickoff(
         return CheckpointDecision.CONTINUE
 
     checkpoint_id = new_id()
-    # Debate kickoff: compute「先多视角调研再辩」— journal 卡/MLR ∪ 工作区 research/ 产物；
-    # research_first_recommended：零调研案卷 ∧ 用户输入命中多维取证触发词。
-    offer_research_first = False
-    research_first_recommended = False
-    if summary.primitive == "debate":
-        from agentcore.runtime.debate.research_dossier import (
-            workspace_has_research_artifacts,
-        )
-        from agentcore.runtime.facts import snapshot_fact_log
-        from agentcore.runtime.kickoff.research_first import (
-            should_offer_research_first,
-            should_recommend_research_first,
-        )
-
-        has_research = False
-        backend = getattr(host._base_tool_context, "backend", None)
-        if backend is not None:
-            try:
-                has_research = await workspace_has_research_artifacts(backend)
-            except Exception:
-                logger.exception("kickoff.research_dossier_probe_failed")
-                has_research = False
-        journal = snapshot_fact_log()
-        offer_research_first = should_offer_research_first(
-            journal,
-            has_research_artifacts=has_research,
-        )
-        research_first_recommended = should_recommend_research_first(
-            journal,
-            has_research_artifacts=has_research,
-            user_message=host._user_message,
-        )
-    summary_with_offer = (
-        summary
-        if (
-            summary.offer_research_first == offer_research_first
-            and summary.research_first_recommended == research_first_recommended
-        )
-        else replace(
-            summary,
-            offer_research_first=offer_research_first,
-            research_first_recommended=research_first_recommended,
-        )
-    )
-    card = summary_with_offer.card_payload()
+    card = summary.card_payload()
     required = team_preview_required(
         checkpoint_id=checkpoint_id,
         conversation_id=conversation_id,
@@ -201,8 +154,6 @@ async def await_kickoff(
         sides=card["sides"],
         max_rounds=card["max_rounds"],
         thorough=card["thorough"],
-        offer_research_first=offer_research_first,
-        research_first_recommended=research_first_recommended,
         moderator_model=str(card.get("moderator_model") or ""),
         moderator_origin=str(card.get("moderator_origin") or ""),
         moderator_provider_id=str(card.get("moderator_provider_id") or ""),
@@ -211,14 +162,14 @@ async def await_kickoff(
     )
     try:
         saved = await persist_kickoff(
-            host, checkpoint_id, summary_with_offer, required, plan=plan
+            host, checkpoint_id, summary, required, plan=plan
         )
     except Exception:
         # D11：运行态落帧失败（saver 抛错）⇒ 显式终止，不许静默 CONTINUE 开工。
         logger.exception(
             "team_preview.persist_failed",
             checkpoint_id=checkpoint_id,
-            primitive=summary_with_offer.primitive,
+            primitive=summary.primitive,
         )
         raise
     if saved:
@@ -227,11 +178,9 @@ async def await_kickoff(
         logger.info(
             "team_preview.finalized",
             checkpoint_id=checkpoint_id,
-            primitive=summary_with_offer.primitive,
-            workers=len(summary_with_offer.workers),
-            tools=summary_with_offer.tools,
-            offer_research_first=offer_research_first,
-            research_first_recommended=research_first_recommended,
+            primitive=summary.primitive,
+            workers=len(summary.workers),
+            tools=summary.tools,
         )
         return None
 
@@ -240,6 +189,6 @@ async def await_kickoff(
         "team_preview.persist_unavailable",
         checkpoint_id=checkpoint_id,
         reason="no_durable_frame",
-        primitive=summary_with_offer.primitive,
+        primitive=summary.primitive,
     )
     return CheckpointDecision.CONTINUE

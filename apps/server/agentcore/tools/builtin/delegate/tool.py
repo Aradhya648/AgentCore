@@ -1297,17 +1297,19 @@ class DelegateTool:
             gate_body = compress_ceo_review_for_gate(ceo_review)
             if gate_body:
                 apply_gate_notes(plan, seed_completed, checkpoint_run_ids, gate_body)
-        # Kickoff (开工卡): continue / adjust → grant; per_call → no grant.
-        # PER_CALL kept for historical / API clients; UI no longer offers the entry.
+        # Kickoff (开工卡): continue / adjust / timeout → grant.
         # apply_kickoff_grant is True only when resuming a team_preview suspension.
-        if apply_kickoff_grant and self._approval_gate is not None:
-            if decision is CheckpointDecision.PER_CALL:
-                pass  # historical: start with per-call approval
-            elif decision in (CheckpointDecision.CONTINUE, CheckpointDecision.ADJUST):
-                self._approval_gate.grant_delegation(execution_id)
-            elif decision is CheckpointDecision.TIMEOUT:
-                # Historical timeout→auto-continue: grant (same as continue).
-                self._approval_gate.grant_delegation(execution_id)
+        if (
+            apply_kickoff_grant
+            and self._approval_gate is not None
+            and decision
+            in (
+                CheckpointDecision.CONTINUE,
+                CheckpointDecision.ADJUST,
+                CheckpointDecision.TIMEOUT,
+            )
+        ):
+            self._approval_gate.grant_delegation(execution_id)
         # Resume never re-runs the original execute() path, so re-emit run_plan here:
         # the frontend drops the pause bubble on message_start and must re-bind the DAG
         # under the new streaming assistant before worker frames arrive.

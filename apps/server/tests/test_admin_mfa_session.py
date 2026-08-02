@@ -86,8 +86,8 @@ def test_access_token_mfa_claim_roundtrip():
 
 def test_mfa_pending_token_is_not_access_with_mfa_claim():
     pending = create_mfa_pending_token("u1", audience="admin")
-    user_id, aud = decode_mfa_pending_token(pending)
-    assert user_id == "u1" and aud == "admin"
+    user_id, aud, persist = decode_mfa_pending_token(pending)
+    assert user_id == "u1" and aud == "admin" and persist is True
     # Pending tokens are a different type; access decoder must refuse them.
     from agentcore.core.errors import AuthenticationError
     from agentcore.security import decode_access_token

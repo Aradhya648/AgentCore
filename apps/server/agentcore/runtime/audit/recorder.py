@@ -48,16 +48,16 @@ class AuditRecorder:
         trace_id: str | None,
         captain_run_id: str | None = None,
         delegated: bool = False,
-        permission_preset: str | None = None,
+        permission_axes: str | None = None,
     ) -> None:
         self.user_id = user_id
         self.conversation_id = conversation_id
         self.turn_id = turn_id
         self.trace_id = trace_id
         self.captain_run_id = captain_run_id
-        self.permission_preset = permission_preset
+        self.permission_axes = permission_axes
         self._active = delegated
-        self._preset_snapshotted = False
+        self._axes_snapshotted = False
         self._next_seq = 0
         self._drops = 0
         self._pending: list[asyncio.Task[None]] = []
@@ -78,21 +78,21 @@ class AuditRecorder:
 
     def activate_delegation(self) -> None:
         self._active = True
-        self._maybe_snapshot_preset()
+        self._maybe_snapshot_axes()
 
     def activate(self) -> None:
         self._active = True
-        self._maybe_snapshot_preset()
+        self._maybe_snapshot_axes()
 
-    def _maybe_snapshot_preset(self) -> None:
-        if self._preset_snapshotted or not self.permission_preset or not self._active:
+    def _maybe_snapshot_axes(self) -> None:
+        if self._axes_snapshotted or not self.permission_axes or not self._active:
             return
-        from agentcore.runtime.audit.projector import project_permission_preset_snapshot
+        from agentcore.runtime.audit.projector import project_permission_axes_snapshot
 
-        self._preset_snapshotted = True
+        self._axes_snapshotted = True
         self.schedule(
-            project_permission_preset_snapshot(
-                self, permission_preset=self.permission_preset
+            project_permission_axes_snapshot(
+                self, permission_axes=self.permission_axes
             )
         )
 
