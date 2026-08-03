@@ -286,7 +286,9 @@ def test_mobile_session_omits_bind_nudge():
     assert "桌面回填通道未连接" in out
     # Must not accuse a device form when the channel is merely offline / fail-closed.
     assert "Web / 移动端" not in out
+    assert "Web / 手机" not in out
     assert "当前为 Web" not in out
+    assert "勿将通道缺失说成用户在用 Web/手机" in out
     assert "区外目录授权仅桌面端可用" in out
     assert "https://fashitianxia.xyz/download" in out
     assert "官方桌面客户端" in out

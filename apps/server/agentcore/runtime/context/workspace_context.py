@@ -234,7 +234,8 @@ def build_workspace_context(
         mcp_guide_line = (
             "本机 MCP 指引：mcp=未装配（无桌面回填通道）——"
             "勿调用 mcp_*、勿假装已接本地 MCP Server；"
-            "Web / 手机无法履行本机 stdio MCP。"
+            "勿将通道缺失说成用户在用 Web/手机；"
+            "请引导在桌面回填已连接的会话重试。"
         )
     elif mcp_on:
         mcp_guide_line = (
