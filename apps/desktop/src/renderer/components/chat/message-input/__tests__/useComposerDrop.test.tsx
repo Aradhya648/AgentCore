@@ -8,17 +8,24 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/capabilities", () => ({
-  hasLocalFiles: () => true,
+  hasLocalFiles: vi.fn(() => true),
 }));
 
 vi.mock("../resideAttachment", () => ({
   stageDroppedFileAttachment: vi.fn(),
+  prepareBrowserFileAttachment: vi.fn(),
 }));
 
-import { stageDroppedFileAttachment } from "../resideAttachment";
+import { hasLocalFiles } from "@/lib/capabilities";
+import {
+  prepareBrowserFileAttachment,
+  stageDroppedFileAttachment,
+} from "../resideAttachment";
 import { useComposerDrop } from "../useComposerDrop";
 
 const stageMock = vi.mocked(stageDroppedFileAttachment);
+const prepareMock = vi.mocked(prepareBrowserFileAttachment);
+const hasLocal = vi.mocked(hasLocalFiles);
 
 function fileNamed(name: string): File {
   return new File(["x"], name, { type: "text/plain" });
@@ -28,6 +35,8 @@ describe("useComposerDrop dropError lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     stageMock.mockReset();
+    prepareMock.mockReset();
+    hasLocal.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -101,5 +110,60 @@ describe("useComposerDrop dropError lifecycle", () => {
       result.current.clearDropError();
     });
     expect(result.current.dropError).toBeNull();
+  });
+
+  it("web: attachDroppedFile uses prepareBrowserFileAttachment (binary ok)", async () => {
+    hasLocal.mockReturnValue(false);
+    const blob = new File([new Uint8Array([0, 1])], "x.bin");
+    prepareMock.mockResolvedValue({
+      ok: true,
+      name: "x.bin",
+      path: "x.bin",
+      text: "",
+      truncated: false,
+      binary: true,
+      fileBlob: blob,
+    });
+    const setAttachments = vi.fn();
+    const { result } = renderHook(() =>
+      useComposerDrop(false, [], setAttachments, null),
+    );
+
+    await act(async () => {
+      await result.current.attachDroppedFile(blob);
+    });
+
+    expect(prepareMock).toHaveBeenCalledWith(null, blob);
+    expect(stageMock).not.toHaveBeenCalled();
+    expect(setAttachments).toHaveBeenCalled();
+    const updater = setAttachments.mock.calls[0][0] as (
+      prev: unknown[],
+    ) => unknown[];
+    const next = updater([]);
+    expect(next).toEqual([
+      expect.objectContaining({
+        name: "x.bin",
+        binary: true,
+        fileBlob: blob,
+      }),
+    ]);
+  });
+
+  it("web: prepare failure flashes dropError", async () => {
+    hasLocal.mockReturnValue(false);
+    prepareMock.mockResolvedValue({
+      ok: false,
+      reason: "暂不支持图片附件（模型尚无视觉能力）",
+    });
+    const { result } = renderHook(() =>
+      useComposerDrop(false, [], vi.fn(), "c1"),
+    );
+
+    await act(async () => {
+      await result.current.attachDroppedFile(
+        new File(["x"], "a.png", { type: "image/png" }),
+      );
+    });
+    expect(result.current.dropError).toContain("暂不支持图片");
   });
 });

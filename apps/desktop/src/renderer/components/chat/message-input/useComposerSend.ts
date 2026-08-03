@@ -93,7 +93,7 @@ export function useComposerSend({
         for (const a of pending) {
           if (
             a.kind === "file" &&
-            (a.stagingId || a.workspacePath || a.binary)
+            (a.stagingId || a.workspacePath || a.binary || a.fileBlob)
           ) {
             const resided = await ensureAttachmentResident(activeConvId, a);
             if (!resided.ok) {
@@ -239,7 +239,10 @@ export function useComposerSend({
       // 引用即驻留：在乐观气泡之前完成落盘/上传，失败则保留草稿附件。
       const outgoing: OutgoingAttachment[] = [];
       for (const a of pending) {
-        if (a.kind === "file" && (a.stagingId || a.workspacePath || a.binary)) {
+        if (
+          a.kind === "file" &&
+          (a.stagingId || a.workspacePath || a.binary || a.fileBlob)
+        ) {
           const resided = await ensureAttachmentResident(conversationId, a);
           if (!resided.ok) {
             notifyError(new Error(resided.reason), "附件驻留失败");

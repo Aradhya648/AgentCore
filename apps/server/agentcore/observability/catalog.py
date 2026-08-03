@@ -666,6 +666,7 @@ EVENTS: list[EventSpec] = [
     EventSpec(name='file_write.integrity_nudge'),
     EventSpec(name='file_write.prose_omission_rejected'),
     EventSpec(name='file_write.scope_rejected'),
+    EventSpec(name='file_write.severe_shrink_rejected'),
     EventSpec(name='firehose.backpressure_drop'),
     EventSpec(name='firehose.subscribe'),
     EventSpec(name='firehose.unsubscribe'),

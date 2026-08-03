@@ -64,6 +64,7 @@ _REVIEW_ROLE_MARKERS = (
     "审计",
     "审查",
     "质检",
+    "复核",
     "review",
     "audit",
 )
@@ -72,8 +73,86 @@ _REVIEW_ROLE_MARKERS = (
 # 不再作为「有下游 → 一律抬 min」的拓扑常量；交接地板只认 deliverable.min_length。
 MIN_UPSTREAM_BODY_CHARS = 80
 
+# 独立复核短报告：案 20260803-longfix-thin-review-claim-pass B——须 files_written，禁薄 handoff。
+_INDEPENDENT_REVIEW_REPORT_MIN_CHARS = 80
+INDEPENDENT_REVIEW_REPORT_DISCIPLINE = (
+    "【复核落盘】须将带行号的短复核报告 file_write 到案卷 reviews/；"
+    "逐条写清结论与证据指针（文件:行号）；"
+    "禁止仅用十余字 handoff 冒充过闸；handoff 只作速览+路径。"
+)
+
 # 成篇门槛：派单时已知的 min_length（字）。≥ 此值视作成篇报告结构信号。
 _LONG_FORM_MIN_LENGTH = 3_000
+
+
+def is_independent_review_role(role: str) -> bool:
+    """True when the role is an independent review / audit / 复核 seat."""
+    r = (role or "").strip().lower()
+    if not r:
+        return False
+    return any(m in r for m in _REVIEW_ROLE_MARKERS)
+
+
+def _safe_review_artifact_label(role: str) -> str:
+    s = (role or "复核").strip().replace("\\", "_").replace("/", "_").replace("..", "_")
+    return (s[:40] or "复核")
+
+
+def apply_independent_review_report_deliverables(plan: object) -> None:
+    """Stamp files_written short-report deliverable on independent review seats.
+
+    案 B：复核须落带行号短报告；已声明 form=files / requires_files / artifacts 的不覆盖。
+    """
+    nodes = getattr(plan, "nodes", None)
+    if not isinstance(nodes, list):
+        return
+    apply_independent_review_report_deliverables_to_specs(nodes)
+
+
+def apply_independent_review_report_deliverables_to_specs(specs: list) -> None:
+    """Same as :func:`apply_independent_review_report_deliverables` for replan adds."""
+    from dataclasses import replace
+
+    from agentcore.runtime.runs.types import Deliverable
+
+    for spec in specs:
+        role = str(getattr(spec, "role", "") or "")
+        if not is_independent_review_role(role):
+            continue
+        deliverable = getattr(spec, "deliverable", None)
+        if deliverable is not None and (
+            deliverable.requires_files
+            or deliverable.form == "files"
+            or bool(deliverable.artifacts)
+        ):
+            # Already file-shaped (code_audit etc.) — only ensure task discipline.
+            task = str(getattr(spec, "task", "") or "")
+            if INDEPENDENT_REVIEW_REPORT_DISCIPLINE not in task and "带行号" not in task:
+                spec.task = f"{task.rstrip()}{INDEPENDENT_REVIEW_REPORT_DISCIPLINE}"
+            continue
+        artifact = f"{REVIEWS_DIR}/复核-{_safe_review_artifact_label(role)}.md"
+        name = (
+            deliverable.name.strip()
+            if deliverable is not None and deliverable.name.strip()
+            else "带行号复核短报告"
+        )
+        min_length = max(
+            int(deliverable.min_length) if deliverable is not None else 0,
+            _INDEPENDENT_REVIEW_REPORT_MIN_CHARS,
+        )
+        base = deliverable if deliverable is not None else Deliverable()
+        spec.deliverable = replace(
+            base,
+            name=name,
+            form="files",
+            requires_files=True,
+            artifacts=[artifact],
+            min_length=min_length,
+            artifact_dir=REVIEWS_DIR,
+        )
+        task = str(getattr(spec, "task", "") or "")
+        if INDEPENDENT_REVIEW_REPORT_DISCIPLINE not in task:
+            spec.task = f"{task.rstrip()}{INDEPENDENT_REVIEW_REPORT_DISCIPLINE}"
 
 
 def has_landed_prose_artifact(kinds: object) -> bool:
@@ -145,8 +224,8 @@ def batch_includes_review_role(tasks: object) -> bool:
     for task in tasks:
         if not isinstance(task, dict):
             continue
-        role = str(task.get("role") or "").strip().lower()
-        if any(m in role for m in _REVIEW_ROLE_MARKERS):
+        role = str(task.get("role") or "").strip()
+        if is_independent_review_role(role):
             return True
     return False
 
@@ -564,7 +643,7 @@ def _batch_has_no_refs_or_prior_gap(
                 rid = str(getattr(node, "run_id", "") or "")
             if not rid:
                 continue
-            if any(m in role for m in _REVIEW_ROLE_MARKERS):
+            if is_independent_review_role(role):
                 reviewish_ids.add(rid)
             if any(m in role for m in ("撰稿", "写作", "writer", "作者")):
                 writerish_ids.add(rid)

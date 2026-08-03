@@ -11,6 +11,9 @@
 文献证据降档时用正向「草稿/缺口承认」闭集（``requires_draft_ack``），不靠把「综述已完成」加进黑名单。
 无对账卡时，仅拦同条正文 A∪C 自相矛盾（resume 拼接同理）。
 
+resume / plan_review：派工过程 kickoff（方向：派团队…）不进用户可见续写基底与 G6 重灌，
+终稿另写交付说明，避免过程流水账（ce1ecfc2）。
+
 ``finish_guard`` / resume ``join`` / 确认姿势 steer 均消费本模块。
 """
 
@@ -30,7 +33,8 @@ _FORMAL_COMPLETE_TIERS = frozenset({"delivered"})
 _INFORMAL_TIERS = frozenset({"partial", "notes", "blocked"})
 
 # (A) 完整交付宣称闭集。故意不含裸「已完成 / 已交付 / 弱可用」——修码/建站正常收口不得误伤。
-# 禁止再往本表加案面词（「综述已完成」「站点做好了」等）；漏拦应回到档位/产物结构，而非加词。
+# 同族扩面（案 20260803-longfix-thin-review-claim-pass）：「通过/已修复/可玩」并入姿势 A；
+# 仍禁止随意加案面词（「综述已完成」「站点做好了」等）——漏拦优先回档位/产物结构。
 _POSTURE_A_CLAIMS = re.compile(
     r"(?:"
     r"已全部收卷|全部收卷|已收卷|"
@@ -43,9 +47,12 @@ _POSTURE_A_CLAIMS = re.compile(
     r"所有(?:任务|队员|节点)(?:已|都已)(?:完成|交付|就绪)|"
     r"已完整可用|已可以使用|已经可以使用|"
     r"已完全可用|已可直接使用|已经可以直接使用|"
-    r"已修好|修复已完成|bug\s*已修复|缺陷已修复|问题已修复|"
+    r"已修好|修复已完成|bug\s*已修复|缺陷已修复|问题已修复|已修复|"
     r"已验证通过|验证通过|验证已绿|验证已通过|"
-    r"测试已通过|已跑通测试|测试已跑通"
+    r"测试已通过|已跑通测试|测试已跑通|"
+    r"(?:独立)?(?:复核|审查|审校|质检|验收)(?:已)?通过|"
+    r"修复通过|本轮(?:修复)?通过|"
+    r"可玩|已经可以玩|可以玩了|已可开玩|已经可玩"
     r")"
 )
 
@@ -192,13 +199,51 @@ def mutual_exclusion_rework(content: str) -> str | None:
     return closing_honesty_rework(content, delivery_verdict=None)
 
 
+# 派工/过程开工段（plan_review 前常见）：不得当「已交付前文」拼接或 G6 重灌进终稿气泡。
+# 近零误报：显式派工话术；「阶段成果如下」等半交付续写故意不进。
+_PROCESS_DISPATCH_PREAMBLE = re.compile(
+    r"(?:"
+    r"方向：派团队|"
+    r"派团队\s*[—\-\u2013\u2014]|"
+    r"直接开委派|"
+    r"组建团队|"
+    r"我(?:先)?派(?:出)?(?:\d+路|三路|各路|团队|队员)|"
+    r"并行(?:开)?(?:派|调研)"
+    r")"
+)
+
+
+def is_process_dispatch_preamble(content: str) -> bool:
+    """True when prose is a dispatch/kickoff process note, not a deliverable half."""
+    text = (content or "").strip()
+    if not text:
+        return False
+    return bool(_PROCESS_DISPATCH_PREAMBLE.search(text))
+
+
+def pre_pause_for_user_visible_continuity(pre_pause: str) -> str:
+    """Strip process kickoff so it cannot seed bubble reinject / join as deliverable base.
+
+    Ask-confirm framing is handled separately（卡片承载）；派工 kickoff 同理：过程已发生，
+    终稿应另写交付说明，而非接着「方向：派团队」续写。
+    """
+    text = pre_pause or ""
+    if is_process_dispatch_preamble(text):
+        return ""
+    return text
+
+
 def reconcile_resume_closing(pre_pause: str, new: str) -> str:
-    """Join resume segments without creating A∪C across the pause seam.
+    """Join resume segments without creating A∪C or process-kickoff∪交付流水账.
 
     When pre-pause still carries「请确认」 framing (often leftover ask prose) and the
     post-resume segment claims posture A, keep only the post-resume segment —
     the question already lived on the ask_user card; splicing recreates cef27dfa /
     e8fb470c dishonest closings.
+
+    When pre-pause is a dispatch/process kickoff（方向：派团队…）and post-resume has
+    content, keep only the post-resume segment — kickoff must not become the opening
+    of the user-visible交付说明（ce1ecfc2 过程流水账）.
     """
     left = pre_pause or ""
     right = new or ""
@@ -211,11 +256,13 @@ def reconcile_resume_closing(pre_pause: str, new: str) -> str:
     if claims_posture_a(left) and claims_posture_c(right):
         # Rare: prior claimed done, resume asks again — prefer the later ask.
         return right
+    if is_process_dispatch_preamble(left):
+        return right
     return join_segments(left, right)
 
 
 def resume_continuity_steer(*, prior_deliverable: str) -> str:
-    """Steer the resumed CEO round; avoid amplifying stale confirm framing."""
+    """Steer the resumed CEO round; avoid amplifying stale confirm / kickoff framing."""
     prior = (prior_deliverable or "").strip()
     if prior and claims_posture_c(prior) and not claims_posture_a(prior):
         return (
@@ -226,6 +273,77 @@ def resume_continuity_steer(*, prior_deliverable: str) -> str:
             "若已可收口 → 只写交付概览；有未完成项则标部分完成，勿假完成。"
             "有交付对账卡时以档位为准（delivered=正式完成；否则不得姿势 A）。"
         )
+    if prior and is_process_dispatch_preamble(prior):
+        return (
+            "[系统提示] 用户已确认计划/委派，派工过程段不要续进终稿。"
+            "请另写一份给用户的交付说明（不要以「方向：派团队 / 开委派」开头，"
+            "不要复述谁做了什么的工作日志）："
+            "①结论或交付状态；②产物路径/看哪里；③缺口与建议下一步。"
+            "有交付对账卡时以档位为准；非正式完成不得姿势 A。"
+        )
     from agentcore.runtime.engine.segments import deliverable_continuity_instruction
 
     return deliverable_continuity_instruction(prior_deliverable=prior_deliverable)
+
+
+def ceiling_honesty_steer(*, reason: str) -> str | None:
+    """Steer force_finalize when hard ceiling forbids unconditional pass claims."""
+    if (reason or "") != "max_rounds":
+        return None
+    return (
+        "[系统提示] 本回合已达轮次硬上限（max_rounds），强制收口。"
+        "【禁止】无条件宣称复核通过 / 已修复 / 可玩 / 验证通过 / 已全部完成等姿势 A；"
+        "须按「部分落地 + 未闭合项」收口：点名已落地与未闭合，勿假装验收过关。"
+        "有交付对账卡时以档位为准；非正式完成不得姿势 A。"
+    )
+
+
+_CEILING_HONESTY_BANNER = (
+    "【收口说明】本回合因轮次上限强制结束，以下不得视为无条件验收通过——"
+    "请按「部分落地 + 未闭合项」理解。\n\n"
+)
+
+
+def enforce_ceiling_closing_honesty(content: str, *, reason: str) -> str:
+    """Deterministic backstop: max_rounds salvage still claiming posture A → banner.
+
+    force_finalize bypasses finish_guard; when the model ignores
+    :func:`ceiling_honesty_steer`, prefix a short honesty note instead of
+    shipping an unconditional pass claim.
+    """
+    text = content or ""
+    if (reason or "") != "max_rounds" or not claims_posture_a(text):
+        return text
+    stripped = text.lstrip()
+    if stripped.startswith("【收口说明】"):
+        return text
+    return _CEILING_HONESTY_BANNER + text
+
+
+def downgrade_verdict_for_max_rounds() -> None:
+    """Mark delivery informal when CEO hits max_rounds (cannot stay ``delivered``)."""
+    from agentcore.runtime.delegate.delivery_status import (
+        DeliveryVerdict,
+        current_delivery_verdict,
+    )
+
+    verdict = current_delivery_verdict.get()
+    if verdict is None:
+        current_delivery_verdict.set(
+            DeliveryVerdict(
+                state="partial",
+                delivered_files=(),
+                execution_id="ceiling_max_rounds",
+            )
+        )
+        return
+    if not is_formal_complete_tier(verdict.state):
+        return
+    current_delivery_verdict.set(
+        DeliveryVerdict(
+            state="partial",
+            delivered_files=verdict.delivered_files,
+            execution_id=verdict.execution_id,
+            requires_draft_ack=verdict.requires_draft_ack,
+        )
+    )

@@ -302,6 +302,7 @@ export function ConversationPage() {
   // tab. Scoped here (not the global shell) as both are only meaningful on the
   // conversation page. (Ctrl/Cmd+B is reserved by the shell for the left sidebar
   // collapse, so the panel takes I to avoid the double-fire.)
+  // 草稿（无 id）：右坞不可用 —— 快捷键不打开。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -311,6 +312,7 @@ export function ConversationPage() {
         return;
       }
       if (!(e.ctrlKey || e.metaKey)) return;
+      if (!id) return;
       if (e.key === "i" || e.key === "I") {
         e.preventDefault();
         useSidePanelStore.getState().togglePanel();
@@ -325,11 +327,16 @@ export function ConversationPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [id]);
+
+  // 草稿强制关坞（含直达 `/`、persist 残留 open）；有会话后仍须用户手动开。
+  useEffect(() => {
+    if (!id) useSidePanelStore.getState().closePanel();
+  }, [id]);
 
   // 聊天 ⇄ 画布双视图（前端UX设计.md §六）。默认聊天；用户在顶栏切到画布（按对话记忆、
   // 持久化）。画布已毕业、入口恒显示；草稿（无 id）恒为聊天。
-  // 右坞：打开后头栏 PanelRight 关闭；关闭时主区右上浮层打开（Ctrl/Cmd+I 始终可用）。
+  // 右坞：打开后头栏 PanelRight 关闭；关闭时主区右上浮层打开（有会话时 Ctrl/Cmd+I；草稿不可用）。
   const panelOpen = useSidePanelStore((s) => s.open);
   const conversationView = useUIStore((s) =>
     id ? (s.conversationViews[id] ?? "chat") : "chat",
@@ -382,7 +389,8 @@ export function ConversationPage() {
           <SidePanelToggle />
         </div>
       )}
-      <SidePanel />
+      {/* 草稿不挂右坞（不出现、不能打开）；有会话才挂载。 */}
+      {id && <SidePanel />}
       {/* 应用内浮窗宿主 ⊥ SidePanel.open（UX §十）：关主坞不得卸本层。 */}
       {id && <SidePanelFloatHost />}
     </>

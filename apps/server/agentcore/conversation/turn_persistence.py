@@ -24,7 +24,6 @@ from agentcore.conversation.store import (
 )
 from agentcore.core.logging import get_logger
 from agentcore.llm.resolve import LLMCredentials
-from agentcore.runtime.engine import join_segments
 from agentcore.runtime.events import EventSink, FinishReason, message_end
 from agentcore.runtime.facts import current_fact_log, pre_pause_from_journal
 from agentcore.runtime.turn_interrupt import TurnInterruptReason, close_turn_interrupted
@@ -203,7 +202,9 @@ def compose_salvage_content(
         entries = log.entries() if log is not None else None
     snap = pre_pause_from_journal(entries)
     pre = (snap.content if snap is not None else "") or ""
-    return join_segments(pre, live or "")
+    from agentcore.runtime.closing_posture import reconcile_resume_closing
+
+    return reconcile_resume_closing(pre, live or "")
 
 
 def compose_salvage_journal(

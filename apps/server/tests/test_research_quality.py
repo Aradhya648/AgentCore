@@ -762,3 +762,58 @@ def test_transcript_web_search_evidence_gap_triggers_deficit():
     )
     assert gaps and gaps[0]["reason"] == "evidence_deficit"
     assert "结构化证据差" in gaps[0]["description"]
+
+
+def test_independent_review_role_stamps_files_written_line_report():
+    """案 B：独立复核员须 files_written 带行号短报告；验证员不受影响。"""
+    from agentcore.runtime.runs.builder import build_run_plan
+    from agentcore.runtime.runs.research_quality import (
+        INDEPENDENT_REVIEW_REPORT_DISCIPLINE,
+        batch_includes_review_role,
+        is_independent_review_role,
+    )
+    from agentcore.workspace.stage_dirs import REVIEWS_DIR
+
+    assert is_independent_review_role("独立复核员")
+    assert batch_includes_review_role([{"role": "独立复核员", "task": "核"}])
+    assert not is_independent_review_role("验证员")
+
+    plan, errors = build_run_plan(
+        [
+            {
+                "id": "fix",
+                "role": "修补员",
+                "task": "改炮塔购买",
+                "deliverable": {"form": "files", "requires_files": True},
+            },
+            {
+                "id": "review",
+                "role": "独立复核员",
+                "task": "只读复核本轮改动",
+                "depends_on": ["fix"],
+            },
+            {
+                "id": "verify",
+                "role": "验证员",
+                "task": "跑测试",
+                "depends_on": ["fix"],
+                "deliverable": {"form": "prose", "min_length": 40},
+            },
+        ],
+        id_prefix="thin_review",
+    )
+    assert errors == []
+    by_role = {n.role: n for n in plan.nodes}
+    review = by_role["独立复核员"]
+    assert review.deliverable is not None
+    assert review.deliverable.form == "files"
+    assert review.deliverable.requires_files is True
+    assert review.deliverable.artifacts
+    assert review.deliverable.artifacts[0].startswith(f"{REVIEWS_DIR}/复核-")
+    assert review.deliverable.min_length >= 80
+    assert INDEPENDENT_REVIEW_REPORT_DISCIPLINE in review.task
+
+    verify = by_role["验证员"]
+    assert verify.deliverable is not None
+    assert verify.deliverable.form == "prose"
+    assert verify.deliverable.requires_files is False

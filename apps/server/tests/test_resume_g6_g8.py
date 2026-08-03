@@ -77,6 +77,12 @@ def test_compose_salvage_empty_live_keeps_pre_pause():
     assert compose_salvage_content("", [_paused_entry("基底")]) == "基底"
 
 
+def test_compose_salvage_drops_dispatch_kickoff_when_live():
+    kickoff = "方向：派团队 — 用户明示 research_report，直接开委派。"
+    live = "修订说明：已按反馈收口文件路径。"
+    assert compose_salvage_content(live, [_paused_entry(kickoff)]) == live
+
+
 # --- G8 compose_salvage_journal -------------------------------------------------
 
 
@@ -269,3 +275,18 @@ async def test_resume_empty_pre_pause_does_not_set_reinjection(monkeypatch):
         backend=MagicMock(spec=WorkspaceBackend),
     )
     assert sink._content_reset_reinjection is None
+
+
+def test_arm_content_reset_skips_dispatch_kickoff_preamble():
+    """派工 kickoff 不 G6 重灌——避免气泡以「方向：派团队」当交付前文。"""
+    from agentcore.runtime.pipeline.resume.rehydrate import arm_content_reset_reinjection
+
+    sink = EventSink(message_id="m1", conversation_id="c1")
+    arm_content_reset_reinjection(
+        sink,
+        "方向：派团队 — 用户明示 research_report，直接开委派。",
+    )
+    assert sink._content_reset_reinjection is None
+
+    arm_content_reset_reinjection(sink, "阶段成果如下。")
+    assert sink._content_reset_reinjection == "阶段成果如下。\n\n"

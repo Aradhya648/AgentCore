@@ -203,6 +203,8 @@ DELEGATE_PARAMETERS = {
                 "runtime_ready=terminal 长驻进程 wait_for 就绪；"
                 "graph_consistent=import 图闭合（.ts/.tsx/.vue 落盘时自动扫）；"
                 "启动开发服务器用 runtime_ready，勿用 code_verified。"
+                "Office/文档（.pptx/.docx/.xlsx 等）默认 files_written；"
+                "禁止对文档类设 code_verified（会被契约闸拒绝）。"
             ),
             "oneOf": [
                 {

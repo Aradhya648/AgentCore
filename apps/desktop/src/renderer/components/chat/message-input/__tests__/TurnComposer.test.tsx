@@ -231,7 +231,7 @@ describe("TurnComposer variants", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "更多选项" })).toBeNull();
     expect(screen.getByLabelText(/模型组合：/)).toBeTruthy();
-    expect(screen.getByLabelText("附加本机文件")).toBeTruthy();
+    expect(screen.getByLabelText("附加文件")).toBeTruthy();
   });
 
   it("bar: single-row chrome with「更多」popover hosting the four extras", async () => {
@@ -240,7 +240,7 @@ describe("TurnComposer variants", () => {
       container.querySelector('[data-composer-variant="bar"]'),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "更多选项" })).toBeTruthy();
-    expect(screen.getByLabelText("附加本机文件")).toBeTruthy();
+    expect(screen.getByLabelText("附加文件")).toBeTruthy();
     // Badges live inside the popover — not in the bar until opened.
     expect(screen.queryByLabelText(/模型组合：/)).toBeNull();
 

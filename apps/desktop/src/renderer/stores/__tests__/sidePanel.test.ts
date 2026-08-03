@@ -85,11 +85,38 @@ beforeEach(() => {
     active: false,
     focusedMessageId: null,
   });
-  useConversationStore.setState({ currentConversationId: null });
+  useConversationStore.setState({ currentConversationId: "conv-test" });
   useBrowserSessionsStore.setState({ pages: [], activePageId: null });
   listMock.mockReset();
   listMock.mockResolvedValue({ sessions: [], activeSessionId: null });
   detachLocalBrowserHost.mockClear();
+});
+
+describe("draft cannot reveal side panel", () => {
+  beforeEach(() => {
+    useConversationStore.setState({ currentConversationId: null });
+  });
+
+  it("openPanel / showWorkspace / toggle(open) are no-ops without a conversation", () => {
+    panel().openPanel();
+    expect(panel().open).toBe(false);
+    panel().showWorkspace();
+    expect(panel().open).toBe(false);
+    panel().togglePanel();
+    expect(panel().open).toBe(false);
+  });
+
+  it("openTab with default reveal does not open the dock on draft", () => {
+    panel().openTab(runDetail("run-1"));
+    expect(panel().tabs.map((t) => t.id)).toEqual([tabId("run-1")]);
+    expect(panel().open).toBe(false);
+  });
+
+  it("togglePanel can still close if the dock was somehow open", () => {
+    useSidePanelStore.setState({ open: true });
+    panel().togglePanel();
+    expect(panel().open).toBe(false);
+  });
 });
 
 describe("setWidth", () => {

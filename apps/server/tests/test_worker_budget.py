@@ -239,6 +239,7 @@ def test_is_directed_search_role_covers_review_and_investigation():
     assert is_directed_search_role("质检官")
     assert is_directed_search_role("调研员")
     assert is_directed_search_role("学术审校员")
+    assert is_directed_search_role("独立复核员")
     assert is_directed_search_role("code review")
     assert not is_directed_search_role("撰稿人")
     assert not is_directed_search_role("")

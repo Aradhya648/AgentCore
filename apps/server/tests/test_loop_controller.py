@@ -945,12 +945,38 @@ def test_classify_segmented_write_reject_covers_prose_and_integrity_not_length()
     )
     assert (
         classify_segmented_write_reject(
+            "file_write",
+            error="拒绝整篇截断覆盖：`报告.md` 旧稿约 2000 字 → 新稿 300 字（低于旧稿 50%）。",
+            contract_failure=True,
+        )
+        == "severe_shrink"
+    )
+    assert (
+        classify_segmented_write_reject(
             "file_append",
             error="拒绝追加：`a.md` 本 run 已落成篇正文（非骨架）。",
             contract_failure=False,
         )
         is None
     )
+
+
+def test_path_severe_shrink_reject_streak_trips_force_segmented():
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        "a",
+        "file_write",
+        success=False,
+        contract_failure=True,
+        error_summary="拒绝整篇截断覆盖：`报告.md` 旧稿约 2000 字 → 新稿 300 字。",
+        meta={"path": "报告.md", "segmented_write_reject": "severe_shrink"},
+    )
+    c.record([rej])
+    assert not c.tool_circuit_breaker()
+    c.record([rej])
+    cb = c.tool_circuit_breaker()
+    assert "file_write" in cb.force_segmented
+    assert "file_append" in cb.force_segmented
 
 
 def test_apply_circuit_breaker_narrows_file_append_on_force_segmented():

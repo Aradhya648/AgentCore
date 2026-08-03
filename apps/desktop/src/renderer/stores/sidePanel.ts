@@ -117,6 +117,14 @@ function loadWidth(): number {
     : DEFAULT_WIDTH;
 }
 
+/**
+ * 草稿（`currentConversationId == null`）不可用右坞：不出现、不能打开。
+ * 有会话后才允许 reveal；进草稿由 `closePanel` / 页面层强制关。
+ */
+export function canRevealSidePanel(): boolean {
+  return useConversationStore.getState().currentConversationId != null;
+}
+
 function persistOpen(open: boolean): void {
   uiSet(OPEN_KEY, open);
 }
@@ -622,7 +630,8 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   isFloating: (tabId) => get().floats.some((f) => f.tabId === tabId),
 
   openTab: (tab, opts) => {
-    const reveal = opts?.reveal !== false;
+    const reveal =
+      opts?.reveal !== false && canRevealSidePanel();
     const activate = opts?.activate !== false;
     const state = get();
     const alreadyFloating = state.floats.some((f) => f.tabId === tab.id);
@@ -734,6 +743,7 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   dockTab: (tabId) => {
     const state = get();
     if (!state.floats.some((f) => f.tabId === tabId)) return;
+    if (!canRevealSidePanel()) return;
     persistOpen(true);
     set((s) => ({
       floats: s.floats.filter((f) => f.tabId !== tabId),
@@ -889,6 +899,7 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
   },
 
   openPanel: () => {
+    if (!canRevealSidePanel()) return;
     persistOpen(true);
     set({ open: true, pendingBadge: 0 });
   },
@@ -898,6 +909,7 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
       get().focusFloat(WORKSPACE_TAB_ID);
       return;
     }
+    if (!canRevealSidePanel()) return;
     persistOpen(true);
     set({
       open: true,
@@ -913,6 +925,7 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
       get().focusFloat(CHANGES_TAB_ID);
       return;
     }
+    if (!canRevealSidePanel()) return;
     persistOpen(true);
     set({
       open: true,
@@ -1068,6 +1081,8 @@ export const useSidePanelStore = create<SidePanelState>((set, get) => ({
 
   togglePanel: () => {
     const next = !get().open;
+    // 草稿不能打开；若异常仍开着则允许关掉。
+    if (next && !canRevealSidePanel()) return;
     if (!next && browserStillInDock(get().tabs)) {
       // 关坞 = 脱离保活（仅 browser 仍在坞内时）。
       void detachLocalBrowserHost();

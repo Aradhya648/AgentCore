@@ -157,14 +157,24 @@ def arm_content_reset_reinjection(sink: EventSink, pre_pause: str) -> None:
 
     Stale「请确认」ask framing is not reinjected — the question already lives on the
     ask_user card; reinjecting it and then streaming「已全部收卷」recreates A∪C live.
+
+    Dispatch/process kickoff（方向：派团队…）likewise is not reinjected — process
+    already happened; reinjecting it makes the user-visible bubble a work log.
     """
     if not pre_pause:
         return
-    from agentcore.runtime.closing_posture import claims_full_delivery, claims_needs_confirm
+    from agentcore.runtime.closing_posture import (
+        claims_full_delivery,
+        claims_needs_confirm,
+        pre_pause_for_user_visible_continuity,
+    )
 
-    if claims_needs_confirm(pre_pause) and not claims_full_delivery(pre_pause):
+    base = pre_pause_for_user_visible_continuity(pre_pause)
+    if not base:
         return
-    sink.set_content_reset_reinjection(pre_pause + "\n\n")
+    if claims_needs_confirm(base) and not claims_full_delivery(base):
+        return
+    sink.set_content_reset_reinjection(base + "\n\n")
 
 
 def batch_shape_for_settled_suspension(

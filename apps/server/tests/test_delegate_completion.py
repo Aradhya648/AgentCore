@@ -989,6 +989,87 @@ def test_kind_fit_rejects_code_verified_on_start_task():
     assert "runtime_ready" in msg
 
 
+def test_kind_fit_rejects_code_verified_on_office_pptx_task():
+    """案 20260803-ppt-office：Office/PPT 交付禁 code_verified，须 files_written。"""
+    from agentcore.runtime.delegate.completion import (
+        plan_suggests_office_deliverable,
+        validate_criteria_kind_fit,
+    )
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": "PPT模板工程师",
+                "task": (
+                    "基于用户31周周报PPT为模板，用 python-pptx 生成第32周 HSE 周报.pptx"
+                ),
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": ["第32周HSE周报.pptx"],
+                },
+            }
+        ],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    assert plan_suggests_office_deliverable(plan)
+    msg = validate_criteria_kind_fit("code_verified", plan)
+    assert msg is not None
+    assert "files_written" in msg
+    assert "Office" in msg or "文档" in msg
+    assert validate_criteria_kind_fit("files_written", plan) is None
+
+
+def test_kind_fit_rejects_code_verified_on_office_artifact_only():
+    """仅 artifacts 声明 .docx 亦视为 Office 交付，拒 code_verified。"""
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [
+            {
+                "role": "文档员",
+                "task": "按提纲整理成稿并落盘",
+                "deliverable": {
+                    "form": "files",
+                    "artifacts": ["报告终稿.docx"],
+                },
+            }
+        ],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    msg = validate_criteria_kind_fit(
+        {"type": "code_verified", "verify_command": "pytest -q"},
+        plan,
+    )
+    assert msg is not None
+    assert "files_written" in msg
+
+
+def test_kind_fit_allows_code_verified_on_non_office_verify_task():
+    """非 Office 的验码批仍允许 code_verified。"""
+    from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
+    from agentcore.runtime.runs import build_run_plan
+
+    plan, errors = build_run_plan(
+        [{"role": "测试", "task": "跑通 pytest 并确保全部通过"}],
+        valid_tools=set(),
+        id_prefix="fit",
+        parent_run_id="CEO",
+        depth=1,
+    )
+    assert not errors
+    assert validate_criteria_kind_fit("code_verified", plan) is None
+
+
 def test_kind_fit_rejects_runtime_ready_on_verify_task():
     from agentcore.runtime.delegate.completion import validate_criteria_kind_fit
     from agentcore.runtime.runs import build_run_plan

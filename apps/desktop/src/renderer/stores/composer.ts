@@ -83,26 +83,30 @@ function sanitizeAttachment(raw: unknown): PendingAttachment | null {
 function serializeAttachments(
   attachments: PendingAttachment[],
 ): PendingAttachment[] {
-  return attachments.slice(0, PERSIST_ATTACH_MAX).map((a) => {
-    const text =
-      a.text.length > PERSIST_ATTACH_TEXT_CAP
-        ? a.text.slice(0, PERSIST_ATTACH_TEXT_CAP)
-        : a.text;
-    const out: PendingAttachment = {
-      id: a.id,
-      key: a.key,
-      name: a.name,
-      path: a.path,
-      text,
-      truncated: a.truncated || a.text.length > PERSIST_ATTACH_TEXT_CAP,
-      kind: a.kind,
-    };
-    if (a.conversationId) out.conversationId = a.conversationId;
-    if (a.workspacePath) out.workspacePath = a.workspacePath;
-    if (a.stagingId) out.stagingId = a.stagingId;
-    if (a.binary) out.binary = a.binary;
-    return out;
-  });
+  // File blobs can't survive localStorage — drop unfinished browser drafts.
+  return attachments
+    .filter((a) => !a.fileBlob || a.workspacePath || a.stagingId)
+    .slice(0, PERSIST_ATTACH_MAX)
+    .map((a) => {
+      const text =
+        a.text.length > PERSIST_ATTACH_TEXT_CAP
+          ? a.text.slice(0, PERSIST_ATTACH_TEXT_CAP)
+          : a.text;
+      const out: PendingAttachment = {
+        id: a.id,
+        key: a.key,
+        name: a.name,
+        path: a.path,
+        text,
+        truncated: a.truncated || a.text.length > PERSIST_ATTACH_TEXT_CAP,
+        kind: a.kind,
+      };
+      if (a.conversationId) out.conversationId = a.conversationId;
+      if (a.workspacePath) out.workspacePath = a.workspacePath;
+      if (a.stagingId) out.stagingId = a.stagingId;
+      if (a.binary) out.binary = a.binary;
+      return out;
+    });
 }
 
 function draftHasContent(

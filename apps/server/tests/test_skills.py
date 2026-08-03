@@ -338,12 +338,20 @@ def test_team_orchestration_skill_teaches_constraint_vs_solution_and_outline_ste
 
 
 def test_team_orchestration_skill_teaches_presentation_pptx_honesty():
-    """有执行须真 pptx；无执行允许 Marp/脚本但禁假称 PPT 已落盘。"""
+    """有执行须真 pptx；无执行允许 Marp/脚本但禁假称 PPT 已落盘。
+
+    案 20260803-ppt-office A+B：验收默认 files_written；当模板须 copy 再改。
+    """
     body = _body("team_orchestration_advanced")
     assert "python-pptx" in body
     assert "静默" in body and ".md" in body
     assert "PPT 已落盘可直接使用" in body
     assert "交付缺口" in body or "标缺口" in body
+    assert "files_written" in body
+    assert "code_verified" in body  # 禁设声明须点名
+    assert "file_copy" in body
+    assert "当模板" in body
+    assert "Presentation()" in body
 
 
 def test_team_orchestration_skill_teaches_must_contain_and_sections_discipline():

@@ -78,7 +78,49 @@ async def test_rejects_identical_strings(tmp_path: Path):
     )
     assert result.success is False
     assert "相同" in result.error
+    assert "空转" in result.error
     assert result.contract_failure is True
+
+
+def test_identical_edit_fingerprint_collapses_per_path():
+    """不同 noop 正文塌缩为同 path 指纹 → validation 早熔断（案 longdoc-revise）。"""
+    from agentcore.runtime.loop_controller import (
+        LoopController,
+        ToolAttempt,
+        fingerprint_tool_call,
+    )
+
+    fp_a = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "报告.md", "old_string": "AAA", "new_string": "AAA"}',
+    )
+    fp_b = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "报告.md", "old_string": "BBB 不同正文", "new_string": "BBB 不同正文"}',
+    )
+    fp_other = fingerprint_tool_call(
+        "str_replace",
+        '{"path": "other.md", "old_string": "AAA", "new_string": "AAA"}',
+    )
+    assert fp_a == fp_b
+    assert fp_a != fp_other
+
+    c = LoopController(tool_failure_warn=2, tool_failure_disable=3)
+    rej = ToolAttempt(
+        fp_a,
+        "str_replace",
+        success=False,
+        contract_failure=True,
+        meta={"error_class": "validation"},
+    )
+    c.record([rej])
+    assert not c.tool_circuit_breaker()
+    c.record([rej])
+    assert c.tool_circuit_breaker().validation_stop is not None
+    c.record([rej])
+    assert c.is_thrashing()
+    assert c.take_validation_hard_stop()
+    assert c.tool_failure_count("str_replace") == 0
 
 
 async def test_rejects_path_outside_workspace(tmp_path: Path):

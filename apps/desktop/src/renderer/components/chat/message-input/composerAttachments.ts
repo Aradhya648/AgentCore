@@ -23,6 +23,12 @@ export interface PendingAttachment {
   stagingId?: string;
   /** 二进制驻留：无 UTF-8 正文内联。 */
   binary?: boolean;
+  /**
+   * 浏览器草稿：尚无 conversationId 时暂存 File，建会话后由
+   * ``ensureAttachmentResident`` PUT 到云工作区 ``attachments/``。
+   * 不可进 localStorage；仅内存。
+   */
+  fileBlob?: File;
 }
 
 export const TEXT_PREVIEW_CAP = 256 * 1024;

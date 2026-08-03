@@ -44,7 +44,8 @@ DEFAULT_TOOL_FAILURE_WARN = 2
 DEFAULT_TOOL_FAILURE_DISABLE = 3
 # Same-path consecutive classified write rejects → force_segmented early (策略机),
 # before the cumulative per-tool disable threshold. Covers prose-append / code
-# integrity hard rejects (contract_failure) that skip the normal failure tally.
+# integrity / severe-shrink hard rejects (contract_failure) that skip the normal
+# failure tally.
 DEFAULT_PATH_WRITE_REJECT_STREAK = 2
 # Validation / contract self-correct: same fingerprint consecutive failures →
 # stop that path (steer), tool stays available (not a parallel disable tally).
@@ -119,7 +120,8 @@ def classify_segmented_write_reject(
 ) -> str | None:
     """Classify a hard write reject that feeds the same-path force_segmented streak.
 
-    Returns a stable class id (``prose_append`` / ``code_integrity``) or ``None``.
+    Returns a stable class id (``prose_append`` / ``code_integrity`` /
+    ``severe_shrink``) or ``None``.
     Does **not** cover length/oversized rejects (those hard gates were removed).
     Soft ``integrity_nudge`` is success-path only and never reaches here.
     """
@@ -128,9 +130,42 @@ def classify_segmented_write_reject(
     text = error or ""
     if tool_name == "file_append" and "已落成篇正文" in text:
         return "prose_append"
+    if tool_name == "file_write" and "拒绝整篇截断覆盖" in text:
+        return "severe_shrink"
     if "结构不完整" in text or "省略标记" in text:
         return "code_integrity"
     return None
+
+
+def _collapse_malformed_required_args(name: str, parsed: dict[str, object]) -> dict[str, object]:
+    """Collapse empty-required-field / no-op edit calls so stuck detection sees one path.
+
+    Distinct ``path`` / ``new_string`` with empty ``old_string`` must not mint a new
+    fingerprint each time — that let workers burn token budgets on free validation
+    retries. Non-empty identical ``old_string``/``new_string`` collapses per path
+    (longdoc revise thrash: different noop payloads still melt). Sentinel shape is
+    stable and intentional (not a real tool schema).
+    """
+    if name == "str_replace":
+        old = parsed.get("old_string")
+        if old is None or (isinstance(old, str) and not old.strip()):
+            return {"__malformed__": "old_string"}
+        path = parsed.get("path")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            return {"__malformed__": "path"}
+        new = parsed.get("new_string")
+        if (
+            isinstance(old, str)
+            and isinstance(new, str)
+            and old == new
+        ):
+            path_key = path.strip().replace("\\", "/") if isinstance(path, str) else ""
+            return {"__malformed__": "identical_edit", "path": path_key}
+    if name in {"file_write", "file_append"}:
+        path = parsed.get("path")
+        if path is None or (isinstance(path, str) and not path.strip()):
+            return {"__malformed__": "path"}
+    return parsed
 
 
 def _norm_write_reject_path(path: object) -> str:
@@ -482,34 +517,14 @@ class CircuitBreak:
         return "[系统提示] " + " ".join(parts)
 
 
-def _collapse_malformed_required_args(name: str, parsed: dict[str, object]) -> dict[str, object]:
-    """Collapse empty-required-field calls so stuck detection sees one path.
-
-    Distinct ``path`` / ``new_string`` with empty ``old_string`` must not mint a new
-    fingerprint each time — that let workers burn token budgets on free validation
-    retries. Sentinel shape is stable and intentional (not a real tool schema).
-    """
-    if name == "str_replace":
-        old = parsed.get("old_string")
-        if old is None or (isinstance(old, str) and not old.strip()):
-            return {"__malformed__": "old_string"}
-        path = parsed.get("path")
-        if path is None or (isinstance(path, str) and not path.strip()):
-            return {"__malformed__": "path"}
-    if name in {"file_write", "file_append"}:
-        path = parsed.get("path")
-        if path is None or (isinstance(path, str) and not path.strip()):
-            return {"__malformed__": "path"}
-    return parsed
-
-
 def fingerprint_tool_call(name: str, arguments: str) -> str:
     """Stable hash of ``(tool_name, normalized args)``.
 
     Args are normalized via key-sorted JSON so semantically identical calls map
     to one fingerprint; malformed JSON falls back to the raw argument string so
-    verbatim repeats are still caught. Empty required fields collapse to a
-    stable sentinel (see ``_collapse_malformed_required_args``).
+    verbatim repeats are still caught. Empty required fields and identical
+    str_replace no-ops collapse to a stable sentinel (see
+    ``_collapse_malformed_required_args``).
     """
     try:
         parsed = json.loads(arguments) if arguments else {}
@@ -1185,9 +1200,9 @@ class LoopController:
         typed JSON-format steer). Non-landing tools (e.g. ``read_url`` via
         ``retire_tools``) still disable normally.
 
-        Same-path consecutive classified write rejects (prose-append / code integrity)
-        also enter ``force_segmented`` via the same latch — early strategy upgrade,
-        not a second breaker.
+        Same-path consecutive classified write rejects (prose-append / code integrity
+        / severe_shrink) also enter ``force_segmented`` via the same latch — early
+        strategy upgrade, not a second breaker.
         """
         newly_warned: list[str] = []
         newly_disabled: list[str] = []

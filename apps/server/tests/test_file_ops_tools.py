@@ -775,10 +775,11 @@ async def test_write_nudge_on_omission_marker(tmp_path: Path):
 
 
 async def test_write_nudge_on_severe_shrink(tmp_path: Path):
+    """Near-threshold abs drop stays soft-nudge (not hard reject)."""
     old = "字" * 500
     assert len(old) >= 400
     (tmp_path / "essay.md").write_text(old, encoding="utf-8")
-    short = "字" * 100  # well below 60% threshold
+    short = "字" * 100  # ratio <60% but abs drop 400 < 800 → soft only
     result = await FileWriteTool().execute(
         {"path": "essay.md", "content": short}, _ctx(tmp_path)
     )
@@ -787,6 +788,38 @@ async def test_write_nudge_on_severe_shrink(tmp_path: Path):
     assert "产物疑似不完整" in result.output
     assert "字数骤降" in result.output
     assert "绝不代派" in result.output
+
+
+async def test_write_hard_rejects_longdoc_severe_shrink(tmp_path: Path):
+    """Longdoc revise thrash sample shape: ~2k→~300 must not land."""
+    from agentcore.tools.builtin.file_ops import is_hard_severe_shrink
+
+    old = "字" * 2000
+    short = "字" * 300
+    assert is_hard_severe_shrink(len(old), len(short))
+    (tmp_path / "报告.md").write_text(old, encoding="utf-8")
+    result = await FileWriteTool().execute(
+        {"path": "报告.md", "content": short}, _ctx(tmp_path)
+    )
+    assert result.success is False
+    assert result.contract_failure is True
+    assert "拒绝整篇截断覆盖" in (result.error or "")
+    assert "allow_shrink" in (result.error or "")
+    assert (tmp_path / "报告.md").read_text(encoding="utf-8") == old
+
+
+async def test_write_allow_shrink_overrides_hard_reject(tmp_path: Path):
+    old = "字" * 2000
+    short = "字" * 300
+    (tmp_path / "essay.md").write_text(old, encoding="utf-8")
+    result = await FileWriteTool().execute(
+        {"path": "essay.md", "content": short, "allow_shrink": True},
+        _ctx(tmp_path),
+    )
+    assert result.success is True
+    assert (tmp_path / "essay.md").read_text(encoding="utf-8") == short
+    # Soft nudge still fires on success path when ratio < 60%.
+    assert "产物疑似不完整" in (result.output or "")
 
 
 async def test_write_no_nudge_on_new_file(tmp_path: Path):

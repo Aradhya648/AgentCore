@@ -336,7 +336,11 @@ def build_run_plan(
 
         apply_light_round_budgets(plan, complexity_hint=complexity_hint)
         from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_plan
+        from agentcore.runtime.runs.research_quality import (
+            apply_independent_review_report_deliverables,
+        )
 
+        apply_independent_review_report_deliverables(plan)
         apply_artifact_dir_to_plan(plan, code_verified=code_verified)
     return plan, errors
 
@@ -508,7 +512,11 @@ def build_added_nodes(
     # replan add：token/超时走统一 backstop；检索额度走统一默认 + 硬例外。
     apply_worker_budgets_to_specs(specs)
     from agentcore.runtime.runs.artifact_dir import apply_artifact_dir_to_specs
+    from agentcore.runtime.runs.research_quality import (
+        apply_independent_review_report_deliverables_to_specs,
+    )
 
+    apply_independent_review_report_deliverables_to_specs(specs)
     apply_artifact_dir_to_specs(specs)
     return specs, []
 

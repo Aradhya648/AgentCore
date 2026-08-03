@@ -60,6 +60,7 @@ def _inject_finalize_instructions(
     prior_deliverable: str = "",
     persist: bool = False,
     outstanding_tool_failures: list | None = None,
+    ceiling_reason: str = "",
 ) -> None:
     """Inject continuity (when prior交付 exists) then the standard finalize steer."""
     if outstanding_tool_failures:
@@ -71,6 +72,13 @@ def _inject_finalize_instructions(
         continuity = deliverable_continuity_instruction(prior_deliverable=prior)
         messages.append(LLMMessage(role="user", content=continuity))
         _record_note(content=continuity, reason="continuity", run_id=run_id)
+    if ceiling_reason:
+        from agentcore.runtime.closing_posture import ceiling_honesty_steer
+
+        honesty = ceiling_honesty_steer(reason=ceiling_reason)
+        if honesty:
+            messages.append(LLMMessage(role="user", content=honesty))
+            _record_note(content=honesty, reason="ceiling_honesty", run_id=run_id)
     instruction = FINALIZE_INSTRUCTION_FILES if persist else FINALIZE_INSTRUCTION
     messages.append(LLMMessage(role="user", content=instruction))
     _record_note(content=instruction, reason="finalize", run_id=run_id)
@@ -95,6 +103,7 @@ async def run_finalize_round(
     outstanding_tool_failures: list | None = None,
     files_expected: bool = False,
     form_prose: bool = False,
+    ceiling_reason: str = "",
 ) -> FinalizeRoundResult:
     """One finalize LLM round: coordination (+ persist when files), or tool-free."""
     persist = finalize_allows_persist(
@@ -110,6 +119,7 @@ async def run_finalize_round(
             prior_deliverable=prior_deliverable,
             persist=persist,
             outstanding_tool_failures=outstanding_tool_failures,
+            ceiling_reason=ceiling_reason,
         )
 
     if hard_tool_free:
@@ -276,6 +286,7 @@ async def force_finalize(
             outstanding_tool_failures=outstanding_tool_failures,
             files_expected=files_expected,
             form_prose=form_prose,
+            ceiling_reason=reason,
         )
     except Exception as e:
         logger.error("engine.force_finalize_failed", reason=reason, error=str(e))
@@ -313,6 +324,7 @@ async def force_finalize(
             on_reset=on_reset,
             files_expected=files_expected,
             form_prose=form_prose,
+            ceiling_reason=reason,
         )
     except Exception as e:
         logger.error("engine.force_finalize_hard_failed", reason=reason, error=str(e))

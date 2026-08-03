@@ -10,6 +10,10 @@ import type {
   StageAttachmentDest,
   StagedAttachment,
 } from "@shared/ipc-contract";
+import { TEXT_PREVIEW_CAP } from "./composerAttachments";
+
+/** Align with main-process ``ATTACH_MAX_BYTES`` / IM ChatComposer. */
+export const ATTACH_MAX_BYTES = 25 * 1024 * 1024;
 
 export type ResideResult =
   | {
@@ -22,8 +26,21 @@ export type ResideResult =
       binary: boolean;
       workspacePath?: string;
       stagingId?: string;
+      /** 浏览器草稿：无会话时持 File，发送时再 PUT。 */
+      fileBlob?: File;
     }
   | { ok: false; reason: string };
+
+/** Align with main-process ``safeName`` (basename + strip leading dots). */
+export function safeBrowserFileName(name: string): string {
+  const base = (name || "")
+    .replace(/\\/g, "/")
+    .trim()
+    .split("/")
+    .pop()!
+    .replace(/^\.+/, "");
+  return base || "attachment";
+}
 
 function destFromTarget(t: {
   rootId: string;
@@ -109,6 +126,80 @@ export async function stageDroppedFileAttachment(
 }
 
 /**
+ * 浏览器：回形针 / 拖贴共用。校验图片与大小；有会话则立即云端 PUT，
+ * 无会话则持 ``fileBlob`` 到发送。允许二进制（docx/pdf 等）。
+ */
+export async function prepareBrowserFileAttachment(
+  conversationId: string | null,
+  file: File,
+): Promise<ResideResult> {
+  if (file.type.startsWith("image/")) {
+    return { ok: false, reason: "暂不支持图片附件（模型尚无视觉能力）" };
+  }
+  if (file.size > ATTACH_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: `文件超过 ${Math.round(ATTACH_MAX_BYTES / (1024 * 1024))}MB 上限`,
+    };
+  }
+
+  const name = safeBrowserFileName(file.name);
+  const head = await file.slice(0, TEXT_PREVIEW_CAP + 1).arrayBuffer();
+  const bytes = new Uint8Array(head);
+  const binary = bytes.includes(0);
+  const truncated = !binary && file.size > TEXT_PREVIEW_CAP;
+  const text = binary
+    ? ""
+    : new TextDecoder("utf-8").decode(
+        bytes.subarray(0, Math.min(bytes.length, TEXT_PREVIEW_CAP)),
+      );
+
+  if (!conversationId) {
+    return {
+      ok: true,
+      name,
+      path: name,
+      text,
+      truncated,
+      binary,
+      fileBlob: file,
+    };
+  }
+
+  // 有会话：立即 PUT（引用即驻留）。本地 binding 在无本机根时不可用。
+  try {
+    const binding = await getWorkspaceBinding(conversationId);
+    if (binding.mode === "local") {
+      return {
+        ok: false,
+        reason: "本地工作区目录不可用，请重新打开文件夹后再附加",
+      };
+    }
+  } catch {
+    /* binding unknown — try cloud upload */
+  }
+
+  const workspacePath = `attachments/${name}`;
+  try {
+    await uploadWorkspaceFile(conversationId, workspacePath, file);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: e instanceof Error ? e.message : "上传附件到云端工作区失败",
+    };
+  }
+  return {
+    ok: true,
+    name,
+    path: workspacePath,
+    text,
+    truncated,
+    binary,
+    workspacePath,
+  };
+}
+
+/**
  * 发送前：暂存件写入本地工作区，或上传到云端工作区。
  * 已有 ``workspacePath`` 的跳过。失败返回 reason。
  */
@@ -121,6 +212,7 @@ export async function ensureAttachmentResident(
     binary?: boolean;
     text: string;
     truncated: boolean;
+    fileBlob?: File;
   },
 ): Promise<
   | {
@@ -143,7 +235,44 @@ export async function ensureAttachmentResident(
       truncated: att.truncated,
     };
   }
+
+  // 浏览器草稿 File → 云端 PUT。
+  if (att.fileBlob) {
+    try {
+      const binding = await getWorkspaceBinding(conversationId);
+      if (binding.mode === "local") {
+        return {
+          ok: false,
+          reason: "本地工作区目录不可用，请重新打开文件夹后再附加",
+        };
+      }
+    } catch {
+      /* binding unknown — try cloud upload */
+    }
+    const name = safeBrowserFileName(att.name);
+    const workspacePath = `attachments/${name}`;
+    try {
+      await uploadWorkspaceFile(conversationId, workspacePath, att.fileBlob);
+    } catch (e) {
+      return {
+        ok: false,
+        reason: e instanceof Error ? e.message : "上传附件到云端工作区失败",
+      };
+    }
+    return {
+      ok: true,
+      workspacePath,
+      name,
+      binary: !!att.binary,
+      text: att.text,
+      truncated: att.truncated,
+    };
+  }
+
   if (!att.stagingId) {
+    if (att.binary) {
+      return { ok: false, reason: "附件数据已失效，请重新附加" };
+    }
     // 纯文本旧路径（对话引用等）：无驻留字节。
     return {
       ok: true,

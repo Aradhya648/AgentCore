@@ -69,6 +69,7 @@ _DIRECTED_SEARCH_ROLE_MARKERS: tuple[str, ...] = (
     "审查",
     "质检",
     "评审",
+    "复核",
     "调查",
     "调研",
     "review",

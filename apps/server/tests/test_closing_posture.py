@@ -99,6 +99,32 @@ def test_resume_continuity_steer_falls_back_for_deliverable():
     assert "自然衔接续写" in steer
 
 
+def test_reconcile_drops_dispatch_kickoff_pre_pause():
+    """plan_review 后续写：派工 kickoff 不拼进交付终稿（ce1ecfc2 流水账）。"""
+    from agentcore.runtime.closing_posture import is_process_dispatch_preamble
+
+    pre = (
+        "方向：派团队 — 用户明示 research_report 成文落盘，"
+        "主体（医学报告生成近三年文献）已点名，直接开委派。"
+    )
+    new = (
+        "综述终稿已落盘 `AgentCore/文档/research/报告.md`；"
+        "审校指出的事实错误已修订。建议下一步核验两处出处。"
+    )
+    assert is_process_dispatch_preamble(pre)
+    assert reconcile_resume_closing(pre, new) == new
+    assert "派团队" not in reconcile_resume_closing(pre, new)
+
+
+def test_resume_continuity_steer_for_dispatch_kickoff():
+    steer = resume_continuity_steer(
+        prior_deliverable="方向：派团队 — 直接开委派，组建团队并行调研。"
+    )
+    assert "交付说明" in steer
+    assert "自然衔接续写" not in steer
+    assert "已交付前文如下" not in steer
+
+
 def test_partial_verdict_rejects_posture_a():
     from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
 
@@ -236,3 +262,72 @@ def test_ordinary_partial_without_draft_flag_allows_bare_delivered():
         requires_draft_ack=False,
     )
     assert closing_honesty_rework("主页已交付，详见产物卡。", verdict) is None
+
+
+def test_partial_verdict_rejects_pass_fixed_playable_claims():
+    """案 20260803：通过/已修复/可玩 并入姿势 A（thin-review 同族扩面）。"""
+    from agentcore.runtime.delegate.delivery_status import DeliveryVerdict
+
+    verdict = DeliveryVerdict(
+        state="partial",
+        delivered_files=("src/a.ts",),
+        execution_id="e1",
+    )
+    for claim in (
+        "独立复核通过，可以收工。",
+        "复核通过。",
+        "炮塔购买已修复。",
+        "现在可玩了。",
+        "已经可以玩。",
+        "本轮修复通过。",
+    ):
+        assert claims_posture_a(claim), claim
+        reworks = finish_guard(
+            claim,
+            citation_count=0,
+            delivery_verdict=verdict,
+        )
+        assert any("姿势 A" in r or "档位" in r for r in reworks), claim
+
+
+def test_bare_pass_without_review_prefix_not_posture_a():
+    """裸「通过」不得进姿势 A——避免误伤「测试摘要：通过 3」。"""
+    assert not claims_posture_a("摘要：通过 3 / 失败 0。")
+    assert not claims_posture_a("请通过左侧栏购买炮塔。")
+
+
+def test_max_rounds_ceiling_honesty_steer_and_banner():
+    """max_rounds：steer 禁止无条件通过；仍宣称姿势 A → 加收口说明横幅。"""
+    from agentcore.runtime.closing_posture import (
+        ceiling_honesty_steer,
+        downgrade_verdict_for_max_rounds,
+        enforce_ceiling_closing_honesty,
+    )
+    from agentcore.runtime.delegate.delivery_status import (
+        DeliveryVerdict,
+        current_delivery_verdict,
+    )
+
+    steer = ceiling_honesty_steer(reason="max_rounds")
+    assert steer is not None
+    assert "部分落地" in steer
+    assert ceiling_honesty_steer(reason="token_budget") is None
+
+    dishonest = "独立复核通过，修复已全部完成，现在可玩。"
+    out = enforce_ceiling_closing_honesty(dishonest, reason="max_rounds")
+    assert out.startswith("【收口说明】")
+    assert "可玩" in out
+    assert enforce_ceiling_closing_honesty("部分落地，炮塔栏仍缺一行。", reason="max_rounds") == (
+        "部分落地，炮塔栏仍缺一行。"
+    )
+
+    token = current_delivery_verdict.set(
+        DeliveryVerdict(state="delivered", delivered_files=("a.ts",), execution_id="e1")
+    )
+    try:
+        downgrade_verdict_for_max_rounds()
+        v = current_delivery_verdict.get()
+        assert v is not None
+        assert v.state == "partial"
+    finally:
+        current_delivery_verdict.reset(token)

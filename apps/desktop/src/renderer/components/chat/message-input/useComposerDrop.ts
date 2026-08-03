@@ -7,8 +7,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { type PendingAttachment, readDroppedFile } from "./composerAttachments";
-import { stageDroppedFileAttachment } from "./resideAttachment";
+import type { PendingAttachment } from "./composerAttachments";
+import {
+  prepareBrowserFileAttachment,
+  stageDroppedFileAttachment,
+} from "./resideAttachment";
 
 /** Soft attach errors: auto-dismiss (Slack / Linear style), not sticky form validation. */
 const DROP_ERROR_MS = 4000;
@@ -79,7 +82,8 @@ export function useComposerDrop(
         return;
       }
 
-      const res = await readDroppedFile(file);
+      // 浏览器：回形针 / 拖 / 贴共用 prepare → 立即 PUT 或持 fileBlob。
+      const res = await prepareBrowserFileAttachment(conversationId, file);
       if (!res.ok) {
         flashDropError(res.reason);
         return;
@@ -89,11 +93,14 @@ export function useComposerDrop(
         {
           id: crypto.randomUUID(),
           key,
-          name: file.name,
-          path: file.name,
+          name: res.name,
+          path: res.path,
           text: res.text,
           truncated: res.truncated,
           kind: "file",
+          workspacePath: res.workspacePath,
+          binary: res.binary,
+          ...(res.fileBlob ? { fileBlob: res.fileBlob } : {}),
         },
       ]);
     },
@@ -162,6 +169,7 @@ export function useComposerDrop(
     dragOver,
     dropError,
     clearDropError,
+    attachDroppedFile,
     handleDragOver,
     handleDragLeave,
     handleDrop,

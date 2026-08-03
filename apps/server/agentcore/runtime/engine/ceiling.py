@@ -175,6 +175,22 @@ async def ceiling_finalize(
         files_expected=files_expected,
         form_prose=form_prose,
     )
+    # CEO / captain：max_rounds 强制收口不得无条件姿势 A（finish_guard 被绕过）。
+    if role != "worker" and ceiling_reason == "max_rounds":
+        from agentcore.runtime.closing_posture import (
+            downgrade_verdict_for_max_rounds,
+            enforce_ceiling_closing_honesty,
+        )
+
+        downgrade_verdict_for_max_rounds()
+
+        def _honest_close(text: str) -> str:
+            return enforce_ceiling_closing_honesty(text, reason=ceiling_reason)
+    else:
+
+        def _honest_close(text: str) -> str:
+            return text
+
     # force_finalize contract: when soft round returns tools, caller must execute.
     # Files workers may call file_write/handoff here — discarding would leave
     # requires_files unmet after we explicitly kept those tools on the surface.
@@ -227,9 +243,9 @@ async def ceiling_finalize(
             ):
                 finish_override_sink.append(FinishReason.PAUSED)
             return (
-                join_segments(final_content, terminal.final_text or ""),
+                _honest_close(join_segments(final_content, terminal.final_text or "")),
                 final_reasoning,
                 total_usage,
                 rounds,
             )
-    return final_content, final_reasoning, total_usage, rounds
+    return _honest_close(final_content), final_reasoning, total_usage, rounds

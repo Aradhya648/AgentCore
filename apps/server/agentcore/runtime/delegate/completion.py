@@ -103,6 +103,20 @@ _BINARY_ARTIFACT_HINTS = re.compile(
     re.IGNORECASE,
 )
 
+# Office / document deliverable shape — pairs with ``files_written``, never ``code_verified``.
+# Binding gate (案 20260803-ppt-office-code-verified-mismatch A)：文档类禁源码仓式验收。
+_OFFICE_ARTIFACT_SUFFIXES = frozenset({".pptx", ".docx", ".xlsx", ".odt", ".rtf"})
+_OFFICE_DELIVERABLE_HINTS = re.compile(
+    r"(?:"
+    r"\.pptx|\.docx|\.xlsx|\.odt|\.rtf|"
+    r"python-pptx|openpyxl|"
+    r"幻灯片|演示文稿|课件|"
+    r"\bPPTX?\b|PowerPoint|"
+    r"Word\s*文档|Excel(?:表|表格|文件)?"
+    r")",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class CompletionCriteria:
@@ -374,6 +388,36 @@ def plan_mentions_binary_artifact(plan: RunPlan) -> bool:
     return False
 
 
+def _path_looks_office(path: str) -> bool:
+    lowered = path.lower().replace("\\", "/")
+    return any(
+        lowered.endswith(suf) or lowered.endswith(f"*{suf}") or f"*{suf}" in lowered
+        for suf in _OFFICE_ARTIFACT_SUFFIXES
+    )
+
+
+def plan_suggests_office_deliverable(plan: RunPlan) -> bool:
+    """True when any worker task/artifacts read like Office/document landing.
+
+    Used by :func:`validate_criteria_kind_fit` to reject ``code_verified`` on
+    PPT/Word/Excel batches (acceptance must be ``files_written`` / artifact landing).
+    """
+    for node in plan.nodes:
+        text = f"{node.task}\n{node.objective}".strip()
+        if text and _OFFICE_DELIVERABLE_HINTS.search(text):
+            return True
+        d = node.deliverable
+        if d is None:
+            continue
+        name = str(getattr(d, "name", "") or "").strip()
+        if name and _path_looks_office(name):
+            return True
+        for art in d.artifacts or []:
+            if art and _path_looks_office(str(art)):
+                return True
+    return False
+
+
 def _resolved_code_verified(raw: Any, plan: RunPlan) -> bool:
     """Whether this delegate WILL be held to ``code_verified`` at completion.
 
@@ -405,10 +449,22 @@ def validate_criteria_kind_fit(raw: Any, plan: RunPlan) -> str | None:
     ``code_verified`` = compile/test/build evidence; ``runtime_ready`` = long-running
     process ready. Mixing them (e.g. ``code_verified`` on「启动 npm run dev」) is a
     contract error — not a soft gap after the worker already succeeded.
+
+    Office/document batches (``.pptx`` / ``.docx`` / ``.xlsx`` …) must not use
+    ``code_verified`` — that is source-repo verify semantics; use ``files_written``.
     """
     kind = _explicit_criteria_kind(raw)
     if kind is None:
         return None
+    if kind == "code_verified" and plan_suggests_office_deliverable(plan):
+        return (
+            "契约矛盾：completion_criteria=code_verified 只验收编译/测试/build"
+            "（tsc|typecheck|test|build 等 exit 0），不能验收 Office/文档落盘"
+            "（.pptx/.docx/.xlsx 等）。本批是文档/Office 交付。"
+            "改法：改用 completion_criteria=files_written"
+            "（常配合 deliverable.form=files / artifacts）；"
+            "禁止对文档类套源码仓式 code_verified。"
+        )
     startish = plan_suggests_runtime_ready(plan)
     verifyish = plan_suggests_verify(plan)
     if kind == "code_verified" and startish and not verifyish:

@@ -67,12 +67,17 @@ logger = get_logger(__name__)
 
 _DEFAULT_READ_LINES = 500
 
-# Overwrite integrity nudge (soft — never auto-redispatches).
-# Fires when ``file_write`` clobbers a non-empty file and the new body looks truncated
-# (short-body omission markers or severe shrink). Substantial prose with omission
-# markers is hard-rejected at the FileWriteTool accept point (not soft-nudged).
-# Same principle as ``engine.audit_gate_nudge`` for the soft path.
+# Overwrite integrity: two tiers on whole-file ``file_write`` clobber.
+# Soft nudge (never auto-redispatches): mild shrink / short-body omission markers
+# on success. Hard reject: severe shrink of a substantial existing body (ratio +
+# absolute drop) — prefer str_replace; intentional shorten via ``allow_shrink``.
+# Substantial prose with omission markers is hard-rejected at accept (not nudged).
+# Soft path mirrors ``engine.audit_gate_nudge``. Hard shrink aligns Aider-style
+# whole-rewrite drop guards (open PR: rewrite <50% of existing file).
 _INTEGRITY_SHRINK_RATIO = 0.6
+_INTEGRITY_HARD_SHRINK_RATIO = 0.5
+# Absolute drop floor: near-threshold drafts (e.g. 500→200) stay soft-nudge only.
+_INTEGRITY_HARD_SHRINK_ABS = 800
 # Delivery-incomplete literals (write-path integrity). Distinct from
 # ``core.text.DEFAULT_ELISION_MARKER`` (system *view* truncation for model-facing
 # budgets). Do not reuse transport elision wording here — models must not treat
@@ -119,8 +124,32 @@ def has_omission_marker(content: str) -> bool:
 
 
 def is_severe_shrink(old_chars: int, new_chars: int) -> bool:
-    """True when new length is below ``_INTEGRITY_SHRINK_RATIO`` of the old length."""
+    """True when new length is below soft ``_INTEGRITY_SHRINK_RATIO`` of the old length."""
     return old_chars > 0 and new_chars < old_chars * _INTEGRITY_SHRINK_RATIO
+
+
+def is_hard_severe_shrink(old_chars: int, new_chars: int) -> bool:
+    """True when overwrite would chop a substantial draft (ratio + absolute drop).
+
+    Softer shrinks stay on the nudge path; tiny near-threshold files (abs drop
+    below ``_INTEGRITY_HARD_SHRINK_ABS``) are not hard-rejected.
+    """
+    if old_chars <= 0:
+        return False
+    if new_chars >= old_chars * _INTEGRITY_HARD_SHRINK_RATIO:
+        return False
+    return (old_chars - new_chars) >= _INTEGRITY_HARD_SHRINK_ABS
+
+
+def severe_shrink_rejection(path: str, *, old_chars: int, new_chars: int) -> str:
+    """User-facing hard reject when ``file_write`` would truncate a substantial draft."""
+    pct = int(_INTEGRITY_HARD_SHRINK_RATIO * 100)
+    return (
+        f"拒绝整篇截断覆盖：`{path}` 旧稿约 {old_chars} 字 → 新稿 {new_chars} 字"
+        f"（低于旧稿 {pct}% 且绝对减少 ≥{_INTEGRITY_HARD_SHRINK_ABS} 字）。"
+        "修订请用 str_replace 局部改；确需大幅删减/精简/重建时，"
+        "对本次 file_write 显式传 allow_shrink=true 后重试。"
+    )
 
 
 def integrity_nudge_text(
@@ -146,6 +175,7 @@ def overwrite_integrity_nudge(
     """Return a soft nudge when overwriting a non-empty file looks truncated.
 
     Only for existing non-empty targets. Never raises; callers append to tool output.
+    Hard severe-shrink is rejected before write (see ``is_hard_severe_shrink``).
     """
     if not old_content:
         return None
@@ -1404,7 +1434,10 @@ class FileWriteTool:
                 "【成篇省略硬拒】成篇体量正文若含省略标记（反例："
                 "「……（中间省略，已保留首尾）……」）→ 硬拒绝："
                 "须短骨架+SECTION 按节填，或一次写完完整正文，禁止省略标记交差。"
-                "字数骤降对已有文件仍仅软提示。SECTION 骨架本身可含占位。"
+                "【成篇缩水硬拒】覆盖已有成篇且新稿低于旧稿 50% 且绝对减少 ≥800 字 → "
+                "硬拒绝（防修订时空转砍稿）；请改 str_replace。用户明确要求大幅删减/"
+                "精简/重建时传 allow_shrink=true。中度缩水仍仅软提示。"
+                "SECTION 骨架本身可含占位。"
                 "补丁失败（str_replace NoMatch）或读不到原文 ≠ 用残缺骨架交差；"
                 "应对照失败回执中的盘片段再改，或 escalate；确需整盖须写出完整正文。"
                 "【代码完整性】对 .ts/.tsx/.js 等：无 SECTION 骨架标记时，"
@@ -1427,6 +1460,14 @@ class FileWriteTool:
                             "成篇体量含省略标记则硬拒。"
                         ),
                     },
+                    "allow_shrink": {
+                        "type": "boolean",
+                        "description": (
+                            "显式允许大幅缩水覆盖（默认 false）。仅当用户明确要求"
+                            "删大半 / 精简 / 推倒重建时设 true；普通修订勿开。"
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["path", "content"],
             },
@@ -1438,6 +1479,7 @@ class FileWriteTool:
         start = time.monotonic()
         requested_path = arguments.get("path", "")
         content = arguments.get("content", "")
+        allow_shrink = bool(arguments.get("allow_shrink", False))
 
         # A missing/empty path resolves to the workspace root (a directory); writing
         # onto it raises a cryptic OS error (Permission denied / IsADirectory) that
@@ -1469,7 +1511,7 @@ class FileWriteTool:
             rel_path, content, context
         )
 
-        # Pre-read for overwrite integrity soft nudge (whole-file overwrite allowed).
+        # Pre-read for overwrite integrity (hard shrink + soft nudge).
         old_content: str | None = None
         try:
             old_content = await context.backend.read(rel_path)
@@ -1529,6 +1571,31 @@ class FileWriteTool:
                 coordinator.release(rel_path, context.run_id)
             return _error(
                 prose_omission_rejection(rel_path),
+                start,
+                contract_failure=True,
+            )
+
+        # 成篇缩水硬拒：修订路径整篇砍稿（样本 19k→3k）；allow_shrink 放行正当精简。
+        if (
+            old_content is not None
+            and not allow_shrink
+            and is_substantial_existing_body(old_content)
+            and is_hard_severe_shrink(len(old_content), len(write_content))
+        ):
+            old_chars = len(old_content)
+            new_chars = len(write_content)
+            logger.info(
+                "file_write.severe_shrink_rejected",
+                path=rel_path,
+                old_chars=old_chars,
+                new_chars=new_chars,
+            )
+            if coordinator is not None and release_on_fail:
+                coordinator.release(rel_path, context.run_id)
+            return _error(
+                severe_shrink_rejection(
+                    rel_path, old_chars=old_chars, new_chars=new_chars
+                ),
                 start,
                 contract_failure=True,
             )
@@ -2011,7 +2078,9 @@ class StrReplaceTool:
             )
         if old_string == new_string:
             return _error(
-                "old_string 与 new_string 相同，没有需要改动的内容",
+                "old_string 与 new_string 相同，没有需要改动的内容。"
+                "请改用实质不同的替换，或 handoff 诚实说明已改/未改；"
+                "禁止用相同参数空转重试。",
                 start,
                 contract_failure=True,
             )

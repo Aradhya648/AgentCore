@@ -17,6 +17,7 @@ import {
   isContinuableAssistant,
   isEmptyInterruptedAssistant,
 } from "@/lib/composerContinueHint";
+import { hasLocalFiles } from "@/lib/capabilities";
 import { TOOLS_GATE_HINT, needsToolsGateHint } from "@/lib/llmToolsGate";
 import { defaultChatSupportsTools } from "@/services/llmProviders";
 import { useBackgroundTasksStore } from "@/stores/backgroundTasks";
@@ -42,7 +43,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import type { SetStateAction } from "react";
+import type { ChangeEvent, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentChips } from "./AttachmentChips";
 import { ComposerContextCompactedHint } from "./ComposerContextCompactedHint";
@@ -232,6 +233,25 @@ export function TurnComposer({
     attachments,
     setAttachments,
     conversationId,
+  );
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onPaperclipClick = useCallback(() => {
+    if (hasLocalFiles()) {
+      void mention.pickLocalFile();
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [mention.pickLocalFile]);
+
+  const onBrowserFilesSelected = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      for (const f of files) await drop.attachDroppedFile(f);
+    },
+    [drop.attachDroppedFile],
   );
 
   const voice = useVoiceInput({
@@ -552,6 +572,15 @@ export function TurnComposer({
         attachedBelowApproval ? "true" : undefined
       }
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        multiple
+        tabIndex={-1}
+        aria-hidden
+        onChange={(e) => void onBrowserFilesSelected(e)}
+      />
       {drop.dragOver && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/80 text-sm font-medium text-primary">
           拖放文件以添加为附件
@@ -686,9 +715,9 @@ export function TurnComposer({
             </Popover>
             <IconButton
               size="md"
-              onClick={() => void mention.pickLocalFile()}
+              onClick={onPaperclipClick}
               disabled={isGenerating}
-              aria-label="附加本机文件"
+              aria-label="附加文件"
             >
               <Paperclip size={16} />
             </IconButton>
@@ -717,9 +746,9 @@ export function TurnComposer({
               <ComposerNoLocalChip />
               <IconButton
                 size="md"
-                onClick={() => void mention.pickLocalFile()}
+                onClick={onPaperclipClick}
                 disabled={isGenerating}
-                aria-label="附加本机文件"
+                aria-label="附加文件"
               >
                 <Paperclip size={16} />
               </IconButton>
