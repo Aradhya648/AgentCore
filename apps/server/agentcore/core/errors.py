@@ -368,6 +368,31 @@ class KeyStorageUnavailableError(AgentCoreError):
     status_code = 503
 
 
+class ClientTooOldError(AgentCoreError):
+    """Desktop client build is below ``DESKTOP_MIN_VERSION`` (HTTP 426).
+
+    Global desktop floor enforced by middleware on ``/v1/*`` when
+    ``X-Client-Platform=desktop``. Empty min version / missing or ``dev`` client
+    version / compare failure all fail-open (see middleware). Not the §7.9
+    per-flag ``min_client_version`` gate.
+    """
+
+    code = ErrorCode.CLIENT_TOO_OLD
+    status_code = 426
+
+    def __init__(
+        self,
+        message: str = "桌面端版本过旧，请更新后再试",
+        *,
+        min_version: str = "",
+        **kwargs,
+    ):
+        self.min_version = min_version
+        if min_version and "最低版本" not in message:
+            message = f"{message}（最低版本 {min_version}）"
+        super().__init__(message, min_version=min_version, **kwargs)
+
+
 def error_fields_for(
     exc: BaseException,
     *,

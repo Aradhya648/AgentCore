@@ -102,8 +102,7 @@ async def test_version_exposes_build_provenance(monkeypatch):
 
 
 async def test_updates_policy_enabled_by_default(monkeypatch):
-    # The desktop updater's remote circuit breaker is open (updates allowed) unless
-    # explicitly flipped —放量默认开, fail-open. Empty min version → null (no banner).
+    # Kill switch open by default; empty min version → null (no hard gate / no banner).
     monkeypatch.setattr(system.settings, "desktop_updates_enabled", True)
     monkeypatch.setattr(system.settings, "desktop_min_version", "")
     async with _client() as c:

@@ -22,8 +22,8 @@ class ServerSettings(BaseModel):
     built_at: str = "unknown"
 
     desktop_updates_enabled: bool = True
-    # Soft floor for desktop clients (GET /updates/policy → min_desktop_version).
-    # Empty = no outdated banner (dev-friendly). Production often sets e.g. 0.6.5.
+    # Desktop floor (GET /updates/policy → min_desktop_version + HTTP 426 hard gate).
+    # Empty = no banner / no API gate (dev-friendly). Production e.g. 0.6.25.
     desktop_min_version: str = ""
 
     push_enabled: bool = False

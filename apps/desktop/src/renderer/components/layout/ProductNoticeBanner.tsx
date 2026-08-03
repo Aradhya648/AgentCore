@@ -44,7 +44,7 @@ export function openNoticeCta(
 }
 
 /**
- * Product notice banner under the title bar (layout mirrors OutdatedClientBanner).
+ * Product notice banner under the title bar.
  * Store already picks ≤1 banner; critical/high/normal use tone-presets.
  */
 export function ProductNoticeBanner() {

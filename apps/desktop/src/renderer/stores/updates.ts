@@ -13,8 +13,9 @@ import { create } from "zustand";
  * **不**自动下载——本 store 弹说明窗，用户同意后再 `download()`。订阅在应用外壳启动
  * （`startUpdates`），故说明窗 / 就绪 toast 与「关于」页状态在任何路由下都能更新。
  *
- * 另：软过旧横幅（`outdatedMinVersion`）在启动时拉 `GET /updates/policy`，本地低于
- * `min_desktop_version` 时由 AppShell 顶栏下展示；关闭后本会话不再显示。
+ * 另：强制更新硬闸（`outdatedMinVersion`）在启动时拉 `GET /updates/policy`，本地低于
+ * `min_desktop_version` 时由 AppShell 全屏硬遮罩挡住；不可关闭，只能走更新流程。
+ * 硬闸激活时 skip/snooze 无效。拉取失败 fail-open（不拦）。
  */
 
 const PREFS_KEY = "updater-prefs";
@@ -63,6 +64,7 @@ function saveUpdatePrefs(prefs: UpdatePrefs): void {
 /**
  * Whether an automatic prompt should open for `version`.
  * Skip: version ≤ skippedVersion. Snooze: same version within 24h window.
+ * Hard force-update gate bypasses this — see {@link maybeOpenDialogForStatus}.
  */
 export function shouldAutoPromptUpdate(
   version: string,
@@ -89,21 +91,25 @@ export function shouldAutoPromptUpdate(
 /** Fallback body when feed has no releaseNotes. */
 export const UPDATE_NOTES_FALLBACK = "修复与体验改进";
 
+/** True when the force-update hard gate is active (local below policy floor). */
+export function isForceUpdateActive(
+  state: { outdatedMinVersion: string | null } = useUpdatesStore.getState(),
+): boolean {
+  return state.outdatedMinVersion != null && state.outdatedMinVersion !== "";
+}
+
 interface UpdatesState {
   status: UpdaterStatus;
   /** Whether the update explanation dialog is open. */
   dialogOpen: boolean;
   /**
-   * Soft outdated floor from policy when local build is older; null = no banner.
-   * Cleared for the session via {@link dismissOutdated}.
+   * Force-update floor from policy when local build is older; null = no hard gate.
+   * Non-null activates {@link ForceUpdateGate} (non-dismissible).
    */
   outdatedMinVersion: string | null;
-  /** Session dismiss for the outdated soft banner (reload resets). */
-  outdatedDismissed: boolean;
-  dismissOutdated: () => void;
-  /** Open the update dialog (ignores snooze/skip — for About / banner CTA). */
+  /** Open the update dialog (ignores snooze/skip — for About / force-gate CTA). */
   openUpdateDialog: () => void;
-  /** Close the dialog without changing skip/snooze prefs. */
+  /** Close the dialog without changing skip/snooze prefs. No-op under hard gate. */
   closeUpdateDialog: () => void;
   /**
    * 主动检查更新。手动检查后若发现可用版本会强制打开说明窗（忽略稍后提醒 /
@@ -112,9 +118,9 @@ interface UpdatesState {
   check: () => Promise<void>;
   /** Start downloading the available update. */
   download: () => Promise<void>;
-  /** Snooze auto-prompt for current available version for 24h. */
+  /** Snooze auto-prompt for current available version for 24h. No-op under hard gate. */
   remindLater: () => void;
-  /** Persist skip for current available version (survives restart). */
+  /** Persist skip for current available version (survives restart). No-op under hard gate. */
   skipVersion: () => void;
   /** 安装已下载的更新：退出 → 安装 → 重启。 */
   install: () => Promise<void>;
@@ -127,14 +133,11 @@ export const useUpdatesStore = create<UpdatesState>(() => ({
   status: { phase: "idle" },
   dialogOpen: false,
   outdatedMinVersion: null,
-  outdatedDismissed: false,
-  dismissOutdated: () => {
-    useUpdatesStore.setState({ outdatedDismissed: true });
-  },
   openUpdateDialog: () => {
     useUpdatesStore.setState({ dialogOpen: true });
   },
   closeUpdateDialog: () => {
+    if (isForceUpdateActive()) return;
     useUpdatesStore.setState({ dialogOpen: false });
   },
   check: async () => {
@@ -157,6 +160,7 @@ export const useUpdatesStore = create<UpdatesState>(() => ({
     }
   },
   remindLater: () => {
+    if (isForceUpdateActive()) return;
     const { status } = useUpdatesStore.getState();
     if (status.phase !== "available") {
       useUpdatesStore.setState({ dialogOpen: false });
@@ -171,6 +175,7 @@ export const useUpdatesStore = create<UpdatesState>(() => ({
     useUpdatesStore.setState({ dialogOpen: false });
   },
   skipVersion: () => {
+    if (isForceUpdateActive()) return;
     const { status } = useUpdatesStore.getState();
     if (status.phase !== "available") {
       useUpdatesStore.setState({ dialogOpen: false });
@@ -198,12 +203,13 @@ function maybeOpenDialogForStatus(
   opts: { force: boolean },
 ): void {
   if (status.phase !== "available") return;
-  if (opts.force || shouldAutoPromptUpdate(status.version)) {
+  const forceGate = isForceUpdateActive();
+  if (opts.force || forceGate || shouldAutoPromptUpdate(status.version)) {
     useUpdatesStore.setState({ dialogOpen: true });
   }
 }
 
-/** Fail-open: fetch errors / empty min leave the banner hidden. Electron-only. */
+/** Fail-open: fetch errors / empty min leave the hard gate hidden. Electron-only. */
 async function pollOutdatedPolicy(): Promise<void> {
   if (!hasAutoUpdater()) return;
   try {
@@ -212,14 +218,14 @@ async function pollOutdatedPolicy(): Promise<void> {
     if (!isDesktopVersionOutdated(clientVersion(), min)) return;
     useUpdatesStore.setState({ outdatedMinVersion: min });
   } catch {
-    /* fail-open — no banner */
+    /* fail-open — no hard gate */
   }
 }
 
 /**
  * 在应用外壳挂载时启动：同步初始状态 + 订阅推送写入 store。发现可用版本时按
- * skip/snooze 决定是否弹说明窗；下载完毕弹 sticky「重启安装」（§7.6）。
- * 返回取消订阅函数。
+ * skip/snooze 决定是否弹说明窗（硬闸激活时忽略 skip/snooze）；下载完毕弹 sticky
+ * 「重启安装」（§7.6）。返回取消订阅函数。
  *
  * 非 Electron / preload 未注入 `window.updaterApi`（如纯浏览器打开 Vite 端口）时 no-op，
  * 状态置 `unsupported`，与契约「dev 态不生效」一致。
@@ -241,7 +247,7 @@ export function startUpdates(): () => void {
     maybeOpenDialogForStatus(status, { force: false });
   });
 
-  // Soft outdated banner (部署与运维.md §7.6) — Electron only; web skips.
+  // Force-update hard gate (部署与运维.md §7.6) — Electron only; web skips.
   void pollOutdatedPolicy();
 
   return api.onStatus((status) => {

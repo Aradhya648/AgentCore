@@ -83,7 +83,6 @@ beforeEach(() => {
     status: { phase: "idle" },
     dialogOpen: false,
     outdatedMinVersion: null,
-    outdatedDismissed: false,
   });
   stubUpdaterApi();
 });
@@ -149,7 +148,7 @@ describe("startUpdates outdated policy", () => {
     );
   });
 
-  it("skips banner when local is current", async () => {
+  it("skips hard gate when local is current", async () => {
     clientVersionMock.mockReturnValue("0.6.6");
     fetchPolicyMock.mockResolvedValue({
       enabled: true,
@@ -161,7 +160,7 @@ describe("startUpdates outdated policy", () => {
     expect(useUpdatesStore.getState().outdatedMinVersion).toBeNull();
   });
 
-  it("skips banner for clientVersion()==='dev'", async () => {
+  it("skips hard gate for clientVersion()==='dev'", async () => {
     clientVersionMock.mockReturnValue("dev");
     fetchPolicyMock.mockResolvedValue({
       enabled: true,
@@ -178,6 +177,19 @@ describe("startUpdates outdated policy", () => {
     startUpdates();
     await Promise.resolve();
     expect(fetchPolicyMock).not.toHaveBeenCalled();
+  });
+
+  it("force gate ignores persisted skip and opens dialog", () => {
+    const api = stubUpdaterApi();
+    startUpdates();
+    api._emit({ phase: "available", version: "0.7.0" });
+    useUpdatesStore.getState().skipVersion();
+    expect(loadUpdatePrefs().skippedVersion).toBe("0.7.0");
+    expect(useUpdatesStore.getState().dialogOpen).toBe(false);
+
+    useUpdatesStore.setState({ outdatedMinVersion: "0.6.5" });
+    api._emit({ phase: "available", version: "0.7.0" });
+    expect(useUpdatesStore.getState().dialogOpen).toBe(true);
   });
 });
 
@@ -226,6 +238,20 @@ describe("update consent dialog + prefs", () => {
     useUpdatesStore.setState({ dialogOpen: false });
     api._emit({ phase: "available", version: "0.7.0" });
     expect(useUpdatesStore.getState().dialogOpen).toBe(false);
+  });
+
+  it("remindLater / skipVersion are no-ops under hard gate", () => {
+    useUpdatesStore.setState({
+      outdatedMinVersion: "0.6.5",
+      dialogOpen: true,
+      status: { phase: "available", version: "0.7.0" },
+    });
+    useUpdatesStore.getState().remindLater();
+    useUpdatesStore.getState().skipVersion();
+    useUpdatesStore.getState().closeUpdateDialog();
+    expect(useUpdatesStore.getState().dialogOpen).toBe(true);
+    expect(loadUpdatePrefs().snooze).toBeUndefined();
+    expect(loadUpdatePrefs().skippedVersion).toBeUndefined();
   });
 
   it("download invokes updaterApi.download", async () => {

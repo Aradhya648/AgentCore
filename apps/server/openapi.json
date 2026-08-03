@@ -13681,7 +13681,7 @@
         "type": "object"
       },
       "UpdatesPolicyResponse": {
-        "description": "Desktop update policy: kill switch + soft minimum client version.",
+        "description": "Desktop update policy: kill switch + hard minimum client version.",
         "properties": {
           "enabled": {
             "title": "Enabled",
@@ -13696,7 +13696,7 @@
                 "type": "null"
               }
             ],
-            "description": "Semver floor for desktop; null when unset (no outdated banner).",
+            "description": "Semver hard floor for desktop; null when unset (no forced-update gate / no CLIENT_TOO_OLD API gate).",
             "title": "Min Desktop Version"
           }
         },
@@ -14517,7 +14517,7 @@
   "info": {
     "description": "Multi-Agent AI Workspace API",
     "title": "AgentCore",
-    "version": "0.3.30"
+    "version": "0.3.31"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14616,7 +14616,7 @@
     },
     "/updates/policy": {
       "get": {
-        "description": "Desktop auto-update policy (前端技术与架构.md §7.6 / 部署与运维.md §7.6).\n\nThe desktop updater polls this before each check and pauses downloads when\n``enabled`` is false — a kill switch for a bad release. ``min_desktop_version``\nis a soft floor: the Electron shell shows a dismissible banner when the local\nbuild is older (never forced quit). Empty ``DESKTOP_MIN_VERSION`` →\n``min_desktop_version: null`` (dev-friendly; no banner).\n\nUnauthenticated and dependency-free (like ``/version``) so the updater can\nreach it pre-login. The kill-switch client is **fail-open**: any error or\nnon-200 is treated as enabled. The outdated banner is also fail-open (no\nbanner on fetch failure).\n\nStaged rollout (stagingPercentage) and beta/stable channels ride on the\nfeature-flag system (部署与运维.md §7.9) and are not part of this payload yet.",
+        "description": "Desktop auto-update policy (发布与门禁.md §7.6).\n\nThe desktop updater polls this before each check and pauses downloads when\n``enabled`` is false — a kill switch for a bad release. ``min_desktop_version``\nis the hard floor: clients force update when older, and the server rejects\n``X-Client-Platform=desktop`` business APIs below it with ``CLIENT_TOO_OLD``\n(HTTP 426). Empty ``DESKTOP_MIN_VERSION`` → ``min_desktop_version: null``\n(dev-friendly; no gate). This endpoint itself is exempt from the API gate so\noutdated clients can still learn the floor.\n\nUnauthenticated and dependency-free (like ``/version``) so the updater can\nreach it pre-login. The kill-switch client is **fail-open**: any error or\nnon-200 is treated as enabled.\n\nStaged rollout (stagingPercentage) and beta/stable channels ride on the\nfeature-flag system (发布与门禁.md §7.9) and are not part of this payload yet.\nPer-flag ``min_client_version`` (§7.9) remains a separate line from this\nglobal desktop floor.",
         "operationId": "updates_policy_updates_policy_get",
         "responses": {
           "200": {

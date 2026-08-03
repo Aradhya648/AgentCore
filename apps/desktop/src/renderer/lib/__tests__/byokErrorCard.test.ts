@@ -98,6 +98,21 @@ describe("error action by type", () => {
     expect(legacy?.retriable).toBe(true);
     expect(legacy?.message).toContain("推理凭证");
   });
+
+  it("CLIENT_TOO_OLD / 426 → force-update copy, non-retriable", () => {
+    const coded = describeError(
+      new StreamError("http", 426, {
+        code: "CLIENT_TOO_OLD",
+        serverMessage: "client too old",
+      }),
+    );
+    expect(coded?.message).toBe("桌面端版本过旧，请更新后再试");
+    expect(coded?.retriable).toBe(false);
+
+    const byStatus = describeError(new StreamError("http", 426));
+    expect(byStatus?.message).toBe("桌面端版本过旧，请更新后再试");
+    expect(byStatus?.retriable).toBe(false);
+  });
 });
 
 describe("isClientSideLlmRejection", () => {

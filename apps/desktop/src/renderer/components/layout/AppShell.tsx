@@ -18,7 +18,7 @@ import { ShareConversationDialog } from "../conversation/ShareConversationDialog
 import { CreateFolderMenuHost } from "../folders/CreateFolderMenu";
 import { Sidebar } from "../sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
-import { OutdatedClientBanner } from "./OutdatedClientBanner";
+import { ForceUpdateGate } from "./ForceUpdateGate";
 import { ProductNoticeBanner } from "./ProductNoticeBanner";
 import { ProductNoticeModal } from "./ProductNoticeModal";
 import { TitleBar } from "./TitleBar";
@@ -130,7 +130,6 @@ export function AppShell() {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
       {!webClient && <TitleBar />}
-      <OutdatedClientBanner />
       <WorkspaceChannelBanner />
       <ProductNoticeBanner />
 
@@ -143,6 +142,7 @@ export function AppShell() {
 
       <ProductNoticeModal />
       <UpdateAvailableDialog />
+      <ForceUpdateGate />
       <CommandPalette />
       <ShareConversationDialog />
       <CreateFolderMenuHost />

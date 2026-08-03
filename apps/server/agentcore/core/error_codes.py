@@ -40,6 +40,7 @@ class ErrorCode(StrEnum):
     VALIDATION_ERROR = "VALIDATION_ERROR"
     NOT_FOUND = "NOT_FOUND"
     CONFLICT = "CONFLICT"
+    CLIENT_TOO_OLD = "CLIENT_TOO_OLD"  # desktop below DESKTOP_MIN_VERSION (HTTP 426)
 
     # ── Auth / quota / rate ──────────────────────────────────────────────
     AUTH_ERROR = "AUTH_ERROR"

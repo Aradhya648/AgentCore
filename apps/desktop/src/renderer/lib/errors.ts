@@ -86,6 +86,9 @@ export function degradedFinishChipLabel(
 export const LLM_RATE_LIMIT_MESSAGE =
   "上游限流，暂时无法继续本回合。请稍后再试或点重试。";
 
+/** Product copy when the desktop client is below the server force-update floor. */
+export const CLIENT_TOO_OLD_MESSAGE = "桌面端版本过旧，请更新后再试";
+
 /** Assistant bubble error text; in dev, append upstream body preview when present. */
 export function formatAssistantErrorMessage(error: {
   message: string;
@@ -346,6 +349,10 @@ function factsOf(err: unknown): ErrorFacts {
 
 function resolveMessage(f: ErrorFacts): string {
   if (f.transport) return "网络连接中断，请检查网络后重试";
+  // Force-update floor: CLIENT_TOO_OLD or HTTP 426 Upgrade Required.
+  if (f.code === "CLIENT_TOO_OLD" || f.status === 426) {
+    return CLIENT_TOO_OLD_MESSAGE;
+  }
   // A 429 is a deliberate refusal (quota used up, or sending too fast), not an
   // outage. The backend ships a precise zh message (quota reset time, or a
   // cool-down), so prefer it; otherwise phrase the wait from Retry-After.
@@ -457,10 +464,12 @@ export function describeError(err: unknown): DescribedError | null {
     // contract-types catalog is the single source for the rest.
     retriable: inferenceTokenFailure
       ? true
-      : !(
-          f.code !== undefined &&
-          (NON_RETRIABLE_ERROR_CODES as readonly string[]).includes(f.code)
-        ),
+      : f.code === "CLIENT_TOO_OLD" || f.status === 426
+        ? false
+        : !(
+            f.code !== undefined &&
+            (NON_RETRIABLE_ERROR_CODES as readonly string[]).includes(f.code)
+          ),
     code: f.code,
     context: f.context,
   };

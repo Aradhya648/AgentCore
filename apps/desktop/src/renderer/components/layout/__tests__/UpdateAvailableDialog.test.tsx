@@ -25,6 +25,7 @@ beforeEach(() => {
       sizeBytes: 2048,
     },
     dialogOpen: true,
+    outdatedMinVersion: null,
     download: vi.fn(() => Promise.resolve()),
     remindLater: vi.fn(),
     skipVersion: vi.fn(),
@@ -38,6 +39,7 @@ afterEach(() => {
   useUpdatesStore.setState({
     status: { phase: "idle" },
     dialogOpen: false,
+    outdatedMinVersion: null,
   });
 });
 
@@ -91,5 +93,14 @@ describe("UpdateAvailableDialog", () => {
     hasAutoUpdaterMock.mockReturnValue(false);
     const { container } = render(<UpdateAvailableDialog />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("hides skip / later under force-update hard gate", () => {
+    useUpdatesStore.setState({ outdatedMinVersion: "0.6.5" });
+    render(<UpdateAvailableDialog />);
+    expect(screen.getByRole("button", { name: "立即更新" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "稍后提醒" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "跳过此版本" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
   });
 });

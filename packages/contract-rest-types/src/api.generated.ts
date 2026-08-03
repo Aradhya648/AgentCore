@@ -79,21 +79,24 @@ export interface paths {
         };
         /**
          * Updates Policy
-         * @description Desktop auto-update policy (前端技术与架构.md §7.6 / 部署与运维.md §7.6).
+         * @description Desktop auto-update policy (发布与门禁.md §7.6).
          *
          *     The desktop updater polls this before each check and pauses downloads when
          *     ``enabled`` is false — a kill switch for a bad release. ``min_desktop_version``
-         *     is a soft floor: the Electron shell shows a dismissible banner when the local
-         *     build is older (never forced quit). Empty ``DESKTOP_MIN_VERSION`` →
-         *     ``min_desktop_version: null`` (dev-friendly; no banner).
+         *     is the hard floor: clients force update when older, and the server rejects
+         *     ``X-Client-Platform=desktop`` business APIs below it with ``CLIENT_TOO_OLD``
+         *     (HTTP 426). Empty ``DESKTOP_MIN_VERSION`` → ``min_desktop_version: null``
+         *     (dev-friendly; no gate). This endpoint itself is exempt from the API gate so
+         *     outdated clients can still learn the floor.
          *
          *     Unauthenticated and dependency-free (like ``/version``) so the updater can
          *     reach it pre-login. The kill-switch client is **fail-open**: any error or
-         *     non-200 is treated as enabled. The outdated banner is also fail-open (no
-         *     banner on fetch failure).
+         *     non-200 is treated as enabled.
          *
          *     Staged rollout (stagingPercentage) and beta/stable channels ride on the
-         *     feature-flag system (部署与运维.md §7.9) and are not part of this payload yet.
+         *     feature-flag system (发布与门禁.md §7.9) and are not part of this payload yet.
+         *     Per-flag ``min_client_version`` (§7.9) remains a separate line from this
+         *     global desktop floor.
          */
         get: operations["updates_policy_updates_policy_get"];
         put?: never;
@@ -11002,14 +11005,14 @@ export interface components {
         };
         /**
          * UpdatesPolicyResponse
-         * @description Desktop update policy: kill switch + soft minimum client version.
+         * @description Desktop update policy: kill switch + hard minimum client version.
          */
         UpdatesPolicyResponse: {
             /** Enabled */
             enabled: boolean;
             /**
              * Min Desktop Version
-             * @description Semver floor for desktop; null when unset (no outdated banner).
+             * @description Semver hard floor for desktop; null when unset (no forced-update gate / no CLIENT_TOO_OLD API gate).
              */
             min_desktop_version?: string | null;
         };

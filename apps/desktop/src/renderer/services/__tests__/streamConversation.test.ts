@@ -81,6 +81,20 @@ describe("describeStreamError", () => {
     expect(describeStreamError(new StreamError("network"))).toContain("网络");
     expect(describeStreamError(new StreamError("auth"))).toBeNull();
   });
+
+  it("maps CLIENT_TOO_OLD / 426 to force-update product copy", () => {
+    expect(
+      describeStreamError(
+        new StreamError("http", 426, {
+          code: "CLIENT_TOO_OLD",
+          serverMessage: "upgrade required",
+        }),
+      ),
+    ).toBe("桌面端版本过旧，请更新后再试");
+    expect(describeStreamError(new StreamError("http", 426))).toBe(
+      "桌面端版本过旧，请更新后再试",
+    );
+  });
 });
 
 describe("isRetriableStreamError", () => {

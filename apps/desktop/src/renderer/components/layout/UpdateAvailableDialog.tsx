@@ -10,17 +10,23 @@ import {
 import { hasAutoUpdater } from "@/lib/capabilities";
 import { clientVersion } from "@/lib/clientBuildInfo";
 import { formatBytes, formatDownloadProgress } from "@/lib/format";
-import { UPDATE_NOTES_FALLBACK, useUpdatesStore } from "@/stores/updates";
+import {
+  UPDATE_NOTES_FALLBACK,
+  isForceUpdateActive,
+  useUpdatesStore,
+} from "@/stores/updates";
 import { Loader2 } from "lucide-react";
 
 /**
  * Consent-first update explanation dialog (发布与门禁.md §7.6).
  * Opens on `available` (subject to skip/snooze); shows download progress when
- * downloading; closable anytime — About page keeps mirroring status.
+ * downloading. Under the force-update hard gate: no Esc / overlay dismiss, no
+ * skip / snooze, no close affordances — only update / install / retry.
  */
 export function UpdateAvailableDialog() {
   const dialogOpen = useUpdatesStore((s) => s.dialogOpen);
   const status = useUpdatesStore((s) => s.status);
+  const outdatedMinVersion = useUpdatesStore((s) => s.outdatedMinVersion);
   const closeUpdateDialog = useUpdatesStore((s) => s.closeUpdateDialog);
   const download = useUpdatesStore((s) => s.download);
   const remindLater = useUpdatesStore((s) => s.remindLater);
@@ -28,6 +34,8 @@ export function UpdateAvailableDialog() {
   const install = useUpdatesStore((s) => s.install);
 
   if (!hasAutoUpdater()) return null;
+
+  const force = isForceUpdateActive({ outdatedMinVersion });
 
   const version =
     status.phase === "available" ||
@@ -66,15 +74,24 @@ export function UpdateAvailableDialog() {
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) closeUpdateDialog();
+        if (!next && !force) closeUpdateDialog();
       }}
     >
       {relevant ? (
         <DialogContent
           className="flex max-h-[min(80vh,32rem)] max-w-md flex-col gap-0 p-0"
-          showClose
+          showClose={!force}
+          onEscapeKeyDown={(e) => {
+            if (force) e.preventDefault();
+          }}
+          onPointerDownOutside={(e) => {
+            if (force) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            if (force) e.preventDefault();
+          }}
         >
-          <DialogHeader className="pr-10">
+          <DialogHeader className={force ? undefined : "pr-10"}>
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
 
@@ -103,8 +120,10 @@ export function UpdateAvailableDialog() {
                       transferred: status.transferred,
                       total: status.total,
                       bytesPerSecond: status.bytesPerSecond,
-                    })}{" "}
-                    — 可关闭本窗口，进度仍可在「设置 · 关于」查看。
+                    })}
+                    {force
+                      ? null
+                      : " — 可关闭本窗口，进度仍可在「设置 · 关于」查看。"}
                   </p>
                   <progress
                     className="h-2 w-full overflow-hidden rounded-full bg-muted [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
@@ -116,7 +135,9 @@ export function UpdateAvailableDialog() {
 
               {status.phase === "downloaded" ? (
                 <p className="text-sm text-muted-foreground">
-                  将在重启后安装。也可稍后在「设置 · 关于」安装。
+                  {force
+                    ? "将在重启后安装。"
+                    : "将在重启后安装。也可稍后在「设置 · 关于」安装。"}
                 </p>
               ) : null}
 
@@ -129,16 +150,24 @@ export function UpdateAvailableDialog() {
           <DialogFooter>
             {status.phase === "available" ? (
               <>
-                <Button variant="ghost" size="md" onClick={() => skipVersion()}>
-                  跳过此版本
-                </Button>
-                <Button
-                  variant="neutral"
-                  size="md"
-                  onClick={() => remindLater()}
-                >
-                  稍后提醒
-                </Button>
+                {force ? null : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      onClick={() => skipVersion()}
+                    >
+                      跳过此版本
+                    </Button>
+                    <Button
+                      variant="neutral"
+                      size="md"
+                      onClick={() => remindLater()}
+                    >
+                      稍后提醒
+                    </Button>
+                  </>
+                )}
                 <Button
                   variant="primary"
                   size="md"
@@ -150,13 +179,26 @@ export function UpdateAvailableDialog() {
             ) : null}
 
             {status.phase === "downloading" ? (
+              force ? null : (
+                <Button
+                  variant="neutral"
+                  size="md"
+                  icon={<Loader2 size={14} className="animate-spin" />}
+                  onClick={() => closeUpdateDialog()}
+                >
+                  后台下载
+                </Button>
+              )
+            ) : null}
+
+            {status.phase === "downloading" && force ? (
               <Button
                 variant="neutral"
                 size="md"
+                disabled
                 icon={<Loader2 size={14} className="animate-spin" />}
-                onClick={() => closeUpdateDialog()}
               >
-                后台下载
+                下载中…
               </Button>
             ) : null}
 
@@ -172,13 +214,15 @@ export function UpdateAvailableDialog() {
 
             {status.phase === "error" ? (
               <>
-                <Button
-                  variant="neutral"
-                  size="md"
-                  onClick={() => closeUpdateDialog()}
-                >
-                  关闭
-                </Button>
+                {force ? null : (
+                  <Button
+                    variant="neutral"
+                    size="md"
+                    onClick={() => closeUpdateDialog()}
+                  >
+                    关闭
+                  </Button>
+                )}
                 <Button
                   variant="primary"
                   size="md"
