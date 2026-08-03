@@ -32,7 +32,14 @@ import {
   Search,
   Users,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { useAdminListPage } from "@/hooks/useAdminListPage";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Navigate,
   useLocation,
@@ -118,7 +125,7 @@ export function ConversationsPage() {
       ? `?trace=${encodeURIComponent(opts.trace)}`
       : "";
     navigate(`/replay/${conversationId}${qs}`, {
-      state: { from: location.pathname },
+      state: { from: `${location.pathname}${location.search}` },
     });
   };
 
@@ -265,7 +272,7 @@ function ConversationsPanel({
 }) {
   const [rows, setRows] = useState<AdminConversationListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useAdminListPage();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [hasErrors, setHasErrors] = useState<"all" | "yes" | "no">("all");
@@ -277,18 +284,29 @@ function ConversationsPanel({
   const [order, setOrder] = useState<SortOrder>("desc");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const skipUserIdPageReset = useRef(true);
+  const skipQPageReset = useRef(true);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedQ(q);
-      setPage(1);
-    }, 300);
+    const t = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(t);
   }, [q]);
 
   useEffect(() => {
+    if (skipQPageReset.current) {
+      skipQPageReset.current = false;
+      return;
+    }
     setPage(1);
-  }, [userId]);
+  }, [debouncedQ, setPage]);
+
+  useEffect(() => {
+    if (skipUserIdPageReset.current) {
+      skipUserIdPageReset.current = false;
+      return;
+    }
+    setPage(1);
+  }, [userId, setPage]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -601,7 +619,7 @@ function TurnsPanel({
 }) {
   const [rows, setRows] = useState<AdminTurnListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useAdminListPage();
   const [status, setStatus] = useState<TurnStatus | "all">("all");
   const [delegatedOnly, setDelegatedOnly] = useState(false);
   const [includeDeleted, setIncludeDeleted] = useState(true);
@@ -609,10 +627,15 @@ function TurnsPanel({
   const [untilDate, setUntilDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const skipUserIdPageReset = useRef(true);
 
   useEffect(() => {
+    if (skipUserIdPageReset.current) {
+      skipUserIdPageReset.current = false;
+      return;
+    }
     setPage(1);
-  }, [userId]);
+  }, [userId, setPage]);
 
   const load = useCallback(async () => {
     setLoading(true);

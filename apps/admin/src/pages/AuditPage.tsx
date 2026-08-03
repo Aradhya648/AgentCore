@@ -8,10 +8,11 @@ import {
   listAuditLogs,
 } from "@/services/adminAudit";
 import { listUsers, type AdminUserListItem } from "@/services/adminUsers";
+import { useAdminListPage } from "@/hooks/useAdminListPage";
 import { errorMessage } from "@/services/api";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +37,9 @@ function fmtDetail(detail: AdminAuditLogLine["detail"]): string {
 }
 
 function AuditTarget({ row }: { row: AdminAuditLogLine }) {
+  const location = useLocation();
+  const from = `${location.pathname}${location.search}`;
+
   if (!row.target_id) {
     return <span className="text-muted-foreground">—</span>;
   }
@@ -46,6 +50,7 @@ function AuditTarget({ row }: { row: AdminAuditLogLine }) {
     return (
       <Link
         to={`/users/${row.target_id}`}
+        state={{ from }}
         className="font-mono text-xs text-primary underline-offset-2 hover:underline"
         title={row.target_id}
       >
@@ -58,6 +63,7 @@ function AuditTarget({ row }: { row: AdminAuditLogLine }) {
     return (
       <Link
         to={`/replay/${row.target_id}`}
+        state={{ from }}
         className="font-mono text-xs text-primary underline-offset-2 hover:underline"
         title={row.target_id}
       >
@@ -76,7 +82,7 @@ function AuditTarget({ row }: { row: AdminAuditLogLine }) {
 export function AuditPage() {
   const [rows, setRows] = useState<AdminAuditLogLine[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useAdminListPage();
   const [action, setAction] = useState("");
   const [actorId, setActorId] = useState("");
   const [operators, setOperators] = useState<AdminUserListItem[]>([]);
@@ -257,7 +263,7 @@ export function AuditPage() {
                 variant="outline"
                 size="sm"
                 disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
+                onClick={() => setPage(Math.max(1, page - 1))}
               >
                 <ChevronLeft size={14} />
               </Button>
@@ -268,7 +274,7 @@ export function AuditPage() {
                 variant="outline"
                 size="sm"
                 disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => setPage(page + 1)}
               >
                 <ChevronRight size={14} />
               </Button>

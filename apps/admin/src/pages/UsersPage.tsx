@@ -17,6 +17,7 @@ import {
   listUsers,
   updateUser,
 } from "@/services/adminUsers";
+import { useAdminListPage } from "@/hooks/useAdminListPage";
 import { useAuthStore } from "@/stores/auth";
 import {
   ArrowDown,
@@ -28,8 +29,8 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
@@ -82,10 +83,11 @@ function SortHeader({
 export function UsersPage() {
   const { userId: detailId } = useParams<{ userId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const selfId = useAuthStore((s) => s.user?.id);
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useAdminListPage();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   // "all" = dimension unpinned (no query param sent).
@@ -102,15 +104,21 @@ export function UsersPage() {
   const [editing, setEditing] = useState<AdminUser | null>(null);
   // The account the operator is about to 注销 (null = no dialog open).
   const [deleting, setDeleting] = useState<AdminUser | null>(null);
+  const skipQPageReset = useRef(true);
 
-  // Debounce the search box; a new query always restarts at page 1.
+  // Debounce the search box; a new query always restarts at page 1 (skip mount).
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedQ(q);
-      setPage(1);
-    }, 300);
+    const t = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(t);
   }, [q]);
+
+  useEffect(() => {
+    if (skipQPageReset.current) {
+      skipQPageReset.current = false;
+      return;
+    }
+    setPage(1);
+  }, [debouncedQ, setPage]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -198,8 +206,18 @@ export function UsersPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   if (detailId) {
-    return <UserDetail userId={detailId} onBack={() => navigate("/users")} />;
+    const from =
+      (location.state as { from?: string } | null)?.from ?? "/users";
+    return (
+      <UserDetail userId={detailId} onBack={() => navigate(from)} />
+    );
   }
+
+  const openUser = (id: string) => {
+    navigate(`/users/${id}`, {
+      state: { from: `${location.pathname}${location.search}` },
+    });
+  };
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-8">
@@ -331,7 +349,7 @@ export function UsersPage() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => navigate(`/users/${u.id}`)}
+                        onClick={() => openUser(u.id)}
                         title="查看用户详情"
                         className="rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
@@ -485,7 +503,7 @@ export function UsersPage() {
             variant="outline"
             size="sm"
             disabled={page <= 1 || loading}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => setPage(Math.max(1, page - 1))}
           >
             <ChevronLeft size={14} />
             上一页
@@ -494,7 +512,7 @@ export function UsersPage() {
             variant="outline"
             size="sm"
             disabled={page >= totalPages || loading}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
           >
             下一页
             <ChevronRight size={14} />
